@@ -1,0 +1,1 @@
+<?php echo '<header><h1>Salameh Tools</h1></header>'; ?>

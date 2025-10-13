@@ -1,0 +1,234 @@
+# Project brief
+
+## Goal
+
+Internal B2B platform to manage wholesale orders, warehouse prep, van stock, deliveries, invoicing, and collections. Fast back-office UX. Paperless where possible. Single login form. Redirect by role from credentials.
+
+## Actors and access
+
+* **Admin**: full control, user/price/catalog settings, overrides.
+* **Sales Rep**: create orders for assigned customers, manage van stock (`s_stock`), collect payments, track deliveries.
+* **Accounting**: issue invoices, post payments, manage receivables, reconcile partials.
+* **Customer**: browse catalog, place pre-orders, see statuses and invoices.
+
+RBAC decides menus and page access. Role is inferred from `users.role` after login. No role selector in UI.
+
+## Core workflows
+
+### 1) Authentication (single form, role-based redirect)
+
+* Form fields: `identifier` (email or phone), `password`, slider CAPTCHA.
+* Backend verifies `users.password_hash` and `is_active`.
+* On success, session `{id,name,role}` is stored and user is redirected automatically:
+
+  * `admin` → `/admin/dashboard`
+  * `sales_rep` → `/sales/dashboard`
+  * `accountant` → `/accounting/dashboard`
+  * `customer` → `/customer/catalog`
+* Customers can log in only if they have a `users` row with `role='customer'` (optionally linked to their `customers.id`).
+
+### 2) Catalog & pricing
+
+* Products with retail and wholesale pricing; per-item min qty and two discount tiers.
+* Filtering by category, code, name. CSV import for price updates.
+* Optional “new arrivals” tag drives notifications.
+
+### 3) Order lifecycle
+
+1. **Create**: Sales rep or customer places order → status `on_hold`.
+2. **Approval**: Rep or Admin approves → saleable check on stock; auto-reserve optional.
+3. **Warehouse prep**: Warehouse sees “preparing” list; prints pick list if needed.
+4. **Delivery**: Delivery slot selection; driver schedule view; QR on delivery slip.
+5. **Invoice**: On dispatch or delivery, system issues invoice, prints PDF, and notifies.
+6. **Payment**: Cash/QR/bank. If partial, remaining balance is held against the rep (salesperson A/R).
+7. **Close**: On full payment or admin override → invoice `paid`; order `delivered`.
+
+### 4) Van stock (per-rep warehouse)
+
+* `s_stock` reflects what is physically in the van.
+* **Only sales** reduce global warehouse (`products.quantity_on_hand`). Loads/returns/transfers change **s_stock only**.
+* Movements tracked in `s_stock_movements` with reasons: `load`, `sale`, `return`, `transfer_in`, `transfer_out`, `adjustment`.
+* Optional trigger: create `sale` movement automatically when `invoice_items` are inserted.
+
+### 5) Invoicing and collections
+
+* `invoices` + `invoice_items` mirror orders.
+* `payments` supports `cash`, `qr_cash`, `card`, `bank`, `other`.
+* **Salesperson A/R**: `salesperson_ar` holds the unpaid remainder per invoice for that rep, auto-recomputed on payments and invoice updates.
+* PDF invoice and delivery slip; QR encodes invoice/order token.
+
+### 6) Notifications
+
+* `notifications` table stores event payloads (JSON). UI polls; later can switch to websockets.
+* Events: order created/approved/packed/on-the-way, new catalog items, payment received.
+
+### 7) Showroom system integration (legacy Access)
+
+* Treat Access as **read-only**. Export to CSV/Excel and import into `staging_inventory_access`.
+* Reconciliation script updates `products.quantity_on_hand` from the latest snapshot. If showroom snapshot is “total including vans,” set `warehouse = total − sum(van)`.
+
+## Data model (key tables you already have)
+
+* `users(id, email, phone, name, role, password_hash, is_active, …)`
+* `customers(id, name, phone, assigned_sales_rep_id, …)`
+* `products(id, sku, item_name, prices, min qty, quantity_on_hand, …)`
+* `orders(id, order_number, customer_id, sales_rep_id, totals, …)`
+* `order_items(id, order_id, product_id, quantity, unit prices, …)`
+* `order_status_events(id, order_id, status, actor_user_id, …)`
+* `deliveries(id, order_id, driver_user_id, scheduled_at, status, …)`
+* `invoices(id, invoice_number, order_id, sales_rep_id, totals, status, …)`
+* `invoice_items(id, invoice_id, product_id, quantity, prices, …)`
+* `payments(id, invoice_id, method, amounts, received_by_user_id, …)`
+* `qr_tokens(id, code, order_id, invoice_id, expires_at, redeemed_at, …)`
+* `salesperson_ar(id, invoice_id, salesperson_id, amount_usd, amount_lbp, status, …)`
+* `s_stock(id, salesperson_id, product_id, qty_on_hand)`
+* `s_stock_movements(id, salesperson_id, product_id, delta_qty, reason, order_item_id, …)`
+* `exchange_rates`, `notifications`, `webhook_outbox`, `audit_logs`, `idempotency_keys`
+* View: `v_invoice_balances` for quick receivables.
+
+## Business rules
+
+### Stock rules
+
+* **load**: van +qty; products 0.
+* **sale**: van −qty; products −qty. Block negatives.
+* **return/transfer**: only vans change.
+* Optionally auto-insert `sale` movement when invoicing.
+
+### A/R rules
+
+* On invoice create/update, `salesperson_ar` mirrors invoice totals minus payments.
+* On payment insert, recompute AR row; mark `settled` when both currencies hit zero.
+* Accounting can write off (`written_off`) with audit entry.
+
+### Order status rules
+
+* Valid transitions: `on_hold → approved → preparing → ready → in_transit → delivered`.
+* `cancelled` or `returned` require note and permission.
+
+### QR rules
+
+* One token per order/invoice as needed; redeem on delivery or cash handover.
+* QR scan endpoint verifies session and marks delivery/payment event.
+
+## Application architecture (plain PHP)
+
+### Structure (as implemented)
+
+```
+/salameh-tools
+├─ config/        # app.php, db.php, rbac.php
+├─ uploads/
+├─ css/           # app.css + login CSS
+├─ js/            # app.js + public_login.js
+├─ includes/      # header.php, footer.php, auth.php, guard.php, db.php
+├─ qr/            # qrcode.php, storage/
+├─ pages/
+│  ├─ public/     # home.php, login.php  (single form, role-based redirect)
+│  ├─ admin/      # dashboard.php, users.php, settings.php
+│  ├─ accounting/ # dashboard.php, invoices.php, receivables.php
+│  ├─ sales/      # dashboard.php, create_order.php, van_stock.php, collections.php
+│  └─ customer/   # catalog.php, my_orders.php
+├─ index.php      # front controller + simple router
+├─ .htaccess
+└─ .env.example
+```
+
+### Routing
+
+* `.htaccess` rewrites to `index.php?path=…`.
+* `index.php` loads `pages/<area>/<page>.php`. Guards enforce auth + role.
+
+### Reusable includes
+
+* `includes/db.php` → PDO singleton.
+* `includes/auth.php` → session helpers.
+* `includes/guard.php` → `require_login()`, `require_role()`.
+* `includes/header.php` / `footer.php` wrap each page.
+
+### PDFs and QR
+
+* PDFs: generate in `/uploads/` using Dompdf/tcpdf or a lightweight HTML-to-PDF tool.
+* QR: `/qr/qrcode.php?t=<payload>`; later swap to `phpqrcode` to avoid external calls.
+
+## Pages and expected outputs
+
+### Public
+
+* **Home**: intro + redirect if logged.
+* **Login**: single form; slider CAPTCHA; on success redirect by role.
+
+### Admin
+
+* **Dashboard**: KPIs, stock alerts, latest orders.
+* **Users**: CRUD users, set roles, reset passwords.
+* **Settings**: exchange rate, invoice numbering, notification toggles.
+
+### Sales
+
+* **Dashboard**: today tasks, pending approvals, delivery schedule.
+* **Create Order**: pick customer, add items with tiered pricing, submit → `on_hold`.
+* **Van Stock**: view `s_stock`, post `load/return/transfer`.
+* **Collections**: list open invoices (via `v_invoice_balances`), record payment, show QR for cash confirmation.
+
+### Accounting
+
+* **Invoices**: list, generate, export PDF, mark paid/voided.
+* **Receivables**: per-rep AR, partials, write-offs, export CSV.
+
+### Customer
+
+* **Catalog**: browse, search, wholesale pricing based on assignment.
+* **My Orders**: statuses, ETAs, QR to confirm delivery.
+
+### System outputs
+
+* Invoice PDFs and delivery slips saved to `/uploads/`.
+* Real-time UI updates via polling; notifications table captures events.
+* CSV exports for products, invoices, receivables.
+* Audit trail in `audit_logs` for critical actions.
+
+## Security baseline
+
+* HTTPS in production; secure cookies.
+* CSRF token on all POST forms.
+* `password_hash()`/`password_verify()` only; no plaintext.
+* Rate-limit login by IP. Lockout or exponential backoff.
+* Escape all outputs (`htmlspecialchars`).
+* Validate file uploads. Restrict MIME and size.
+
+## Deployment and config
+
+* Apache + PHP 8.2+ + MariaDB 10.4+.
+* `.env` stores DB credentials and base URL; `config/*.php` reads env.
+* Cron jobs:
+
+  * Process `webhook_outbox` every minute.
+  * Nightly inventory sync from showroom CSV.
+  * Cleanup old QR tokens and notifications.
+
+## KPIs
+
+* Order lead time (create → delivered).
+* Pick/pack SLA.
+* DSO per salesperson (days sales outstanding).
+* Stockouts and van stock accuracy.
+* Payment collection rate and partials ratio.
+
+## Milestones (implementation plan)
+
+1. **MVP auth + dashboards**: login (single form), role redirect, empty dashboards.
+2. **Catalog + orders**: products list, create order, status events.
+3. **Warehouse + delivery**: preparing list, schedule, QR slips.
+4. **Invoicing + payments**: PDFs, AR logic, QR cash confirmation.
+5. **Van stock**: movements, validations, reporting.
+6. **Accounting views**: receivables, write-off, exports.
+7. **Showroom sync**: CSV import, reconciliation.
+8. **Hardening**: CSRF, rate limiting, audit views, backups.
+
+## Notes on your login form requirement
+
+* Keep **one** login endpoint (`/public/login`) with email/phone + password fields only.
+* Do **not** include a role selector. Role is **read** from `users.role` after credential verification.
+* Redirect mapping is fixed by role as defined above. Unauthorized path access returns 403 and links the user to the correct dashboard.
+

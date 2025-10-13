@@ -1,0 +1,21 @@
+# System & environment
+.env
+.env.example
+.htaccess
+
+# Vendor & dependencies
+/vendor/
+/node_modules/
+
+# Generated or temporary files
+/uploads/
+/qr/storage/
+/*.log
+*.tmp
+*.bak
+
+# IDE & system files
+/.vscode/
+/.idea/
+/.DS_Store
+Thumbs.db

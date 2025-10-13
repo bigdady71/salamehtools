@@ -1,0 +1,1 @@
+<?php echo '<footer>© '.date('Y').' Salameh Tools</footer>'; ?>
