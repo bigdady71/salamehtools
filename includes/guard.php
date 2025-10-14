@@ -1,3 +1,9 @@
 <?php
-require_once __DIR__.'auth.php';
-function require_login(){if(!auth_user()){header('Location:../pages/public/login.php');exit;}}
+require_once __DIR__ . '/auth.php';
+
+function require_login(): void {
+  if (!auth_user()) {
+    header('Location: ../login.php'); // from /pages/<area>/*
+    exit;
+  }
+}
