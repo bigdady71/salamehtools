@@ -1,13 +1,11 @@
+
 <?php
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
-
 $error = '';
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $id = trim($_POST['identifier'] ?? '');
   $pw = $_POST['password'] ?? '';
-
   if ($id !== '' && $pw !== '') {
     $pdo = db();
     $stmt = $pdo->prepare(
@@ -18,7 +16,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     );
     $stmt->execute([':id' => $id]);
     $u = $stmt->fetch(PDO::FETCH_ASSOC);
-
     // plain-text check (temporary, dev only)
     if ($u && (int)$u['is_active'] === 1 && $pw === $u['password_hash']) {
       $_SESSION['user'] = [
@@ -26,7 +23,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'name' => $u['name'],
         'role' => $u['role']
       ];
-
       // redirect by role
       switch ($u['role']) {
         case 'admin':
@@ -44,11 +40,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         default:
           $dest = 'customer/dashboard.php';
       }
-
       header('Location: ' . $dest);
       exit;
     }
-
     $error = 'Invalid credentials or inactive account.';
   } else {
     $error = 'Both fields are required.';
