@@ -276,206 +276,175 @@ try {
 
 $flashes = consume_flashes();
 
-?>
-<!doctype html>
+?><!doctype html>
 <html lang="en">
-
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?= htmlspecialchars($title) ?></title>
-    <link rel="stylesheet" href="../../css/app.css">
+    <title><?= htmlspecialchars($title ?? 'User Management') ?></title>
+
+    <!-- Optional: keep your external css if needed -->
+    <!-- <link rel="stylesheet" href="../../css/app.css"> -->
+
     <style>
+        :root {
+            --bg: #0c1022;
+            --bg-panel: #141834;
+            --bg-panel-alt: #1b2042;
+            --text: #f4f6ff;
+            --muted: #9aa3c7;
+            --accent: #00ff88;
+            --accent-2: #4a7dff;
+            --danger: #ff5c7a;
+            --warning: #ffd166;
+            --success: #6ee7b7;
+            --neutral: #3b3f5c;
+            --border: rgba(255,255,255,0.08);
+        }
+        * { box-sizing: border-box; }
         body {
-            background: #0c1022;
-            color: #eaeaea;
-            font-family: sans-serif;
             margin: 0;
-            padding: 0;
+            font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            min-height: 100vh;
+        }
+        a { color: inherit; text-decoration: none; }
+
+        /* LAYOUT + NAVBAR (from dashboard) */
+        .layout { display: flex; flex: 1; }
+        .sidebar {
+            width: 240px; background: #080a1a; padding: 24px 18px;
+            display: flex; flex-direction: column; gap: 24px;
+        }
+        .brand { font-size: 1.6rem; font-weight: 700; letter-spacing: .04em; }
+        .nav-links { display: flex; flex-direction: column; gap: 6px; }
+        .nav-links a {
+            padding: 10px 12px; border-radius: 8px; color: var(--muted);
+            font-size: 0.95rem; transition: background .2s, color .2s;
+        }
+        .nav-links a:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+        .nav-links a.active { background: var(--accent-2); color: #fff; font-weight: 600; }
+        .user-card {
+            margin-top: auto; padding: 12px; border-radius: 10px;
+            background: rgba(255,255,255,0.05); font-size: 0.9rem;
+        }
+        .user-card strong { display: block; font-size: 1rem; }
+
+        .main { flex: 1; padding: 32px; display: flex; flex-direction: column; gap: 24px; }
+        .page-header {
+            display: flex; justify-content: space-between; align-items: flex-start;
+            flex-wrap: wrap; gap: 16px;
+        }
+        .page-header h1 { margin: 0; font-size: 2rem; }
+        .page-header .sub { color: var(--muted); font-size: 0.95rem; }
+        .chip {
+            padding: 10px 14px; border-radius: 999px; background: rgba(255,255,255,0.06); font-size: 0.9rem;
         }
 
-        .admin-wrap {
-            max-width: 1100px;
-            margin: 40px auto;
-            padding: 24px;
-            background: #1c1f2b;
-            border-radius: 10px;
+        /* CONTENT PANEL WRAPPER FOR USERS PAGE */
+        .panel {
+            background: var(--bg-panel);
+            border-radius: 18px;
+            border: 1px solid var(--border);
+            padding: 20px;
         }
 
-        h1 {
-            margin-top: 0;
-            font-size: 26px;
-        }
+        /* Your original Users page styles, adapted to theme vars */
+        .admin-wrap { margin: 0; padding: 0; background: transparent; border-radius: 0; }
+        h2 { margin: 0 0 8px 0; font-size: 1.25rem; }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 16px;
-        }
+        .flash { padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
+        .flash-success { background: #0f2f24; color: #6cf3b6; }
+        .flash-error { background: #3a1212; color: #ff9c9c; }
+        .flash-info { background: #1e2e46; color: #9ec5ff; }
+        .flash-warning { background: #3a3112; color: #ffd27c; }
 
-        th,
-        td {
-            padding: 10px 12px;
-            text-align: left;
-        }
-
+        .table-scroll { overflow-x: auto; margin-top: 16px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { padding: 10px 12px; text-align: left; }
         th {
-            background: #262a3e;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 12px;
-            letter-spacing: .05em;
+            background: #262a3e; font-weight: 600; text-transform: uppercase;
+            font-size: 12px; letter-spacing: .05em;
         }
+        tr:nth-child(even) { background: #202538; }
+        tr:nth-child(odd)  { background: #1b1f30; }
 
-        tr:nth-child(even) {
-            background: #202538;
+        .status-badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; }
+        .status-active   { background: #00b37a; color: #00180f; }
+        .status-inactive { background: #ff4b4b1a; color: #ff8b8b; border: 1px solid #ff4b4b55; }
+
+        .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .btn { padding: 6px 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;
+               background: #2f3650; color: #eaeaea; transition: background .2s; }
+        .btn:hover { background: #3d4665; }
+        .btn-danger { background: #ff4b4b; color: #000; }
+        .btn-danger:hover { background: #ff6565; }
+        .btn-success { background: #00ff88; color: #001f0d; }
+
+        .form-card { margin-top: 24px; background: #181c2b; padding: 24px; border-radius: 12px; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+        label { display: block; font-size: 14px; margin-bottom: 6px; color: #9aa1c0; }
+        input[type="text"], input[type="email"], input[type="number"], input[type="password"], select {
+            width: 100%; padding: 10px; border-radius: 8px; border: 0; background: #262a3e; color: #fff;
         }
+        .form-actions { margin-top: 18px; display: flex; gap: 10px; align-items: center; }
+        .inline-form { display: inline; }
+        .error-list { margin: 0 0 16px 0; padding-left: 20px; color: #ff9c9c; }
+        .error-list li { margin-bottom: 4px; }
 
-        tr:nth-child(odd) {
-            background: #1b1f30;
+        @media (max-width: 1024px) {
+            .layout { flex-direction: column; }
+            .sidebar {
+                width: auto; flex-direction: row; align-items: center; justify-content: space-between; gap: 16px;
+            }
+            .nav-links { flex-direction: row; flex-wrap: wrap; gap: 10px; }
+            .user-card { margin-top: 0; }
         }
-
-        .status-badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 999px;
-            font-size: 12px;
-        }
-
-        .status-active {
-            background: #00b37a;
-            color: #00180f;
-        }
-
-        .status-inactive {
-            background: #ff4b4b1a;
-            color: #ff8b8b;
-            border: 1px solid #ff4b4b55;
-        }
-
-        .actions {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-        }
-
-        .btn {
-            padding: 6px 12px;
-            border: 0;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 600;
-            background: #2f3650;
-            color: #eaeaea;
-            transition: background .2s;
-        }
-
-        .btn:hover {
-            background: #3d4665;
-        }
-
-        .btn-danger {
-            background: #ff4b4b;
-            color: #000;
-        }
-
-        .btn-danger:hover {
-            background: #ff6565;
-        }
-
-        .btn-success {
-            background: #00ff88;
-            color: #001f0d;
-        }
-
-        .flash {
-            padding: 12px 16px;
-            border-radius: 6px;
-            margin-bottom: 12px;
-            font-size: 14px;
-        }
-
-        .flash-success {
-            background: #0f2f24;
-            color: #6cf3b6;
-        }
-
-        .flash-error {
-            background: #3a1212;
-            color: #ff9c9c;
-        }
-
-        .flash-info {
-            background: #1e2e46;
-            color: #9ec5ff;
-        }
-
-        .flash-warning {
-            background: #3a3112;
-            color: #ffd27c;
-        }
-
-        .form-card {
-            margin-top: 32px;
-            background: #181c2b;
-            padding: 24px;
-            border-radius: 8px;
-        }
-
-        .form-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-        }
-
-        label {
-            display: block;
-            font-size: 14px;
-            margin-bottom: 6px;
-            color: #9aa1c0;
-        }
-
-        input[type="text"],
-        input[type="email"],
-        input[type="number"],
-        input[type="password"],
-        select {
-            width: 100%;
-            padding: 10px;
-            border-radius: 6px;
-            border: 0;
-            background: #262a3e;
-            color: #fff;
-        }
-
-        .form-actions {
-            margin-top: 18px;
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-
-        .inline-form {
-            display: inline;
-        }
-
-        .error-list {
-            margin: 0 0 16px 0;
-            padding-left: 20px;
-            color: #ff9c9c;
-        }
-
-        .error-list li {
-            margin-bottom: 4px;
-        }
-
-        .table-scroll {
-            overflow-x: auto;
-            margin-top: 24px;
+        @media (max-width: 640px) {
+            .main { padding: 24px 18px 40px; }
         }
     </style>
 </head>
+<body>
+<div class="layout">
+    <!-- NAVBAR / SIDEBAR -->
+    <aside class="sidebar">
+        <div>
+            <div class="brand">Salameh Tools</div>
+            <div style="margin-top:6px;font-size:0.85rem;color:var(--muted)">Admin Control Center</div>
+        </div>
+        <nav class="nav-links">
+            <a href="dashboard.php">Dashboard</a>
+            <a href="users.php" class="active">Users</a>
+            <a href="products.php">Products</a>
+            <a href="orders.php">Orders</a>
+            <a href="invoices.php">Invoices</a>
+            <a href="receivables.php">Receivables</a>
+            <a href="warehouse_stock.php">Warehouse</a>
+            <a href="settings.php">Settings</a>
+        </nav>
+        <div class="user-card">
+            <span style="color:var(--muted);">Signed in as</span>
+            <strong><?= htmlspecialchars($user['name'] ?? 'Admin') ?></strong>
+            <span style="font-size:0.85rem;color:var(--muted);"><?= htmlspecialchars($user['role'] ?? '') ?></span>
+        </div>
+    </aside>
+
+    <!-- MAIN AREA -->
+    <div class="main">
+        <header class="page-header">
+            <div>
+                <h1>User Management</h1>
+                <div class="sub">
+                    <?= htmlspecialchars(($now ?? new DateTime())->format('M j, Y · H:i')) ?>
+                </div>
+            </div>
+            <div class="chip">
+                <?= htmlspecialchars((string)($openOrders ?? 0)) ?> orders in flight
+            </div>
+        </header>
 
 <body>
     <div class="admin-wrap">
