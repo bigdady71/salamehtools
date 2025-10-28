@@ -34,6 +34,8 @@ if ($category !== '') {
 
 if ($stockFilter === 'low') {
     $where[] = "p.quantity_on_hand <= GREATEST(p.min_quantity, 5)";
+} elseif ($stockFilter === 'gt1') {
+    $where[] = "p.quantity_on_hand > 1";
 } elseif ($stockFilter === 'out') {
     $where[] = "p.quantity_on_hand = 0";
 }
