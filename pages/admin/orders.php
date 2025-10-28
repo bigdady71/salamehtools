@@ -79,6 +79,183 @@ SQL;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
+    if ($action === 'create_order') {
+        $selectedCustomerId = (int)($_POST['customer_id'] ?? 0);
+        $customerUserId = (int)($_POST['customer_user_id'] ?? 0);
+        $customerNameInput = trim($_POST['customer_name'] ?? '');
+        $customerPhoneInput = trim($_POST['customer_phone'] ?? '');
+        $salesRepInput = $_POST['sales_rep_id'] ?? '';
+        $salesRepId = $salesRepInput !== '' ? (int)$salesRepInput : null;
+        $totalUsd = (float)($_POST['total_usd'] ?? 0);
+        $totalLbp = (float)($_POST['total_lbp'] ?? 0);
+        $notes = trim($_POST['notes'] ?? '');
+        $initialStatus = $_POST['initial_status'] ?? 'on_hold';
+        $statusNote = trim($_POST['status_note'] ?? '');
+
+        if (!isset($statusLabels[$initialStatus])) {
+            $initialStatus = 'on_hold';
+        }
+
+        if ($totalUsd < 0 || $totalLbp < 0) {
+            flash('error', 'Totals cannot be negative.');
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+        }
+
+        if ($salesRepId !== null) {
+            $repCheck = $pdo->prepare("SELECT COUNT(*) FROM users WHERE id = :id AND role = 'sales_rep'");
+            $repCheck->execute([':id' => $salesRepId]);
+            if ((int)$repCheck->fetchColumn() === 0) {
+                flash('error', 'Sales rep not found.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+        }
+
+        $resolveCustomer = static function (PDO $pdo, string $name, ?string $phone, ?int $userId = null): ?int {
+            if ($userId !== null) {
+                $byUser = $pdo->prepare("SELECT id FROM customers WHERE user_id = :user_id LIMIT 1");
+                $byUser->execute([':user_id' => $userId]);
+                $foundByUser = $byUser->fetchColumn();
+                if ($foundByUser !== false) {
+                    return (int)$foundByUser;
+                }
+            }
+
+            if ($phone !== null && $phone !== '') {
+                $byPhone = $pdo->prepare("SELECT id FROM customers WHERE phone = :phone LIMIT 1");
+                $byPhone->execute([':phone' => $phone]);
+                $found = $byPhone->fetchColumn();
+                if ($found !== false) {
+                    return (int)$found;
+                }
+            }
+
+            $byName = $pdo->prepare("SELECT id FROM customers WHERE name = :name LIMIT 1");
+            $byName->execute([':name' => $name]);
+            $foundByName = $byName->fetchColumn();
+            return $foundByName !== false ? (int)$foundByName : null;
+        };
+
+        try {
+            $pdo->beginTransaction();
+
+            $customerId = null;
+
+            if ($selectedCustomerId > 0) {
+                $customerCheck = $pdo->prepare("SELECT id FROM customers WHERE id = :id LIMIT 1");
+                $customerCheck->execute([':id' => $selectedCustomerId]);
+                $existingId = $customerCheck->fetchColumn();
+                if ($existingId === false) {
+                    throw new RuntimeException('Selected customer was not found. Please refresh and try again.');
+                }
+                $customerId = (int)$existingId;
+            } elseif ($customerUserId > 0) {
+                $userStmt = $pdo->prepare("
+                    SELECT id, name, phone
+                    FROM users
+                    WHERE id = :id AND role = 'customer' AND is_active = 1
+                ");
+                $userStmt->execute([':id' => $customerUserId]);
+                $customerUser = $userStmt->fetch(PDO::FETCH_ASSOC);
+                if (!$customerUser) {
+                    throw new RuntimeException('Customer user not found or inactive.');
+                }
+
+                $candidateName = trim((string)$customerUser['name']);
+                if ($candidateName === '') {
+                    $candidateName = 'Customer #' . (int)$customerUser['id'];
+                }
+                $candidatePhone = trim((string)($customerUser['phone'] ?? ''));
+                $candidatePhone = $candidatePhone !== '' ? $candidatePhone : null;
+
+                $customerId = $resolveCustomer($pdo, $candidateName, $candidatePhone, (int)$customerUser['id']);
+                if ($customerId === null) {
+                    $insertCustomer = $pdo->prepare("
+                        INSERT INTO customers (user_id, name, phone, assigned_sales_rep_id, location, shop_type, is_active, created_at, updated_at)
+                        VALUES (:user_id, :name, :phone, :rep_id, :location, :shop_type, 1, NOW(), NOW())
+                    ");
+                    $insertCustomer->execute([
+                        ':user_id' => (int)$customerUser['id'],
+                        ':name' => $candidateName,
+                        ':phone' => $candidatePhone,
+                        ':rep_id' => $salesRepId,
+                        ':location' => null,
+                        ':shop_type' => null,
+                    ]);
+                    $customerId = (int)$pdo->lastInsertId();
+                }
+            } elseif ($customerNameInput !== '') {
+                $candidateName = $customerNameInput;
+                $candidatePhone = $customerPhoneInput !== '' ? $customerPhoneInput : null;
+
+                $customerId = $resolveCustomer($pdo, $candidateName, $candidatePhone, null);
+                if ($customerId === null) {
+                    $insertCustomer = $pdo->prepare("
+                        INSERT INTO customers (user_id, name, phone, assigned_sales_rep_id, location, shop_type, is_active, created_at, updated_at)
+                        VALUES (:user_id, :name, :phone, :rep_id, :location, :shop_type, 1, NOW(), NOW())
+                    ");
+                    $insertCustomer->execute([
+                        ':user_id' => null,
+                        ':name' => $candidateName,
+                        ':phone' => $candidatePhone,
+                        ':rep_id' => $salesRepId,
+                        ':location' => null,
+                        ':shop_type' => null,
+                    ]);
+                    $customerId = (int)$pdo->lastInsertId();
+                }
+            } else {
+                throw new RuntimeException('Select an existing customer or provide details for a new customer.');
+            }
+
+            $insertOrder = $pdo->prepare("
+                INSERT INTO orders (order_number, customer_id, sales_rep_id, total_usd, total_lbp, notes, created_at, updated_at)
+                VALUES (NULL, :customer_id, :sales_rep_id, :total_usd, :total_lbp, :notes, NOW(), NOW())
+            ");
+            $insertOrder->execute([
+                ':customer_id' => $customerId,
+                ':sales_rep_id' => $salesRepId,
+                ':total_usd' => $totalUsd,
+                ':total_lbp' => $totalLbp,
+                ':notes' => $notes !== '' ? $notes : null,
+            ]);
+
+            $orderId = (int)$pdo->lastInsertId();
+            $orderNumber = sprintf('ORD-%06d', $orderId);
+
+            $pdo->prepare("UPDATE orders SET order_number = :order_number WHERE id = :id")
+                ->execute([':order_number' => $orderNumber, ':id' => $orderId]);
+
+            $statusStmt = $pdo->prepare("
+                INSERT INTO order_status_events (order_id, status, actor_user_id, note)
+                VALUES (:order_id, :status, :actor_user_id, :note)
+            ");
+            $statusStmt->execute([
+                ':order_id' => $orderId,
+                ':status' => $initialStatus,
+                ':actor_user_id' => (int)$user['id'],
+                ':note' => $statusNote !== '' ? $statusNote : null,
+            ]);
+
+            $pdo->commit();
+            flash('success', 'Order created successfully.');
+        } catch (RuntimeException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            flash('error', $e->getMessage());
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            flash('error', 'Failed to create order.');
+        }
+
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+
     if ($action === 'set_status') {
         $orderId = (int)($_POST['order_id'] ?? 0);
         $newStatus = $_POST['new_status'] ?? '';
@@ -310,6 +487,18 @@ $orders = $ordersStmt->fetchAll(PDO::FETCH_ASSOC);
 $salesRepsStmt = $pdo->query("SELECT id, name FROM users WHERE role = 'sales_rep' AND is_active = 1 ORDER BY name");
 $salesReps = $salesRepsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$customersStmt = $pdo->query("SELECT id, name, phone, is_active FROM customers ORDER BY name LIMIT 250");
+$customers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$customerUsersStmt = $pdo->query("
+    SELECT id, name, email, phone
+    FROM users
+    WHERE role = 'customer' AND is_active = 1
+    ORDER BY name
+    LIMIT 250
+");
+$customerUsers = $customerUsersStmt->fetchAll(PDO::FETCH_ASSOC);
+
 $totalOrders = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
 
 $statusTotals = [];
@@ -536,6 +725,94 @@ admin_render_layout_start([
     .pagination span.active {
         background: var(--accent);
     }
+    select.filter-input,
+    select.tiny-select {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        padding-right: 34px;
+        background-color: var(--bg-panel-alt);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23aab6ee' d='M6 8 0 0h12z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+    }
+    select.filter-input:focus,
+    select.tiny-select:focus {
+        outline: none;
+        border-color: rgba(74, 125, 255, 0.6);
+        box-shadow: 0 0 0 2px rgba(74, 125, 255, 0.15);
+    }
+    select.filter-input option,
+    select.tiny-select option {
+        background-color: #1b2042;
+        color: #f4f6ff;
+    }
+    .quick-create-card {
+        margin-bottom: 24px;
+        background: var(--bg-panel-alt);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+    .quick-create-card h3 {
+        margin: 0;
+        font-size: 1.1rem;
+    }
+    .quick-create-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+    }
+    .quick-create-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 14px;
+    }
+    .quick-create-card label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 0.8rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .quick-create-card input,
+    .quick-create-card select,
+    .quick-create-card textarea {
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+        font-size: 0.95rem;
+        resize: vertical;
+        min-height: 44px;
+    }
+    .quick-create-card textarea {
+        min-height: 80px;
+    }
+    .quick-create-card input:focus,
+    .quick-create-card select:focus,
+    .quick-create-card textarea:focus {
+        outline: none;
+        border-color: rgba(74, 125, 255, 0.6);
+        box-shadow: 0 0 0 2px rgba(74, 125, 255, 0.15);
+    }
+    .quick-create-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    .quick-create-card .helper {
+        font-size: 0.75rem;
+        color: var(--muted);
+    }
 </style>
 
 <?php foreach ($flashes as $flash): ?>
@@ -566,6 +843,104 @@ admin_render_layout_start([
             <span class="metric-label">Delivered (7 days)</span>
             <span class="metric-value"><?= number_format($deliveredThisWeek) ?></span>
         </div>
+    </div>
+
+    <div class="quick-create-card">
+        <div>
+            <h3>Quick create order</h3>
+            <p>Capture incoming requests without leaving the command center. Detailed line items and adjustments can follow later.</p>
+        </div>
+        <?php if (!$customers && !$customerUsers): ?>
+            <p class="helper">No saved customers yet. Use the fields below to create one while logging the order.</p>
+        <?php endif; ?>
+        <form method="post">
+            <input type="hidden" name="action" value="create_order">
+            <div class="quick-create-grid">
+                <label>
+                    Existing customer
+                    <select name="customer_id">
+                        <option value="">Select customer…</option>
+                        <?php foreach ($customers as $customer): ?>
+                            <option value="<?= (int)$customer['id'] ?>">
+                                <?= htmlspecialchars($customer['name'], ENT_QUOTES, 'UTF-8') ?>
+                                <?php if (!empty($customer['phone'])): ?>
+                                    (<?= htmlspecialchars($customer['phone'], ENT_QUOTES, 'UTF-8') ?>)
+                                <?php endif; ?>
+                                <?php if (isset($customer['is_active']) && (int)$customer['is_active'] === 0): ?>
+                                    (inactive)
+                                <?php endif; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <span class="helper">Choose an existing customer record if one already exists.</span>
+                </label>
+                <label>
+                    Customer user (auto-create)
+                    <select name="customer_user_id">
+                        <option value="">Select customer user…</option>
+                        <?php foreach ($customerUsers as $customerUser): ?>
+                            <option value="<?= (int)$customerUser['id'] ?>">
+                                <?= htmlspecialchars($customerUser['name'] ?: $customerUser['email'], ENT_QUOTES, 'UTF-8') ?>
+                                <?php if (!empty($customerUser['phone'])): ?>
+                                    (<?= htmlspecialchars($customerUser['phone'], ENT_QUOTES, 'UTF-8') ?>)
+                                <?php endif; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <span class="helper">Select to auto-create/link a customer if the table does not have this contact.</span>
+                </label>
+                <label>
+                    New customer name
+                    <input type="text" name="customer_name" placeholder="e.g. Market ABC">
+                    <span class="helper">Provide a name to create a customer on the fly when no record exists.</span>
+                </label>
+                <label>
+                    New customer phone
+                    <input type="text" name="customer_phone" placeholder="+961...">
+                </label>
+                <label>
+                    Sales rep
+                    <select name="sales_rep_id">
+                        <option value="">Unassigned</option>
+                        <?php foreach ($salesReps as $rep): ?>
+                            <option value="<?= (int)$rep['id'] ?>">
+                                <?= htmlspecialchars($rep['name'], ENT_QUOTES, 'UTF-8') ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>
+                    Total USD
+                    <input type="number" name="total_usd" step="0.01" min="0" value="0.00">
+                </label>
+                <label>
+                    Total LBP
+                    <input type="number" name="total_lbp" step="1" min="0" value="0">
+                </label>
+                <label>
+                    Initial status
+                    <select name="initial_status">
+                        <?php foreach ($statusLabels as $value => $label): ?>
+                            <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>" <?= $value === 'on_hold' ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>
+                    Status note (optional)
+                    <input type="text" name="status_note" placeholder="Short handover note">
+                </label>
+            </div>
+            <label>
+                Order notes
+                <textarea name="notes" placeholder="Special instructions or pricing agreements"></textarea>
+            </label>
+            <div class="quick-create-actions">
+                <button type="submit" class="btn btn-primary">Create order</button>
+                <span class="helper">Order number is assigned automatically.</span>
+            </div>
+        </form>
     </div>
 
     <form method="get" class="filters">

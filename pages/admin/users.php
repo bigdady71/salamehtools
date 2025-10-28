@@ -28,9 +28,15 @@ $roles = [
 ];
 
 $pathSegment = $_GET['path'] ?? 'admin/users';
-$redirect = static function (array $params = []) use ($pathSegment): void {
+$scriptPath = $_SERVER['PHP_SELF'] ?? '/index.php';
+$baseUrl = strtok($scriptPath, '?') ?: '/index.php';
+$redirect = static function (array $params = []) use ($pathSegment, $baseUrl): void {
     $query = array_merge(['path' => $pathSegment], $params);
-    header('Location: /index.php?' . http_build_query($query));
+    $location = $baseUrl;
+    if ($query) {
+        $location .= '?' . http_build_query($query);
+    }
+    header('Location: ' . $location);
     exit;
 };
 
@@ -43,6 +49,9 @@ $formData = [
     'role' => 'sales_rep',
     'permission_level' => 0,
     'is_active' => 1,
+    'customer_assigned_sales_rep_id' => '',
+    'customer_location' => '',
+    'customer_shop_type' => '',
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -62,6 +71,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ['options' => ['default' => 0, 'min_range' => 0]]
             ),
             'is_active' => (int)($_POST['is_active'] ?? 0),
+            'customer_assigned_sales_rep_id' => trim((string)($_POST['assigned_sales_rep_id'] ?? '')),
+            'customer_location' => trim($_POST['customer_location'] ?? ''),
+            'customer_shop_type' => trim($_POST['customer_shop_type'] ?? ''),
         ];
 
         $password = $_POST['password'] ?? '';
@@ -83,6 +95,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($formData['is_active'] !== 0 && $formData['is_active'] !== 1) {
             $formData['is_active'] = 1;
+        }
+
+        $assignedSalesRepId = null;
+        if ($formData['role'] === 'customer') {
+            if ($formData['customer_assigned_sales_rep_id'] === '') {
+                $errors[] = 'Assign a sales representative for customer accounts.';
+            } else {
+                $assignedSalesRepId = (int)$formData['customer_assigned_sales_rep_id'];
+                if ($assignedSalesRepId <= 0) {
+                    $errors[] = 'Selected sales representative is invalid.';
+                } else {
+                    $repCheck = $pdo->prepare("SELECT id FROM users WHERE id = :id AND role = 'sales_rep' LIMIT 1");
+                    $repCheck->execute([':id' => $assignedSalesRepId]);
+                    if ($repCheck->fetchColumn() === false) {
+                        $errors[] = 'Chosen sales representative does not exist.';
+                    }
+                }
+            }
+
+            if ($formData['customer_location'] === '') {
+                $errors[] = 'Customer location is required.';
+            }
+
+            if ($formData['customer_shop_type'] === '') {
+                $errors[] = 'Customer shop type is required.';
+            }
         }
 
         if ($password !== '' || !$userId) {
@@ -111,6 +149,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $phone = $formData['phone'] !== '' ? $formData['phone'] : null;
 
             try {
+                $pdo->beginTransaction();
+
                 if ($userId) {
                     $setParts = [
                         'name = :name',
@@ -141,7 +181,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     );
                     $stmt->execute($params);
 
+                    if ($formData['role'] === 'customer') {
+                        $customerStmt = $pdo->prepare("SELECT id FROM customers WHERE user_id = :user_id LIMIT 1");
+                        $customerStmt->execute([':user_id' => $userId]);
+                        $existingCustomer = $customerStmt->fetch(PDO::FETCH_ASSOC);
+
+                        if ($existingCustomer) {
+                            $updateCustomer = $pdo->prepare("
+                                UPDATE customers
+                                SET name = :name,
+                                    phone = :phone,
+                                    assigned_sales_rep_id = :assigned_sales_rep_id,
+                                    location = :location,
+                                    shop_type = :shop_type,
+                                    is_active = :is_active,
+                                    updated_at = NOW()
+                                WHERE id = :id
+                            ");
+                            $updateCustomer->execute([
+                                ':name' => $formData['name'],
+                                ':phone' => $phone,
+                                ':assigned_sales_rep_id' => $assignedSalesRepId,
+                                ':location' => $formData['customer_location'],
+                                ':shop_type' => $formData['customer_shop_type'],
+                                ':is_active' => $formData['is_active'],
+                                ':id' => (int)$existingCustomer['id'],
+                            ]);
+                        } else {
+                            $insertCustomer = $pdo->prepare("
+                                INSERT INTO customers (user_id, name, phone, assigned_sales_rep_id, location, shop_type, is_active, created_at, updated_at)
+                                VALUES (:user_id, :name, :phone, :rep_id, :location, :shop_type, :is_active, NOW(), NOW())
+                            ");
+                            $insertCustomer->execute([
+                                ':user_id' => $userId,
+                                ':name' => $formData['name'],
+                                ':phone' => $phone,
+                                ':rep_id' => $assignedSalesRepId,
+                                ':location' => $formData['customer_location'],
+                                ':shop_type' => $formData['customer_shop_type'],
+                                ':is_active' => $formData['is_active'],
+                            ]);
+                        }
+                    }
+
                     flash('success', 'User details updated successfully.');
+                    $pdo->commit();
                     $redirect(['id' => $userId]);
                 } else {
                     $stmt = $pdo->prepare(
@@ -158,12 +242,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ':password_hash' => $password,
                     ]);
 
+                    $newUserId = (int)$pdo->lastInsertId();
+
+                    if ($formData['role'] === 'customer') {
+                        $insertCustomer = $pdo->prepare("
+                            INSERT INTO customers (user_id, name, phone, assigned_sales_rep_id, location, shop_type, is_active, created_at, updated_at)
+                            VALUES (:user_id, :name, :phone, :rep_id, :location, :shop_type, :is_active, NOW(), NOW())
+                        ");
+                        $insertCustomer->execute([
+                            ':user_id' => $newUserId,
+                            ':name' => $formData['name'],
+                            ':phone' => $phone,
+                            ':rep_id' => $assignedSalesRepId,
+                            ':location' => $formData['customer_location'],
+                            ':shop_type' => $formData['customer_shop_type'],
+                            ':is_active' => $formData['is_active'],
+                        ]);
+                    }
+
                     flash('success', 'New user created successfully.');
+                    $pdo->commit();
                     $redirect();
                 }
             } catch (PDOException $e) {
-                $formErrors[] = 'Database error: ' . $e->getMessage();
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                error_log('User save failed: ' . $e->getMessage());
+                $formErrors[] = 'A database error occurred while saving the user.';
                 flash('error', 'Unable to save the user. Please review the details and try again.');
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                error_log('Unexpected error while saving user: ' . $e->getMessage());
+                $formErrors[] = 'An unexpected error occurred while saving the user.';
+                flash('error', 'Something went wrong while saving the user.');
             }
         }
     } elseif ($action === 'toggle_status') {
@@ -182,8 +296,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
 
                 if ($stmt->rowCount() > 0) {
+                    $syncFailed = false;
+                    try {
+                        $customerToggle = $pdo->prepare("
+                            UPDATE customers
+                            SET is_active = :status, updated_at = NOW()
+                            WHERE user_id = :user_id
+                        ");
+                        $customerToggle->execute([
+                            ':status' => $target,
+                            ':user_id' => $userId,
+                        ]);
+                    } catch (PDOException $customerException) {
+                        $syncFailed = true;
+                    }
+
                     $message = $target === 1 ? 'User activated.' : 'User deactivated.';
                     flash('success', $message);
+                    if ($syncFailed) {
+                        flash('warning', 'Linked customer profile could not be updated.');
+                    }
                 } else {
                     flash('error', 'User not found or no changes applied.');
                 }
@@ -205,6 +337,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($userId === $actor['id'] && $newRole !== 'admin') {
             flash('error', 'You cannot remove your own admin privileges.');
             $redirect();
+        }
+
+        if ($newRole === 'customer') {
+            flash('warning', 'Use the edit form to convert this account into a customer so we can capture required details.');
+            $redirect(['id' => $userId]);
         }
 
         try {
@@ -250,7 +387,30 @@ if (!$formErrors) {
                     'role' => $row['role'] ?? 'sales_rep',
                     'permission_level' => (int)($row['permission_level'] ?? 0),
                     'is_active' => (int)($row['is_active'] ?? 0),
+                    'customer_assigned_sales_rep_id' => $formData['customer_assigned_sales_rep_id'] ?? '',
+                    'customer_location' => $formData['customer_location'] ?? '',
+                    'customer_shop_type' => $formData['customer_shop_type'] ?? '',
                 ];
+
+                if ($formData['role'] === 'customer') {
+                    try {
+                        $customerMetaStmt = $pdo->prepare("
+                            SELECT assigned_sales_rep_id, location, shop_type
+                            FROM customers
+                            WHERE user_id = :user_id
+                            LIMIT 1
+                        ");
+                        $customerMetaStmt->execute([':user_id' => $formData['id']]);
+                        $customerMeta = $customerMetaStmt->fetch(PDO::FETCH_ASSOC);
+                        if ($customerMeta) {
+                            $formData['customer_assigned_sales_rep_id'] = (string)($customerMeta['assigned_sales_rep_id'] ?? '');
+                            $formData['customer_location'] = $customerMeta['location'] ?? '';
+                            $formData['customer_shop_type'] = $customerMeta['shop_type'] ?? '';
+                        }
+                    } catch (PDOException $e) {
+                        flash('error', 'Unable to load customer details for this user.');
+                    }
+                }
             } else {
                 flash('error', 'The requested user could not be found.');
                 $redirect();
@@ -272,6 +432,44 @@ try {
     $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     flash('error', 'Unable to load users: ' . $e->getMessage());
+}
+
+$salesReps = [];
+try {
+    $salesRepStmt = $pdo->query("
+        SELECT id, name, is_active
+        FROM users
+        WHERE role = 'sales_rep'
+        ORDER BY name
+    ");
+    $salesReps = $salesRepStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    flash('error', 'Unable to load sales representatives: ' . $e->getMessage());
+}
+
+$selectedRepId = $formData['customer_assigned_sales_rep_id'] ?? '';
+if ($selectedRepId !== '' && $salesReps) {
+    $hasSelected = false;
+    foreach ($salesReps as $rep) {
+        if ((string)$rep['id'] === (string)$selectedRepId) {
+            $hasSelected = true;
+            break;
+        }
+    }
+    if (!$hasSelected) {
+        $repLookup = $pdo->prepare("
+            SELECT id, name, is_active
+            FROM users
+            WHERE id = :id AND role = 'sales_rep'
+            LIMIT 1
+        ");
+        if ($repLookup->execute([':id' => $selectedRepId])) {
+            $repRow = $repLookup->fetch(PDO::FETCH_ASSOC);
+            if ($repRow) {
+                $salesReps[] = $repRow;
+            }
+        }
+    }
 }
 
 $flashes = consume_flashes();
@@ -393,6 +591,9 @@ $flashes = consume_flashes();
         .inline-form { display: inline; }
         .error-list { margin: 0 0 16px 0; padding-left: 20px; color: #ff9c9c; }
         .error-list li { margin-bottom: 4px; }
+        .customer-fields { display: contents; }
+        .customer-fields.hidden { display: none; }
+        .customer-helper { display: block; margin-top: 4px; font-size: 0.8rem; color: var(--muted); }
 
         @media (max-width: 1024px) {
             .layout { flex-direction: column; }
@@ -584,6 +785,31 @@ $flashes = consume_flashes();
                         <label for="password_confirm">Confirm Password</label>
                         <input type="password" id="password_confirm" name="password_confirm" <?= $formData['id'] ? '' : 'required' ?> autocomplete="new-password">
                     </div>
+                    <div id="customer-extra-fields" class="customer-fields">
+                        <div>
+                            <label for="assigned_sales_rep_id">Assigned Sales Rep</label>
+                            <select id="assigned_sales_rep_id" name="assigned_sales_rep_id" data-customer-required="1">
+                                <option value="">Select sales rep…</option>
+                                <?php foreach ($salesReps as $rep): ?>
+                                    <option value="<?= (int)$rep['id'] ?>" <?= (string)$rep['id'] === (string)$formData['customer_assigned_sales_rep_id'] ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($rep['name'] ?? '—') ?>
+                                        <?php if (isset($rep['is_active']) && !(int)$rep['is_active']): ?>
+                                            (inactive)
+                                        <?php endif; ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <span class="customer-helper">Required for customer accounts.</span>
+                        </div>
+                        <div>
+                            <label for="customer_location">Customer Location</label>
+                            <input type="text" id="customer_location" name="customer_location" value="<?= htmlspecialchars($formData['customer_location']) ?>" data-customer-required="1" placeholder="City, area…">
+                        </div>
+                        <div>
+                            <label for="customer_shop_type">Shop Type</label>
+                            <input type="text" id="customer_shop_type" name="customer_shop_type" value="<?= htmlspecialchars($formData['customer_shop_type']) ?>" data-customer-required="1" placeholder="e.g. Hardware, Lighting">
+                        </div>
+                    </div>
                 </div>
                 <div class="form-actions">
                     <button class="btn btn-success" type="submit"><?= $formData['id'] ? 'Save Changes' : 'Create User' ?></button>
@@ -594,6 +820,31 @@ $flashes = consume_flashes();
             </form>
         </div>
     </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const roleSelect = document.getElementById('role');
+            const customerFields = document.getElementById('customer-extra-fields');
+            if (!roleSelect || !customerFields) {
+                return;
+            }
+            const dependentInputs = customerFields.querySelectorAll('[data-customer-required]');
+
+            function toggleCustomerFields() {
+                const isCustomer = roleSelect.value === 'customer';
+                customerFields.classList.toggle('hidden', !isCustomer);
+                dependentInputs.forEach(function (input) {
+                    if (isCustomer) {
+                        input.setAttribute('required', 'required');
+                    } else {
+                        input.removeAttribute('required');
+                    }
+                });
+            }
+
+            roleSelect.addEventListener('change', toggleCustomerFields);
+            toggleCustomerFields();
+        });
+    </script>
 </body>
 
 </html>
