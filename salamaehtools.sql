@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Oct 13, 2025 at 11:12 AM
+-- Generation Time: Oct 27, 2025 at 01:24 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -492,6 +492,18 @@ CREATE TABLE `users` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `users`
+--
+
+INSERT INTO `users` (`id`, `email`, `phone`, `name`, `role`, `permission_level`, `is_active`, `password_hash`, `created_at`, `updated_at`) VALUES
+(1, 'hsyn_admin@local', NULL, 'Hsyn_admin', 'admin', 1, 1, '1234', '2025-10-14 07:19:37', '2025-10-14 07:19:37'),
+(2, 'acct_ali@local', NULL, 'Hsyn_accountant', 'accountant', 2, 1, '1234', '2025-10-14 07:19:37', '2025-10-14 07:19:37'),
+(3, 'sale_john@local', NULL, 'Hsyn_sales_rep', 'sales_rep', 3, 1, '1234', '2025-10-14 07:19:37', '2025-10-14 07:19:37'),
+(4, 'sale_maria@local', NULL, 'Hsyn_sales_rep2', 'sales_rep', 3, 1, '1234', '2025-10-14 07:19:37', '2025-10-14 07:19:37'),
+(5, 'wh_omar@local', NULL, 'Hsyn_warehouse', 'warehouse', 2, 1, '1234', '2025-10-14 07:19:37', '2025-10-14 07:19:37'),
+(6, 'viewer_test@local', NULL, 'Hsyn_viewer', 'viewer', 4, 1, '1234', '2025-10-14 07:19:37', '2025-10-14 07:19:37');
+
 -- --------------------------------------------------------
 
 --
@@ -649,7 +661,8 @@ ALTER TABLE `payments`
 --
 ALTER TABLE `products`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `sku` (`sku`);
+  ADD UNIQUE KEY `sku` (`sku`),
+  ADD UNIQUE KEY `uk_products_sku` (`sku`);
 
 --
 -- Indexes for table `qr_tokens`
@@ -805,7 +818,7 @@ ALTER TABLE `s_stock_movements`
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT for table `webhook_outbox`
