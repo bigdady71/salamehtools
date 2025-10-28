@@ -76,10 +76,51 @@ $latestStatusSql = <<<SQL
     ) latest ON latest.order_id = ose.order_id AND latest.max_id = ose.id
 SQL;
 
+if (($_GET['ajax'] ?? '') === 'customer_search') {
+    $term = trim((string)($_GET['term'] ?? ''));
+    header('Content-Type: application/json');
+
+    if ($term === '') {
+        echo json_encode(['results' => []]);
+        exit;
+    }
+
+    $likeTerm = '%' . $term . '%';
+    $searchStmt = $pdo->prepare("
+        SELECT 
+            c.id,
+            c.name,
+            c.phone,
+            c.user_id,
+            COALESCE(u.name, u.email) AS user_name
+        FROM customers c
+        LEFT JOIN users u ON u.id = c.user_id
+        WHERE c.name LIKE :term OR (c.phone IS NOT NULL AND c.phone LIKE :term)
+        ORDER BY c.name ASC
+        LIMIT 12
+    ");
+    $searchStmt->execute([':term' => $likeTerm]);
+    $results = [];
+    foreach ($searchStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $results[] = [
+            'id' => (int)$row['id'],
+            'name' => $row['name'],
+            'phone' => $row['phone'],
+            'user_id' => isset($row['user_id']) ? (int)$row['user_id'] : null,
+            'user_name' => $row['user_name'] ?? null,
+        ];
+    }
+
+    echo json_encode(['results' => $results]);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'create_order') {
+        $customerMode = $_POST['customer_mode'] ?? 'existing';
+        $customerMode = $customerMode === 'new' ? 'new' : 'existing';
         $selectedCustomerId = (int)($_POST['customer_id'] ?? 0);
         $customerUserId = (int)($_POST['customer_user_id'] ?? 0);
         $customerNameInput = trim($_POST['customer_name'] ?? '');
@@ -94,6 +135,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!isset($statusLabels[$initialStatus])) {
             $initialStatus = 'on_hold';
+        }
+
+        if ($customerMode === 'new') {
+            $selectedCustomerId = 0;
+            if ($customerNameInput === '') {
+                flash('error', 'Provide a name for the new customer.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+        } else {
+            // Ignore accidental population of new customer fields when using an existing customer.
+            $customerNameInput = '';
+            $customerPhoneInput = '';
         }
 
         if ($totalUsd < 0 || $totalLbp < 0) {
@@ -772,7 +826,10 @@ admin_render_layout_start([
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         gap: 14px;
     }
-    .quick-create-card label {
+    .quick-create-grid--balanced {
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+    .quick-create-field {
         display: flex;
         flex-direction: column;
         gap: 6px;
@@ -780,6 +837,7 @@ admin_render_layout_start([
         color: var(--muted);
         text-transform: uppercase;
         letter-spacing: 0.04em;
+        position: relative;
     }
     .quick-create-card input,
     .quick-create-card select,
@@ -812,6 +870,75 @@ admin_render_layout_start([
     .quick-create-card .helper {
         font-size: 0.75rem;
         color: var(--muted);
+    }
+    .span-2 {
+        grid-column: span 2;
+    }
+    @media (max-width: 640px) {
+        .span-2 {
+            grid-column: span 1;
+        }
+    }
+    .customer-selector {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .btn-tonal {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: var(--text);
+        border-radius: 8px;
+    }
+    .btn-tonal:hover {
+        background: rgba(255, 255, 255, 0.16);
+    }
+    .btn-small {
+        padding: 6px 12px;
+        font-size: 0.75rem;
+        line-height: 1;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .suggestions {
+        position: absolute;
+        top: calc(100% - 4px);
+        left: 0;
+        right: 0;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        margin-top: 6px;
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+        max-height: 220px;
+        overflow-y: auto;
+        z-index: 20;
+    }
+    .suggestion-item {
+        padding: 10px 14px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .suggestion-item strong {
+        font-size: 0.9rem;
+        color: var(--text);
+    }
+    .suggestion-item span {
+        font-size: 0.74rem;
+        color: var(--muted);
+    }
+    .suggestion-item:hover,
+    .suggestion-item.active {
+        background: rgba(74, 125, 255, 0.18);
+    }
+    .hidden {
+        display: none !important;
+    }
+    .new-customer-field input {
+        background: rgba(0, 255, 136, 0.05);
+        border-color: rgba(0, 255, 136, 0.2);
     }
 </style>
 
@@ -851,33 +978,32 @@ admin_render_layout_start([
             <p>Capture incoming requests without leaving the command center. Detailed line items and adjustments can follow later.</p>
         </div>
         <?php if (!$customers && !$customerUsers): ?>
-            <p class="helper">No saved customers yet. Use the fields below to create one while logging the order.</p>
+            <p class="helper">No saved customers yet. Use the new customer toggle below to capture the contact before saving the order.</p>
         <?php endif; ?>
-        <form method="post">
+        <form method="post" id="quick-create-form" autocomplete="off">
             <input type="hidden" name="action" value="create_order">
-            <div class="quick-create-grid">
-                <label>
-                    Existing customer
-                    <select name="customer_id">
-                        <option value="">Select customer…</option>
-                        <?php foreach ($customers as $customer): ?>
-                            <option value="<?= (int)$customer['id'] ?>">
-                                <?= htmlspecialchars($customer['name'], ENT_QUOTES, 'UTF-8') ?>
-                                <?php if (!empty($customer['phone'])): ?>
-                                    (<?= htmlspecialchars($customer['phone'], ENT_QUOTES, 'UTF-8') ?>)
-                                <?php endif; ?>
-                                <?php if (isset($customer['is_active']) && (int)$customer['is_active'] === 0): ?>
-                                    (inactive)
-                                <?php endif; ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                    <span class="helper">Choose an existing customer record if one already exists.</span>
+            <input type="hidden" name="customer_id" id="customer_id">
+            <input type="hidden" name="customer_mode" id="customer_mode" value="existing">
+            <div class="quick-create-grid quick-create-grid--balanced">
+                <label class="quick-create-field span-2" id="existing-customer-fields">
+                    Customer
+                    <div class="customer-selector">
+                        <input type="text" id="customer_search" name="customer_search" placeholder="Start typing to search customers…" autocomplete="off" spellcheck="false">
+                        <button type="button" id="toggle-new-customer" class="btn btn-tonal btn-small" aria-expanded="false" aria-controls="new-customer-fields">
+                            + New Customer
+                        </button>
+                    </div>
+                    <div class="suggestions hidden" id="customer-suggestions"></div>
+                    <span class="helper">Search by customer name or phone number.</span>
                 </label>
-                <label>
-                    Customer user (auto-create)
-                    <select name="customer_user_id">
-                        <option value="">Select customer user…</option>
+                <label class="quick-create-field">
+                    Customer phone
+                    <input type="text" id="customer_phone_display" placeholder="Auto-filled from selection" readonly>
+                </label>
+                <label class="quick-create-field">
+                    Customer user (optional)
+                    <select id="customer_user_id" name="customer_user_id">
+                        <option value="">Link existing portal account…</option>
                         <?php foreach ($customerUsers as $customerUser): ?>
                             <option value="<?= (int)$customerUser['id'] ?>">
                                 <?= htmlspecialchars($customerUser['name'] ?: $customerUser['email'], ENT_QUOTES, 'UTF-8') ?>
@@ -887,20 +1013,19 @@ admin_render_layout_start([
                             </option>
                         <?php endforeach; ?>
                     </select>
-                    <span class="helper">Select to auto-create/link a customer if the table does not have this contact.</span>
+                    <span class="helper">Auto-link to an existing customer login if applicable.</span>
                 </label>
-                <label>
+                <label class="quick-create-field new-customer-field hidden" id="new-customer-name-field">
                     New customer name
-                    <input type="text" name="customer_name" placeholder="e.g. Market ABC">
-                    <span class="helper">Provide a name to create a customer on the fly when no record exists.</span>
+                    <input type="text" id="customer_name" name="customer_name" data-new-customer-required placeholder="e.g. Market ABC">
                 </label>
-                <label>
+                <label class="quick-create-field new-customer-field hidden" id="new-customer-phone-field">
                     New customer phone
-                    <input type="text" name="customer_phone" placeholder="+961...">
+                    <input type="text" id="customer_phone" name="customer_phone" data-new-customer-required placeholder="+961 70 123 456">
                 </label>
-                <label>
+                <label class="quick-create-field">
                     Sales rep
-                    <select name="sales_rep_id">
+                    <select name="sales_rep_id" id="sales_rep_id">
                         <option value="">Unassigned</option>
                         <?php foreach ($salesReps as $rep): ?>
                             <option value="<?= (int)$rep['id'] ?>">
@@ -909,15 +1034,15 @@ admin_render_layout_start([
                         <?php endforeach; ?>
                     </select>
                 </label>
-                <label>
+                <label class="quick-create-field">
                     Total USD
                     <input type="number" name="total_usd" step="0.01" min="0" value="0.00">
                 </label>
-                <label>
+                <label class="quick-create-field">
                     Total LBP
                     <input type="number" name="total_lbp" step="1" min="0" value="0">
                 </label>
-                <label>
+                <label class="quick-create-field">
                     Initial status
                     <select name="initial_status">
                         <?php foreach ($statusLabels as $value => $label): ?>
@@ -927,20 +1052,228 @@ admin_render_layout_start([
                         <?php endforeach; ?>
                     </select>
                 </label>
-                <label>
+                <label class="quick-create-field span-2">
                     Status note (optional)
                     <input type="text" name="status_note" placeholder="Short handover note">
                 </label>
+                <label class="quick-create-field span-2">
+                    Order notes
+                    <textarea name="notes" placeholder="Special instructions or pricing agreements"></textarea>
+                </label>
             </div>
-            <label>
-                Order notes
-                <textarea name="notes" placeholder="Special instructions or pricing agreements"></textarea>
-            </label>
             <div class="quick-create-actions">
                 <button type="submit" class="btn btn-primary">Create order</button>
                 <span class="helper">Order number is assigned automatically.</span>
             </div>
         </form>
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                const form = document.getElementById('quick-create-form');
+                if (!form) {
+                    return;
+                }
+
+                const searchInput = document.getElementById('customer_search');
+                const suggestionsBox = document.getElementById('customer-suggestions');
+                const customerIdInput = document.getElementById('customer_id');
+                const customerModeInput = document.getElementById('customer_mode');
+                const phoneDisplay = document.getElementById('customer_phone_display');
+                const customerUserSelect = document.getElementById('customer_user_id');
+                const toggleButton = document.getElementById('toggle-new-customer');
+                const existingBlock = document.getElementById('existing-customer-fields');
+                const newCustomerFields = document.querySelectorAll('.new-customer-field');
+                const newCustomerInputs = form.querySelectorAll('[data-new-customer-required]');
+
+                let suggestions = [];
+                let activeIndex = -1;
+                let newCustomerMode = false;
+
+                function clearSuggestions() {
+                    suggestions = [];
+                    suggestionsBox.innerHTML = '';
+                    suggestionsBox.classList.add('hidden');
+                    activeIndex = -1;
+                }
+
+                function setActiveSuggestion(index) {
+                    const items = suggestionsBox.querySelectorAll('.suggestion-item');
+                    items.forEach((item, idx) => {
+                        item.classList.toggle('active', idx === index);
+                    });
+                    activeIndex = index;
+                }
+
+                function renderSuggestions(items) {
+                    suggestionsBox.innerHTML = '';
+                    if (!items.length) {
+                        clearSuggestions();
+                        return;
+                    }
+
+                    suggestions = items;
+                    items.forEach((item, index) => {
+                        const option = document.createElement('div');
+                        option.className = 'suggestion-item';
+                        option.dataset.index = String(index);
+
+                        const title = document.createElement('strong');
+                        title.textContent = item.name;
+                        option.appendChild(title);
+
+                        if (item.phone) {
+                            const phoneSpan = document.createElement('span');
+                            phoneSpan.textContent = item.phone;
+                            option.appendChild(phoneSpan);
+                        }
+
+                        if (item.user_name) {
+                            const userSpan = document.createElement('span');
+                            userSpan.textContent = 'Linked user: ' + item.user_name;
+                            option.appendChild(userSpan);
+                        }
+
+                        option.addEventListener('mousedown', function (event) {
+                            event.preventDefault();
+                            selectSuggestion(item);
+                        });
+
+                        suggestionsBox.appendChild(option);
+                    });
+
+                    suggestionsBox.classList.remove('hidden');
+                    activeIndex = -1;
+                }
+
+                function selectSuggestion(item) {
+                    setNewCustomerMode(false);
+                    customerIdInput.value = item.id;
+                    searchInput.value = item.name;
+                    if (phoneDisplay) {
+                        phoneDisplay.value = item.phone || '';
+                    }
+                    if (customerUserSelect && item.user_id) {
+                        const optionExists = Array.from(customerUserSelect.options).some(opt => String(opt.value) === String(item.user_id));
+                        if (optionExists) {
+                            customerUserSelect.value = String(item.user_id);
+                        }
+                    }
+                    clearSuggestions();
+                }
+
+                function fetchSuggestions(term) {
+                    if (term.length < 2) {
+                        clearSuggestions();
+                        return;
+                    }
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('ajax', 'customer_search');
+                    url.searchParams.set('term', term);
+
+                    fetch(url.toString(), {
+                        credentials: 'same-origin'
+                    })
+                        .then(response => response.ok ? response.json() : Promise.reject())
+                        .then(data => {
+                            if (!Array.isArray(data.results)) {
+                                clearSuggestions();
+                                return;
+                            }
+                            renderSuggestions(data.results);
+                        })
+                        .catch(() => clearSuggestions());
+                }
+
+                function setNewCustomerMode(enable) {
+                    newCustomerMode = enable;
+                    customerModeInput.value = enable ? 'new' : 'existing';
+                    if (toggleButton) {
+                        toggleButton.textContent = enable ? 'Use Existing' : '+ New Customer';
+                        toggleButton.setAttribute('aria-expanded', enable ? 'true' : 'false');
+                    }
+                    if (enable) {
+                        if (existingBlock) {
+                            existingBlock.classList.add('hidden');
+                        }
+                        newCustomerFields.forEach(field => field.classList.remove('hidden'));
+                        newCustomerInputs.forEach(input => input.setAttribute('required', 'required'));
+                        customerIdInput.value = '';
+                        searchInput.value = '';
+                        if (phoneDisplay) {
+                            phoneDisplay.value = '';
+                        }
+                        if (customerUserSelect) {
+                            customerUserSelect.value = '';
+                        }
+                        clearSuggestions();
+                    } else {
+                        if (existingBlock) {
+                            existingBlock.classList.remove('hidden');
+                        }
+                        newCustomerFields.forEach(field => field.classList.add('hidden'));
+                        newCustomerInputs.forEach(input => {
+                            input.removeAttribute('required');
+                            input.value = '';
+                        });
+                    }
+                }
+
+                if (toggleButton) {
+                    toggleButton.addEventListener('click', function () {
+                        setNewCustomerMode(!newCustomerMode);
+                        if (!newCustomerMode) {
+                            searchInput.focus();
+                        }
+                    });
+                }
+
+                if (searchInput) {
+                    searchInput.addEventListener('input', function (event) {
+                        const value = event.target.value.trim();
+                        customerIdInput.value = '';
+                        if (phoneDisplay) {
+                            phoneDisplay.value = '';
+                        }
+                        fetchSuggestions(value);
+                    });
+
+                    searchInput.addEventListener('keydown', function (event) {
+                        if (suggestionsBox.classList.contains('hidden')) {
+                            return;
+                        }
+                        if (event.key === 'ArrowDown') {
+                            event.preventDefault();
+                            const nextIndex = activeIndex + 1 >= suggestions.length ? 0 : activeIndex + 1;
+                            setActiveSuggestion(nextIndex);
+                        } else if (event.key === 'ArrowUp') {
+                            event.preventDefault();
+                            const prevIndex = activeIndex - 1 < 0 ? suggestions.length - 1 : activeIndex - 1;
+                            setActiveSuggestion(prevIndex);
+                        } else if (event.key === 'Enter') {
+                            if (activeIndex >= 0 && suggestions[activeIndex]) {
+                                event.preventDefault();
+                                selectSuggestion(suggestions[activeIndex]);
+                            }
+                        } else if (event.key === 'Escape') {
+                            clearSuggestions();
+                        }
+                    });
+
+                    searchInput.addEventListener('focus', function () {
+                        if (suggestions.length) {
+                            suggestionsBox.classList.remove('hidden');
+                        }
+                    });
+                }
+
+                document.addEventListener('click', function (event) {
+                    if (!suggestionsBox.contains(event.target) && event.target !== searchInput) {
+                        clearSuggestions();
+                    }
+                });
+
+                setNewCustomerMode(false);
+            });
+        </script>
     </div>
 
     <form method="get" class="filters">
