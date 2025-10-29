@@ -115,6 +115,48 @@ if (($_GET['ajax'] ?? '') === 'customer_search') {
     exit;
 }
 
+if (($_GET['ajax'] ?? '') === 'product_search') {
+    $term = trim((string)($_GET['term'] ?? ''));
+    header('Content-Type: application/json');
+
+    if ($term === '') {
+        echo json_encode(['results' => []]);
+        exit;
+    }
+
+    $likeTerm = '%' . $term . '%';
+    $searchStmt = $pdo->prepare("
+        SELECT
+            p.id,
+            p.item_name,
+            p.sku,
+            p.sale_price_usd,
+            p.wholesale_price_usd,
+            p.unit
+        FROM products p
+        WHERE p.is_active = 1
+          AND (p.item_name LIKE :term OR p.sku LIKE :term OR p.code_clean LIKE :term)
+        ORDER BY p.item_name ASC
+        LIMIT 15
+    ");
+    $searchStmt->execute([':term' => $likeTerm]);
+
+    $results = [];
+    foreach ($searchStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $results[] = [
+            'id' => (int)$row['id'],
+            'name' => $row['item_name'],
+            'sku' => $row['sku'],
+            'unit' => $row['unit'],
+            'sale_price_usd' => $row['sale_price_usd'] !== null ? (float)$row['sale_price_usd'] : null,
+            'wholesale_price_usd' => $row['wholesale_price_usd'] !== null ? (float)$row['wholesale_price_usd'] : null,
+        ];
+    }
+
+    echo json_encode(['results' => $results]);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -127,11 +169,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $customerPhoneInput = trim($_POST['customer_phone'] ?? '');
         $salesRepInput = $_POST['sales_rep_id'] ?? '';
         $salesRepId = $salesRepInput !== '' ? (int)$salesRepInput : null;
-        $totalUsd = (float)($_POST['total_usd'] ?? 0);
-        $totalLbp = (float)($_POST['total_lbp'] ?? 0);
+        $totalUsd = 0.0;
+        $totalLbp = 0.0;
         $notes = trim($_POST['notes'] ?? '');
         $initialStatus = $_POST['initial_status'] ?? 'on_hold';
         $statusNote = trim($_POST['status_note'] ?? '');
+        $orderItemsPayload = $_POST['order_items'] ?? '[]';
 
         if (!isset($statusLabels[$initialStatus])) {
             $initialStatus = 'on_hold';
@@ -150,12 +193,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $customerPhoneInput = '';
         }
 
-        if ($totalUsd < 0 || $totalLbp < 0) {
-            flash('error', 'Totals cannot be negative.');
-            header('Location: ' . $_SERVER['REQUEST_URI']);
-            exit;
-        }
-
         if ($salesRepId !== null) {
             $repCheck = $pdo->prepare("SELECT COUNT(*) FROM users WHERE id = :id AND role = 'sales_rep'");
             $repCheck->execute([':id' => $salesRepId]);
@@ -164,6 +201,120 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header('Location: ' . $_SERVER['REQUEST_URI']);
                 exit;
             }
+        }
+
+        $decodedItems = json_decode($orderItemsPayload, true);
+        if (!is_array($decodedItems)) {
+            flash('error', 'Failed to parse order items. Please try again.');
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+        }
+
+        $sanitizedItems = [];
+        $uniqueProductIds = [];
+
+        foreach ($decodedItems as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $productId = isset($item['product_id']) ? (int)$item['product_id'] : 0;
+            $quantity = isset($item['quantity']) ? (float)$item['quantity'] : 0.0;
+            $unitPriceUsd = isset($item['unit_price_usd']) && $item['unit_price_usd'] !== '' ? (float)$item['unit_price_usd'] : 0.0;
+            $unitPriceLbp = isset($item['unit_price_lbp']) && $item['unit_price_lbp'] !== '' ? (float)$item['unit_price_lbp'] : null;
+
+            if ($productId <= 0 || $quantity <= 0) {
+                continue;
+            }
+
+            if ($unitPriceUsd < 0) {
+                flash('error', 'Unit prices cannot be negative.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+
+            if ($unitPriceLbp !== null && $unitPriceLbp < 0) {
+                flash('error', 'Unit prices cannot be negative.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+
+            $sanitizedItems[] = [
+                'product_id' => $productId,
+                'quantity' => $quantity,
+                'unit_price_usd' => $unitPriceUsd,
+                'unit_price_lbp' => $unitPriceLbp,
+            ];
+            $uniqueProductIds[$productId] = true;
+        }
+
+        if (empty($sanitizedItems)) {
+            flash('error', 'Add at least one item to the order.');
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+        }
+
+        $productIds = array_keys($uniqueProductIds);
+        $placeholders = implode(',', array_fill(0, count($productIds), '?'));
+        $productStmt = $pdo->prepare("
+            SELECT id, item_name, sale_price_usd, wholesale_price_usd
+            FROM products
+            WHERE id IN ($placeholders) AND is_active = 1
+        ");
+        $productStmt->execute($productIds);
+        $productsMap = [];
+
+        foreach ($productStmt->fetchAll(PDO::FETCH_ASSOC) as $productRow) {
+            $productsMap[(int)$productRow['id']] = [
+                'name' => $productRow['item_name'],
+                'sale_price_usd' => $productRow['sale_price_usd'] !== null ? (float)$productRow['sale_price_usd'] : null,
+                'wholesale_price_usd' => $productRow['wholesale_price_usd'] !== null ? (float)$productRow['wholesale_price_usd'] : null,
+            ];
+        }
+
+        foreach ($productIds as $productId) {
+            if (!isset($productsMap[$productId])) {
+                flash('error', 'One or more selected products are unavailable. Please refresh and try again.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+        }
+
+        foreach ($sanitizedItems as &$item) {
+            if ($item['unit_price_usd'] <= 0) {
+                $fallback = $productsMap[$item['product_id']]['sale_price_usd'] ?? $productsMap[$item['product_id']]['wholesale_price_usd'] ?? null;
+                if ($fallback !== null) {
+                    $item['unit_price_usd'] = (float)$fallback;
+                }
+            }
+
+            if ($item['unit_price_usd'] <= 0 && ($item['unit_price_lbp'] === null || $item['unit_price_lbp'] <= 0)) {
+                flash('error', 'Each order item must have a price in USD or LBP.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+
+            $lineUsd = $item['quantity'] * $item['unit_price_usd'];
+            $lineLbp = $item['unit_price_lbp'] !== null ? $item['quantity'] * $item['unit_price_lbp'] : 0.0;
+
+            $totalUsd += $lineUsd;
+            $totalLbp += $lineLbp;
+        }
+        unset($item);
+
+        $totalUsd = round($totalUsd, 2);
+        $totalLbp = round($totalLbp, 2);
+
+        if ($totalUsd < 0 || $totalLbp < 0) {
+            flash('error', 'Totals cannot be negative.');
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+        }
+
+        if ($totalUsd <= 0 && $totalLbp <= 0) {
+            flash('error', 'Order total must be greater than zero.');
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
         }
 
         $resolveCustomer = static function (PDO $pdo, string $name, ?string $phone, ?int $userId = null): ?int {
@@ -280,6 +431,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->prepare("UPDATE orders SET order_number = :order_number WHERE id = :id")
                 ->execute([':order_number' => $orderNumber, ':id' => $orderId]);
+
+            $itemStmt = $pdo->prepare("
+                INSERT INTO order_items (order_id, product_id, quantity, unit_price_usd, unit_price_lbp, discount_percent)
+                VALUES (:order_id, :product_id, :quantity, :unit_price_usd, :unit_price_lbp, 0.00)
+            ");
+
+            foreach ($sanitizedItems as $item) {
+                $itemStmt->execute([
+                    ':order_id' => $orderId,
+                    ':product_id' => $item['product_id'],
+                    ':quantity' => $item['quantity'],
+                    ':unit_price_usd' => round($item['unit_price_usd'], 2),
+                    ':unit_price_lbp' => $item['unit_price_lbp'] !== null ? round($item['unit_price_lbp'], 2) : null,
+                ]);
+            }
 
             $statusStmt = $pdo->prepare("
                 INSERT INTO order_status_events (order_id, status, actor_user_id, note)
@@ -940,6 +1106,68 @@ admin_render_layout_start([
         background: rgba(0, 255, 136, 0.05);
         border-color: rgba(0, 255, 136, 0.2);
     }
+    .order-items-container {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .order-items-search {
+        position: relative;
+    }
+    .order-items-table-wrapper {
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    .order-items-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: rgba(255, 255, 255, 0.03);
+    }
+    .order-items-table th,
+    .order-items-table td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        vertical-align: middle;
+    }
+    .order-items-table th:last-child,
+    .order-items-table td:last-child {
+        text-align: right;
+    }
+    .order-items-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+    .order-items-table input[type="number"] {
+        width: 100%;
+        min-width: 0;
+        text-align: right;
+    }
+    .order-items-empty td {
+        text-align: center;
+        color: var(--muted);
+        font-style: italic;
+    }
+    .order-item-meta {
+        display: block;
+        color: var(--muted);
+        font-size: 0.75rem;
+        margin-top: 4px;
+    }
+    .btn-icon {
+        background: none;
+        border: none;
+        color: inherit;
+        padding: 6px;
+        cursor: pointer;
+        border-radius: 6px;
+    }
+    .btn-icon:hover {
+        background: rgba(255, 255, 255, 0.12);
+    }
+    .line-total {
+        font-variant-numeric: tabular-nums;
+    }
 </style>
 
 <?php foreach ($flashes as $flash): ?>
@@ -984,6 +1212,7 @@ admin_render_layout_start([
             <input type="hidden" name="action" value="create_order">
             <input type="hidden" name="customer_id" id="customer_id">
             <input type="hidden" name="customer_mode" id="customer_mode" value="existing">
+            <input type="hidden" name="order_items" id="order_items_input" value="[]">
             <div class="quick-create-grid quick-create-grid--balanced">
                 <label class="quick-create-field span-2" id="existing-customer-fields">
                     Customer
@@ -1034,13 +1263,42 @@ admin_render_layout_start([
                         <?php endforeach; ?>
                     </select>
                 </label>
+                <div class="quick-create-field span-2">
+                    Order items
+                    <div class="order-items-container">
+                        <div class="order-items-search">
+                            <input type="text" id="product_search" placeholder="Search by product name or SKU…" autocomplete="off" spellcheck="false">
+                            <div class="suggestions hidden" id="product-suggestions"></div>
+                            <span class="helper">Press enter to add the highlighted product.</span>
+                        </div>
+                        <div class="order-items-table-wrapper">
+                            <table class="order-items-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 34%;">Product</th>
+                                        <th style="width: 12%;">SKU / Unit</th>
+                                        <th style="width: 12%;">Qty</th>
+                                        <th style="width: 14%;">Unit USD</th>
+                                        <th style="width: 14%;">Unit LBP</th>
+                                        <th style="width: 14%;">Line Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="order-items-body">
+                                    <tr class="order-items-empty">
+                                        <td colspan="6">Search for a product to add it to the order.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
                 <label class="quick-create-field">
                     Total USD
-                    <input type="number" name="total_usd" step="0.01" min="0" value="0.00">
+                    <input type="number" name="total_usd" id="total_usd" step="0.01" min="0" value="0.00" readonly>
                 </label>
                 <label class="quick-create-field">
                     Total LBP
-                    <input type="number" name="total_lbp" step="1" min="0" value="0">
+                    <input type="number" name="total_lbp" id="total_lbp" step="0.01" min="0" value="0.00" readonly>
                 </label>
                 <label class="quick-create-field">
                     Initial status
@@ -1083,10 +1341,19 @@ admin_render_layout_start([
                 const existingBlock = document.getElementById('existing-customer-fields');
                 const newCustomerFields = document.querySelectorAll('.new-customer-field');
                 const newCustomerInputs = form.querySelectorAll('[data-new-customer-required]');
+                const productSearchInput = document.getElementById('product_search');
+                const productSuggestionsBox = document.getElementById('product-suggestions');
+                const orderItemsInput = document.getElementById('order_items_input');
+                const orderItemsBody = document.getElementById('order-items-body');
+                const totalUsdField = document.getElementById('total_usd');
+                const totalLbpField = document.getElementById('total_lbp');
 
                 let suggestions = [];
                 let activeIndex = -1;
                 let newCustomerMode = false;
+                let productSuggestions = [];
+                let productActiveIndex = -1;
+                let orderItems = [];
 
                 function clearSuggestions() {
                     suggestions = [];
@@ -1142,6 +1409,355 @@ admin_render_layout_start([
 
                     suggestionsBox.classList.remove('hidden');
                     activeIndex = -1;
+                }
+
+                function clearProductSuggestions() {
+                    if (!productSuggestionsBox) {
+                        return;
+                    }
+                    productSuggestions = [];
+                    productSuggestionsBox.innerHTML = '';
+                    productSuggestionsBox.classList.add('hidden');
+                    productActiveIndex = -1;
+                }
+
+                function setActiveProductSuggestion(index) {
+                    if (!productSuggestionsBox) {
+                        return;
+                    }
+                    const items = productSuggestionsBox.querySelectorAll('.suggestion-item');
+                    items.forEach((item, idx) => {
+                        item.classList.toggle('active', idx === index);
+                    });
+                    productActiveIndex = index;
+                }
+
+                function renderProductSuggestions(items) {
+                    if (!productSuggestionsBox) {
+                        return;
+                    }
+                    productSuggestionsBox.innerHTML = '';
+                    if (!items.length) {
+                        clearProductSuggestions();
+                        return;
+                    }
+
+                    productSuggestions = items;
+                    items.forEach((item, index) => {
+                        const option = document.createElement('div');
+                        option.className = 'suggestion-item';
+                        option.dataset.index = String(index);
+
+                        const title = document.createElement('strong');
+                        title.textContent = item.name;
+                        option.appendChild(title);
+
+                        if (item.sku) {
+                            const skuSpan = document.createElement('span');
+                            skuSpan.textContent = 'SKU: ' + item.sku;
+                            option.appendChild(skuSpan);
+                        }
+
+                        const defaultPrice = defaultUnitPriceUsd(item);
+                        if (defaultPrice > 0) {
+                            const priceSpan = document.createElement('span');
+                            priceSpan.textContent = 'USD ' + defaultPrice.toFixed(2);
+                            option.appendChild(priceSpan);
+                        }
+
+                        option.addEventListener('mousedown', function (event) {
+                            event.preventDefault();
+                            selectProductSuggestion(item);
+                        });
+
+                        productSuggestionsBox.appendChild(option);
+                    });
+
+                    productSuggestionsBox.classList.remove('hidden');
+                    productActiveIndex = -1;
+                }
+
+                function defaultUnitPriceUsd(product) {
+                    if (typeof product.sale_price_usd === 'number') {
+                        return product.sale_price_usd;
+                    }
+                    if (typeof product.sale_price_usd === 'string' && product.sale_price_usd !== '') {
+                        const parsed = parseFloat(product.sale_price_usd);
+                        if (!Number.isNaN(parsed)) {
+                            return parsed;
+                        }
+                    }
+                    if (typeof product.wholesale_price_usd === 'number') {
+                        return product.wholesale_price_usd;
+                    }
+                    if (typeof product.wholesale_price_usd === 'string' && product.wholesale_price_usd !== '') {
+                        const parsed = parseFloat(product.wholesale_price_usd);
+                        if (!Number.isNaN(parsed)) {
+                            return parsed;
+                        }
+                    }
+                    return 0;
+                }
+
+                function formatLineTotalDisplay(totals) {
+                    const parts = [];
+                    if (totals.usd > 0) {
+                        parts.push('USD ' + totals.usd.toFixed(2));
+                    }
+                    if (totals.lbp > 0) {
+                        parts.push('LBP ' + totals.lbp.toFixed(2));
+                    }
+                    return parts.length ? parts.join(' · ') : '—';
+                }
+
+                function calculateLineTotals(item) {
+                    const quantity = Number(item.quantity) || 0;
+                    const priceUsd = Number(item.unit_price_usd) || 0;
+                    const priceLbp = item.unit_price_lbp === null ? 0 : Number(item.unit_price_lbp) || 0;
+                    return {
+                        usd: quantity * priceUsd,
+                        lbp: quantity * priceLbp,
+                    };
+                }
+
+                function syncOrderItemsInput() {
+                    if (!orderItemsInput) {
+                        return;
+                    }
+                    const payload = orderItems.map(item => ({
+                        product_id: item.product_id,
+                        quantity: Number(item.quantity) || 0,
+                        unit_price_usd: Number(item.unit_price_usd) || 0,
+                        unit_price_lbp: item.unit_price_lbp === null ? '' : Number(item.unit_price_lbp) || 0,
+                    }));
+                    orderItemsInput.value = JSON.stringify(payload);
+                }
+
+                function updateTotals() {
+                    let sumUsd = 0;
+                    let sumLbp = 0;
+
+                    orderItems.forEach(item => {
+                        const totals = calculateLineTotals(item);
+                        sumUsd += totals.usd;
+                        sumLbp += totals.lbp;
+                    });
+
+                    if (totalUsdField) {
+                        totalUsdField.value = sumUsd > 0 ? sumUsd.toFixed(2) : '0.00';
+                    }
+                    if (totalLbpField) {
+                        totalLbpField.value = sumLbp > 0 ? sumLbp.toFixed(2) : '0.00';
+                    }
+
+                    syncOrderItemsInput();
+                }
+
+                function renderOrderItems() {
+                    if (!orderItemsBody) {
+                        return;
+                    }
+
+                    orderItemsBody.innerHTML = '';
+
+                    if (!orderItems.length) {
+                        const emptyRow = document.createElement('tr');
+                        emptyRow.className = 'order-items-empty';
+                        const emptyCell = document.createElement('td');
+                        emptyCell.colSpan = 6;
+                        emptyCell.textContent = 'Search for a product to add it to the order.';
+                        emptyRow.appendChild(emptyCell);
+                        orderItemsBody.appendChild(emptyRow);
+                        updateTotals();
+                        return;
+                    }
+
+                    orderItems.forEach((item, index) => {
+                        const row = document.createElement('tr');
+                        row.dataset.index = String(index);
+
+                        const productCell = document.createElement('td');
+                        const productTitle = document.createElement('strong');
+                        productTitle.textContent = item.name;
+                        productCell.appendChild(productTitle);
+                        if (item.unit) {
+                            const unitMeta = document.createElement('span');
+                            unitMeta.className = 'order-item-meta';
+                            unitMeta.textContent = item.unit;
+                            productCell.appendChild(unitMeta);
+                        }
+                        row.appendChild(productCell);
+
+                        const skuCell = document.createElement('td');
+                        skuCell.textContent = item.sku || '—';
+                        row.appendChild(skuCell);
+
+                        const qtyCell = document.createElement('td');
+                        const qtyInput = document.createElement('input');
+                        qtyInput.type = 'number';
+                        qtyInput.min = '0.001';
+                        qtyInput.step = '0.001';
+                        qtyInput.value = item.quantity;
+                        qtyInput.addEventListener('input', function (event) {
+                            const value = parseFloat(event.target.value);
+                            orderItems[index].quantity = Number.isFinite(value) && value > 0 ? value : 0;
+                            const totals = calculateLineTotals(orderItems[index]);
+                            lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                            updateTotals();
+                        });
+                        qtyInput.addEventListener('blur', function (event) {
+                            let value = parseFloat(event.target.value);
+                            if (!Number.isFinite(value) || value <= 0) {
+                                value = 1;
+                            }
+                            orderItems[index].quantity = value;
+                            event.target.value = value;
+                            const totals = calculateLineTotals(orderItems[index]);
+                            lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                            updateTotals();
+                        });
+                        qtyCell.appendChild(qtyInput);
+                        row.appendChild(qtyCell);
+
+                        const usdCell = document.createElement('td');
+                        const usdInput = document.createElement('input');
+                        usdInput.type = 'number';
+                        usdInput.min = '0';
+                        usdInput.step = '0.01';
+                        usdInput.value = Number(item.unit_price_usd || 0).toFixed(2);
+                        usdInput.addEventListener('input', function (event) {
+                            const value = parseFloat(event.target.value);
+                            orderItems[index].unit_price_usd = Number.isFinite(value) && value >= 0 ? value : 0;
+                            const totals = calculateLineTotals(orderItems[index]);
+                            lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                            updateTotals();
+                        });
+                        usdInput.addEventListener('blur', function (event) {
+                            let value = parseFloat(event.target.value);
+                            if (!Number.isFinite(value) || value < 0) {
+                                value = 0;
+                            }
+                            orderItems[index].unit_price_usd = value;
+                            event.target.value = value.toFixed(2);
+                            const totals = calculateLineTotals(orderItems[index]);
+                            lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                            updateTotals();
+                        });
+                        usdCell.appendChild(usdInput);
+                        row.appendChild(usdCell);
+
+                        const lbpCell = document.createElement('td');
+                        const lbpInput = document.createElement('input');
+                        lbpInput.type = 'number';
+                        lbpInput.min = '0';
+                        lbpInput.step = '0.01';
+                        if (item.unit_price_lbp !== null && item.unit_price_lbp !== undefined && item.unit_price_lbp !== '') {
+                            lbpInput.value = Number(item.unit_price_lbp).toFixed(2);
+                        }
+                        lbpInput.addEventListener('input', function (event) {
+                            const raw = event.target.value;
+                            if (raw === '') {
+                                orderItems[index].unit_price_lbp = null;
+                            } else {
+                                const value = parseFloat(raw);
+                                orderItems[index].unit_price_lbp = Number.isFinite(value) && value >= 0 ? value : 0;
+                            }
+                            const totals = calculateLineTotals(orderItems[index]);
+                            lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                            updateTotals();
+                        });
+                        lbpInput.addEventListener('blur', function (event) {
+                            if (event.target.value === '') {
+                                return;
+                            }
+                            let value = parseFloat(event.target.value);
+                            if (!Number.isFinite(value) || value < 0) {
+                                value = 0;
+                            }
+                            orderItems[index].unit_price_lbp = value;
+                            event.target.value = value.toFixed(2);
+                            const totals = calculateLineTotals(orderItems[index]);
+                            lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                            updateTotals();
+                        });
+                        lbpCell.appendChild(lbpInput);
+                        row.appendChild(lbpCell);
+
+                        const totalCell = document.createElement('td');
+                        const lineTotalValue = document.createElement('div');
+                        lineTotalValue.className = 'line-total';
+                        lineTotalValue.textContent = formatLineTotalDisplay(calculateLineTotals(item));
+                        totalCell.appendChild(lineTotalValue);
+
+                        const removeButton = document.createElement('button');
+                        removeButton.type = 'button';
+                        removeButton.className = 'btn-icon';
+                        removeButton.setAttribute('aria-label', 'Remove item');
+                        removeButton.innerHTML = '&times;';
+                        removeButton.addEventListener('click', function () {
+                            orderItems = orderItems.filter((_, itemIndex) => itemIndex !== index);
+                            renderOrderItems();
+                        });
+                        totalCell.appendChild(removeButton);
+
+                        row.appendChild(totalCell);
+
+                        orderItemsBody.appendChild(row);
+                    });
+
+                    updateTotals();
+                }
+
+                function selectProductSuggestion(item) {
+                    if (!item) {
+                        return;
+                    }
+                    const existingIndex = orderItems.findIndex(existing => String(existing.product_id) === String(item.id));
+                    if (existingIndex >= 0) {
+                        orderItems[existingIndex].quantity = Number(orderItems[existingIndex].quantity) + 1;
+                    } else {
+                        orderItems.push({
+                            product_id: item.id,
+                            name: item.name,
+                            sku: item.sku || '',
+                            unit: item.unit || '',
+                            quantity: 1,
+                            unit_price_usd: defaultUnitPriceUsd(item),
+                            unit_price_lbp: null,
+                        });
+                    }
+                    renderOrderItems();
+                    clearProductSuggestions();
+                    if (productSearchInput) {
+                        productSearchInput.value = '';
+                        productSearchInput.focus();
+                    }
+                }
+
+                function fetchProductSuggestions(term) {
+                    if (!productSearchInput) {
+                        return;
+                    }
+                    if (term.length < 2) {
+                        clearProductSuggestions();
+                        return;
+                    }
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('ajax', 'product_search');
+                    url.searchParams.set('term', term);
+
+                    fetch(url.toString(), {
+                        credentials: 'same-origin'
+                    })
+                        .then(response => response.ok ? response.json() : Promise.reject())
+                        .then(data => {
+                            if (!data || !Array.isArray(data.results)) {
+                                clearProductSuggestions();
+                                return;
+                            }
+                            renderProductSuggestions(data.results);
+                        })
+                        .catch(() => clearProductSuggestions());
                 }
 
                 function selectSuggestion(item) {
@@ -1265,13 +1881,57 @@ admin_render_layout_start([
                     });
                 }
 
+                if (productSearchInput) {
+                    productSearchInput.addEventListener('input', function (event) {
+                        const value = event.target.value.trim();
+                        fetchProductSuggestions(value);
+                    });
+
+                    productSearchInput.addEventListener('keydown', function (event) {
+                        if (event.key === 'Enter') {
+                            if (productSuggestions.length) {
+                                event.preventDefault();
+                                const selected = productActiveIndex >= 0 ? productSuggestions[productActiveIndex] : productSuggestions[0];
+                                selectProductSuggestion(selected);
+                            }
+                            return;
+                        }
+
+                        if (!productSuggestionsBox || productSuggestionsBox.classList.contains('hidden')) {
+                            return;
+                        }
+
+                        if (event.key === 'ArrowDown') {
+                            event.preventDefault();
+                            const nextIndex = productActiveIndex + 1 >= productSuggestions.length ? 0 : productActiveIndex + 1;
+                            setActiveProductSuggestion(nextIndex);
+                        } else if (event.key === 'ArrowUp') {
+                            event.preventDefault();
+                            const prevIndex = productActiveIndex - 1 < 0 ? productSuggestions.length - 1 : productActiveIndex - 1;
+                            setActiveProductSuggestion(prevIndex);
+                        } else if (event.key === 'Escape') {
+                            clearProductSuggestions();
+                        }
+                    });
+
+                    productSearchInput.addEventListener('focus', function () {
+                        if (productSuggestions.length) {
+                            productSuggestionsBox.classList.remove('hidden');
+                        }
+                    });
+                }
+
                 document.addEventListener('click', function (event) {
-                    if (!suggestionsBox.contains(event.target) && event.target !== searchInput) {
+                    if (suggestionsBox && !suggestionsBox.contains(event.target) && event.target !== searchInput) {
                         clearSuggestions();
+                    }
+                    if (productSuggestionsBox && !productSuggestionsBox.contains(event.target) && event.target !== productSearchInput) {
+                        clearProductSuggestions();
                     }
                 });
 
                 setNewCustomerMode(false);
+                renderOrderItems();
             });
         </script>
     </div>
