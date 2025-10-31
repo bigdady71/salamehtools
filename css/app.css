@@ -1,2 +1,192 @@
-body{font-family:Arial,sans-serif;margin:0;padding:0;background:#f8f9fa;}
-header,footer{padding:10px;background:#222;color:#fff;text-align:center;}
+:root {
+    --bg: #ffffff;
+    --panel: #ffffff;
+    --ink: #111827;
+    --muted: #6b7280;
+    --brand: #1f6feb;
+    --bd: #e5e7eb;
+    --chip: #f3f4f6;
+    --chip-bd: #e5e7eb;
+    --ok: #065f46;
+    --warn: #92400e;
+    --err: #991b1b;
+    --focus: rgba(31, 111, 235, 0.45);
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+}
+
+body.theme-light {
+    background: var(--bg);
+    color: var(--ink);
+}
+
+a {
+    color: var(--brand);
+    text-decoration: none;
+}
+
+a:hover,
+a:focus {
+    text-decoration: underline;
+}
+
+.card {
+    background: var(--panel);
+    border: 1px solid var(--bd);
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
+}
+
+input,
+textarea,
+select,
+button {
+    font: inherit;
+}
+
+.input,
+.select,
+.btn,
+input[type="text"],
+input[type="number"],
+input[type="tel"],
+input[type="email"],
+input[type="search"],
+input[type="date"],
+select,
+textarea {
+    border: 1px solid var(--bd);
+    border-radius: 10px;
+    background: #fff;
+    color: inherit;
+    padding: 0.75rem 0.9rem;
+    min-height: 44px;
+    width: 100%;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus {
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+}
+
+textarea {
+    resize: vertical;
+    min-height: 120px;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border: 1px solid var(--bd);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--ink);
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 44px;
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn:hover {
+    background: var(--chip);
+}
+
+.btn-primary {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+}
+
+.btn-primary:hover {
+    box-shadow: 0 0 0 4px rgba(31, 111, 235, 0.15);
+}
+
+.btn[disabled],
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--bd);
+}
+
+table thead {
+    background: var(--chip);
+}
+
+th,
+td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--bd);
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    background: var(--chip);
+    border: 1px solid var(--chip-bd);
+    font-size: 0.85rem;
+    color: var(--ink);
+    line-height: 1;
+}
+
+.badge-success {
+    color: var(--ok);
+    background: rgba(6, 95, 70, 0.12);
+    border-color: rgba(6, 95, 70, 0.12);
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+
+@media (max-width: 768px) {
+    .card {
+        padding: 1.125rem;
+    }
+
+    th,
+    td {
+        padding: 0.6rem 0.75rem;
+    }
+}

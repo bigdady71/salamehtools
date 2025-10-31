@@ -37,6 +37,7 @@ $customerFilter = (int)($_GET['customer'] ?? 0);
 $repFilter = (int)($_GET['rep'] ?? 0);
 $dateFrom = $_GET['date_from'] ?? '';
 $dateTo = $_GET['date_to'] ?? '';
+$orderFilter = (int)($_GET['order_id'] ?? 0);
 
 $where = ['1=1'];
 $params = [];
@@ -59,6 +60,11 @@ if ($customerFilter > 0) {
 if ($repFilter > 0) {
     $where[] = "i.sales_rep_id = :rep_id";
     $params[':rep_id'] = $repFilter;
+}
+
+if ($orderFilter > 0) {
+    $where[] = "i.order_id = :filter_order_id";
+    $params[':filter_order_id'] = $orderFilter;
 }
 
 if ($dateFrom !== '') {
@@ -144,6 +150,20 @@ $invoiceStmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
 $invoiceStmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $invoiceStmt->execute();
 $invoices = $invoiceStmt->fetchAll(PDO::FETCH_ASSOC);
+$filteredOrderLabel = null;
+if ($orderFilter > 0) {
+    if (!empty($invoices)) {
+        $firstInvoice = $invoices[0];
+        $candidateNumber = trim((string)($firstInvoice['order_number'] ?? ''));
+        $fallbackOrderNumber = 'ORD-' . str_pad((string)(int)($firstInvoice['order_id'] ?? $orderFilter), 6, '0', STR_PAD_LEFT);
+        $filteredOrderLabel = $candidateNumber !== '' ? $candidateNumber : $fallbackOrderNumber;
+    } else {
+        $orderLabelStmt = $pdo->prepare("SELECT order_number FROM orders WHERE id = :order_id LIMIT 1");
+        $orderLabelStmt->execute([':order_id' => $orderFilter]);
+        $orderNumber = trim((string)$orderLabelStmt->fetchColumn());
+        $filteredOrderLabel = $orderNumber !== '' ? $orderNumber : 'ORD-' . str_pad((string)$orderFilter, 6, '0', STR_PAD_LEFT);
+    }
+}
 
 $totalsStmt = $pdo->query("SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('draft','issued') THEN 1 ELSE 0 END) AS open_total FROM invoices");
 $totalsRow = $totalsStmt->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0, 'open_total' => 0];
@@ -204,121 +224,231 @@ admin_render_layout_start([
 ?>
 
 <style>
+    /* Flash messages */
+    .flash {
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        font-size: 0.9rem;
+        border: 1px solid var(--bd);
+        background: var(--chip);
+        color: var(--ink);
+    }
+    .flash-success {
+        border-color: rgba(6, 95, 70, 0.25);
+        background: rgba(6, 95, 70, 0.09);
+        color: var(--ok);
+    }
+    .flash-error {
+        border-color: rgba(153, 27, 27, 0.2);
+        background: rgba(153, 27, 27, 0.08);
+        color: var(--err);
+    }
+    .flash-info {
+        border-color: rgba(31, 111, 235, 0.2);
+        background: rgba(31, 111, 235, 0.08);
+        color: var(--brand);
+    }
+    .flash-warning {
+        border-color: rgba(146, 64, 14, 0.25);
+        background: rgba(146, 64, 14, 0.1);
+        color: var(--warn);
+    }
+
+    /* Metric cards */
     .metric-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 16px;
-        margin-bottom: 20px;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 18px;
+        margin-bottom: 28px;
     }
     .metric-card {
-        background: var(--bg-panel-alt);
-        border: 1px solid var(--border);
-        border-radius: 14px;
-        padding: 18px;
+        background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+        border: 1px solid var(--bd);
+        border-radius: 16px;
+        padding: 22px;
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 10px;
+        transition: all 0.3s ease;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+    .metric-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+        border-color: rgba(31, 111, 235, 0.3);
     }
     .metric-card .label {
-        font-size: 0.8rem;
         color: var(--muted);
+        font-size: 0.85rem;
+        font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: .04em;
+        letter-spacing: 0.05em;
     }
     .metric-card .value {
-        font-size: 1.4rem;
+        font-size: 2rem;
         font-weight: 700;
+        color: var(--ink);
+        line-height: 1.1;
     }
+
+    /* Filters */
     .filters {
         display: flex;
         flex-wrap: wrap;
         gap: 12px;
-        margin-bottom: 20px;
+        margin-bottom: 24px;
         align-items: center;
+        padding: 20px;
+        background: var(--panel);
+        border: 1px solid var(--bd);
+        border-radius: 14px;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
     }
     .filter-input {
-        padding: 8px 12px;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.04);
-        color: var(--text);
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--bd);
+        background: #fff;
+        color: var(--ink);
         min-width: 180px;
+        font-size: 0.9rem;
+        transition: all 0.2s ease;
+    }
+    .filter-input:focus {
+        border-color: var(--brand);
+        box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.1);
+        outline: none;
     }
     .filter-input::placeholder {
         color: var(--muted);
     }
+    select.filter-input {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        padding-right: 34px;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%236b7280' d='M6 8 0 0h12z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+    }
+
+    /* Buttons */
     .btn {
         display: inline-flex;
         align-items: center;
-        padding: 10px 14px;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.25rem;
+        border: 1px solid var(--bd);
         border-radius: 10px;
-        background: rgba(255, 255, 255, 0.08);
-        color: #fff;
+        background: #fff;
+        color: var(--ink);
         font-weight: 600;
-        text-decoration: none;
-        border: none;
         cursor: pointer;
+        min-height: 44px;
+        transition: all 0.2s ease;
+        text-decoration: none;
+        font-size: 0.95rem;
     }
-    .btn:hover {
-        background: rgba(255, 255, 255, 0.15);
+    .btn:hover:not(:disabled) {
+        background: var(--chip);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
+        text-decoration: none;
     }
     .btn-primary {
-        background: var(--accent);
-        color: #000;
+        background: var(--brand);
+        border-color: var(--brand);
+        color: #fff;
     }
+    .btn-primary:hover:not(:disabled) {
+        box-shadow: 0 4px 12px rgba(31, 111, 235, 0.25);
+        transform: translateY(-1px);
+    }
+
+    /* Invoice table */
     .invoice-table {
         overflow-x: auto;
         border-radius: 16px;
-        border: 1px solid var(--border);
-        background: var(--bg-panel);
+        border: 1px solid var(--bd);
+        background: var(--panel);
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
     }
     table.invoice-list {
         width: 100%;
         border-collapse: collapse;
     }
-    .invoice-list th,
+    .invoice-list thead {
+        background: linear-gradient(180deg, #f9fafb 0%, #f3f4f6 100%);
+        border-bottom: 2px solid var(--bd);
+    }
+    .invoice-list th {
+        padding: 16px 14px;
+        border-bottom: 2px solid var(--bd);
+        text-align: left;
+        font-size: 0.85rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        vertical-align: top;
+        color: var(--ink);
+    }
     .invoice-list td {
-        padding: 14px 12px;
-        border-bottom: 1px solid var(--border);
+        padding: 16px 14px;
+        border-bottom: 1px solid var(--bd);
         text-align: left;
         font-size: 0.92rem;
         vertical-align: top;
+        color: var(--ink);
     }
-    .invoice-list thead {
-        background: rgba(255, 255, 255, 0.03);
-        text-transform: uppercase;
-        letter-spacing: .04em;
-        font-size: 0.75rem;
-        color: var(--muted);
+    .invoice-list tbody tr {
+        transition: background-color 0.15s ease;
+    }
+    .invoice-list tbody tr:last-child td {
+        border-bottom: none;
     }
     .invoice-list tbody tr:hover {
-        background: rgba(74, 125, 255, 0.08);
+        background: rgba(31, 111, 235, 0.06);
     }
+    .invoice-list tbody tr.selected-order {
+        border-left: 4px solid var(--brand);
+        background: rgba(31, 111, 235, 0.12);
+    }
+
+    /* Badges */
     .badge {
         display: inline-flex;
         align-items: center;
-        padding: 4px 10px;
+        padding: 6px 12px;
         border-radius: 999px;
-        font-size: 0.75rem;
+        font-size: 0.8rem;
         font-weight: 600;
-        letter-spacing: .02em;
+        line-height: 1;
+        border: 1px solid;
     }
     .badge-info {
-        background: rgba(74, 125, 255, 0.18);
-        color: #8ea8ff;
+        background: rgba(31, 111, 235, 0.1);
+        border-color: rgba(31, 111, 235, 0.25);
+        color: #1d4ed8;
     }
     .badge-success {
-        background: rgba(110, 231, 183, 0.2);
-        color: #6ee7b7;
+        background: rgba(6, 95, 70, 0.1);
+        border-color: rgba(6, 95, 70, 0.25);
+        color: var(--ok);
     }
     .badge-warning {
-        background: rgba(255, 193, 7, 0.26);
-        color: #ffd54f;
+        background: rgba(146, 64, 14, 0.1);
+        border-color: rgba(146, 64, 14, 0.25);
+        color: var(--warn);
     }
     .badge-neutral {
-        background: rgba(255, 255, 255, 0.08);
+        background: var(--chip);
+        border-color: var(--bd);
         color: var(--muted);
     }
+
+    /* Utility classes */
     .money {
         font-variant-numeric: tabular-nums;
     }
@@ -333,6 +463,7 @@ admin_render_layout_start([
     }
     .amount-stack strong {
         font-size: 0.9rem;
+        color: var(--ink);
     }
     .amount-stack span {
         font-size: 0.8rem;
@@ -343,48 +474,69 @@ admin_render_layout_start([
         padding: 48px 0;
         color: var(--muted);
     }
+
+    /* Pagination */
     .pagination {
         display: flex;
         justify-content: center;
-        gap: 8px;
-        margin-top: 24px;
+        gap: 10px;
+        margin-top: 28px;
         flex-wrap: wrap;
     }
     .pagination a,
     .pagination span {
-        padding: 8px 12px;
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.06);
-        color: var(--text);
-        font-size: 0.85rem;
-        border: 1px solid transparent;
+        padding: 10px 14px;
+        border-radius: 10px;
+        background: var(--chip);
+        color: var(--ink);
+        font-size: 0.9rem;
+        font-weight: 600;
+        border: 1px solid var(--bd);
+        transition: all 0.2s ease;
+        min-width: 42px;
+        text-align: center;
+    }
+    .pagination a:hover {
+        background: var(--brand);
+        border-color: var(--brand);
+        color: #fff;
+        text-decoration: none;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(31, 111, 235, 0.2);
     }
     .pagination span.active {
-        background: var(--accent);
-        color: #000;
-        font-weight: 600;
+        background: var(--brand);
+        border-color: var(--brand);
+        color: #fff;
+        box-shadow: 0 2px 8px rgba(31, 111, 235, 0.2);
     }
-    .flash {
-        padding: 12px 16px;
-        border-radius: 8px;
-        margin-bottom: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-    }
-    .flash-success {
-        background: rgba(0, 255, 136, 0.12);
-        color: #64f0b8;
-    }
-    .flash-error {
-        background: rgba(255, 92, 122, 0.12);
-        color: #ff9db0;
-    }
-    .flash-info {
-        background: rgba(74, 125, 255, 0.12);
-        color: #9ab4ff;
-    }
-    .flash-warning {
-        background: rgba(255, 193, 7, 0.12);
-        color: #ffdf7e;
+
+    /* Responsive */
+    @media (max-width: 640px) {
+        .metric-card {
+            padding: 18px;
+        }
+        .metric-card .value {
+            font-size: 1.75rem;
+        }
+        .filters {
+            flex-direction: column;
+            align-items: stretch;
+            padding: 16px;
+        }
+        .filter-input {
+            width: 100%;
+        }
+        .invoice-list th,
+        .invoice-list td {
+            padding: 12px 10px;
+            font-size: 0.85rem;
+        }
+        .pagination a,
+        .pagination span {
+            padding: 8px 12px;
+            font-size: 0.85rem;
+        }
     }
 </style>
 
@@ -423,6 +575,9 @@ admin_render_layout_start([
 
     <form method="get" class="filters">
         <input type="hidden" name="path" value="admin/invoices">
+        <?php if ($orderFilter > 0): ?>
+            <input type="hidden" name="order_id" value="<?= (int)$orderFilter ?>">
+        <?php endif; ?>
         <input type="text" name="search" placeholder="Search invoice #, customer, phone" value="<?= htmlspecialchars($search, ENT_QUOTES, 'UTF-8') ?>" class="filter-input" style="flex: 1; min-width: 220px;">
         <select name="status" class="filter-input">
             <option value="">All statuses</option>
@@ -447,6 +602,17 @@ admin_render_layout_start([
         <button type="submit" class="btn btn-primary">Filter</button>
         <a href="?path=admin/invoices" class="btn">Clear</a>
     </form>
+
+    <?php if ($orderFilter > 0): ?>
+        <div class="flash flash-info" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <?php if (!empty($invoices)): ?>
+                <span>Showing invoices linked to <?= htmlspecialchars($filteredOrderLabel, ENT_QUOTES, 'UTF-8') ?>.</span>
+            <?php else: ?>
+                <span>No invoices recorded yet for <?= htmlspecialchars($filteredOrderLabel, ENT_QUOTES, 'UTF-8') ?>.</span>
+            <?php endif; ?>
+            <a class="btn btn-primary" href="orders.php?path=admin/orders&amp;search=<?= urlencode($filteredOrderLabel ?? '') ?>">Back to orders</a>
+        </div>
+    <?php endif; ?>
 
     <div class="invoice-table">
         <table class="invoice-list">
@@ -479,7 +645,7 @@ admin_render_layout_start([
                         $status = $invoice['status'] ?? 'draft';
                         $statusClass = $statusBadgeClasses[$status] ?? 'badge-neutral';
                         ?>
-                        <tr>
+                        <tr<?= $orderFilter > 0 && (int)($invoice['order_id'] ?? 0) === $orderFilter ? ' class="selected-order"' : '' ?>>
                             <td>
                                 <strong><?= htmlspecialchars($invoice['invoice_number'] ?? 'Invoice #' . $invoice['id'], ENT_QUOTES, 'UTF-8') ?></strong>
                                 <?php if (!empty($invoice['order_number'])): ?>
