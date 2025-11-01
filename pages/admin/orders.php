@@ -1726,6 +1726,7 @@ admin_render_flashes($flashes);
         font-size: 0.85rem;
         color: var(--muted);
     }
+
     .order-focus-card__grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -2041,9 +2042,9 @@ admin_render_flashes($flashes);
         box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
     }
     .btn-primary {
-        background: var(--brand);
-        border-color: var(--brand);
-        color: #fff;
+        background: blue;
+        border-color: blue;
+        color: #ffffffff;
     }
     .btn-primary:hover:not(:disabled) {
         box-shadow: 0 4px 12px rgba(31, 111, 235, 0.25);
@@ -2443,6 +2444,11 @@ admin_render_flashes($flashes);
             font-size: 0.85rem;
         }
     }
+    #create-order-btn:hover {
+    background-color: #003366; /* dark blue */
+    color: #ffffff; /* white text */
+}
+
 </style>
 
 <section class="card">
@@ -2604,7 +2610,7 @@ admin_render_flashes($flashes);
                     </div>
 
                     <div class="form-field">
-                        <button type="submit" class="btn btn-primary" id="create-order-btn" disabled>Confirm order</button>
+                        <button type="submit" class="btn btn-primary" id="create-order-btn" disabled >Place Order</button>
                         <p class="helper">Order number is assigned automatically.</p>
                         <div class="helper-checklist" id="order-checklist">
                             <span class="helper-title">Before placing the order:</span>

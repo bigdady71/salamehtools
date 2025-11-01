@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mysql -u root:*)",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root -e \"USE salamehtools; SOURCE c:/xampp/htdocs/salamehtools/fix_stock_trigger.sql\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root -e \"USE salamehtools; SHOW TABLES LIKE ''%invoice%'';\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root -e \"SHOW DATABASES;\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
