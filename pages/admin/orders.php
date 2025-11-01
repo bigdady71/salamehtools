@@ -24,6 +24,7 @@ $statusLabels = [
     'delivered' => 'Delivered',
     'cancelled' => 'Cancelled',
     'returned' => 'Returned',
+    'invoice_created' => 'Invoice Created',
 ];
 
 $statusBadgeClasses = [
@@ -35,10 +36,21 @@ $statusBadgeClasses = [
     'delivered' => 'status-success',
     'cancelled' => 'status-danger',
     'returned' => 'status-danger',
+    'invoice_created' => 'status-info',
+];
+
+$invoiceBadgeClasses = [
+    'draft' => 'status-warning',
+    'pending' => 'status-warning',
+    'issued' => 'status-info',
+    'paid' => 'status-success',
+    'voided' => 'status-danger',
+    'none' => 'status-default',
 ];
 
 $invoiceStatusLabels = [
-    'draft' => 'Draft',
+    'draft' => 'Pending',
+    'pending' => 'Pending',
     'issued' => 'Issued',
     'paid' => 'Paid',
     'voided' => 'Voided',
@@ -117,8 +129,10 @@ $latestStatusSql = <<<SQL
     INNER JOIN (
         SELECT order_id, MAX(id) AS max_id
         FROM order_status_events
+        WHERE status <> 'invoice_created'
         GROUP BY order_id
     ) latest ON latest.order_id = ose.order_id AND latest.max_id = ose.id
+    WHERE ose.status <> 'invoice_created'
 SQL;
 
 if (($_GET['ajax'] ?? '') === 'customer_search') {
@@ -300,6 +314,327 @@ function refresh_invoice_ready(PDO $pdo, int $orderId): array
     return $evaluation;
 }
 
+if (!function_exists('record_invoice_status_event')) {
+    /**
+     * Writes an invoice status audit entry when the backing table exists.
+     */
+    function record_invoice_status_event(PDO $pdo, int $invoiceId, string $status, int $actorUserId, ?string $note = null): void
+    {
+        try {
+            $stmt = $pdo->prepare("
+                INSERT INTO invoice_status_events (invoice_id, status, actor_user_id, note, created_at)
+                VALUES (:invoice_id, :status, :actor_user_id, :note, NOW())
+            ");
+            $stmt->execute([
+                ':invoice_id' => $invoiceId,
+                ':status' => $status,
+                ':actor_user_id' => $actorUserId,
+                ':note' => $note,
+            ]);
+        } catch (PDOException $e) {
+            // Some installations might not have the optional audit table yet.
+        }
+    }
+}
+
+/**
+ * Ensures an invoice exists for the order and mirrors the current line items and totals.
+ *
+ * @return array{invoice_id:?int,invoice_number:?string,invoice_status:?string,created:bool,skipped_reasons:array<int,string>}
+ */
+function sync_order_invoice(PDO $pdo, int $orderId, int $actorUserId): array
+{
+    $orderStmt = $pdo->prepare("
+        SELECT id, customer_id, sales_rep_id, total_usd, total_lbp
+        FROM orders
+        WHERE id = :order_id
+        LIMIT 1
+    ");
+    $orderStmt->execute([':order_id' => $orderId]);
+    $order = $orderStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$order) {
+        return [
+            'invoice_id' => null,
+            'invoice_number' => null,
+            'invoice_status' => null,
+            'created' => false,
+            'skipped_reasons' => ['order_missing'],
+        ];
+    }
+
+    $reasons = [];
+    if (empty($order['customer_id'])) {
+        $reasons[] = 'missing_customer';
+    }
+    if (empty($order['sales_rep_id'])) {
+        $reasons[] = 'missing_sales_rep';
+    }
+
+    $itemsStmt = $pdo->prepare("
+        SELECT
+            oi.id AS order_item_id,
+            oi.product_id,
+            oi.quantity,
+            oi.unit_price_usd,
+            oi.unit_price_lbp,
+            COALESCE(p.item_name, CONCAT('Product #', oi.product_id)) AS description
+        FROM order_items oi
+        LEFT JOIN products p ON p.id = oi.product_id
+        WHERE oi.order_id = :order_id
+        ORDER BY oi.id ASC
+    ");
+    $itemsStmt->execute([':order_id' => $orderId]);
+    $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$items) {
+        $reasons[] = 'missing_items';
+    }
+
+    $totalUsd = isset($order['total_usd']) ? (float)$order['total_usd'] : 0.0;
+    $totalLbp = isset($order['total_lbp']) ? (float)$order['total_lbp'] : 0.0;
+    if ($totalUsd <= 0 && $totalLbp <= 0) {
+        $reasons[] = 'zero_total';
+    }
+
+    if ($reasons) {
+        return [
+            'invoice_id' => null,
+            'invoice_number' => null,
+            'invoice_status' => null,
+            'created' => false,
+            'skipped_reasons' => $reasons,
+        ];
+    }
+
+    $invoiceLookup = $pdo->prepare("
+        SELECT id, invoice_number, status
+        FROM invoices
+        WHERE order_id = :order_id
+        ORDER BY id DESC
+        LIMIT 1
+    ");
+    $invoiceLookup->execute([':order_id' => $orderId]);
+    $invoiceRow = $invoiceLookup->fetch(PDO::FETCH_ASSOC);
+
+    $invoiceId = null;
+    $invoiceNumber = null;
+    $invoiceStatus = null;
+    $newInvoiceCreated = false;
+
+    if ($invoiceRow) {
+        $invoiceId = (int)$invoiceRow['id'];
+        $invoiceNumber = (string)$invoiceRow['invoice_number'];
+        $invoiceStatus = (string)$invoiceRow['status'];
+
+        $updateInvoice = $pdo->prepare("
+            UPDATE invoices
+            SET sales_rep_id = :sales_rep_id,
+                total_usd = :total_usd,
+                total_lbp = :total_lbp
+            WHERE id = :id
+        ");
+        $updateInvoice->execute([
+            ':sales_rep_id' => $order['sales_rep_id'] !== null ? (int)$order['sales_rep_id'] : null,
+            ':total_usd' => $totalUsd,
+            ':total_lbp' => $totalLbp,
+            ':id' => $invoiceId,
+        ]);
+
+        $pdo->prepare("DELETE FROM invoice_items WHERE invoice_id = :invoice_id")
+            ->execute([':invoice_id' => $invoiceId]);
+    } else {
+        $placeholder = str_replace('.', '', uniqid('INV-TMP-', true));
+        $insertInvoice = $pdo->prepare("
+            INSERT INTO invoices (invoice_number, order_id, sales_rep_id, status, total_usd, total_lbp)
+            VALUES (:invoice_number, :order_id, :sales_rep_id, 'draft', :total_usd, :total_lbp)
+        ");
+        $insertInvoice->execute([
+            ':invoice_number' => $placeholder,
+            ':order_id' => $orderId,
+            ':sales_rep_id' => $order['sales_rep_id'] !== null ? (int)$order['sales_rep_id'] : null,
+            ':total_usd' => $totalUsd,
+            ':total_lbp' => $totalLbp,
+        ]);
+
+        $invoiceId = (int)$pdo->lastInsertId();
+        $invoiceNumber = sprintf('INV-%06d', $invoiceId);
+        $invoiceStatus = 'draft';
+        $newInvoiceCreated = true;
+
+        $pdo->prepare("UPDATE invoices SET invoice_number = :invoice_number WHERE id = :id")
+            ->execute([
+                ':invoice_number' => $invoiceNumber,
+                ':id' => $invoiceId,
+            ]);
+
+        record_invoice_status_event($pdo, $invoiceId, 'draft', $actorUserId, 'Invoice auto-created from order workflow.');
+    }
+
+    if ($invoiceId !== null) {
+        $invoiceItemStmt = $pdo->prepare("
+            INSERT INTO invoice_items (invoice_id, order_item_id, product_id, description, quantity, unit_price_usd, unit_price_lbp, discount_percent)
+            VALUES (:invoice_id, :order_item_id, :product_id, :description, :quantity, :unit_price_usd, :unit_price_lbp, 0.00)
+        ");
+
+        foreach ($items as $item) {
+            $quantity = (int)round((float)($item['quantity'] ?? 0));
+            $quantity = max(1, $quantity);
+
+            $invoiceItemStmt->execute([
+                ':invoice_id' => $invoiceId,
+                ':order_item_id' => (int)$item['order_item_id'],
+                ':product_id' => (int)$item['product_id'],
+                ':description' => $item['description'],
+                ':quantity' => $quantity,
+                ':unit_price_usd' => round((float)($item['unit_price_usd'] ?? 0), 2),
+                ':unit_price_lbp' => $item['unit_price_lbp'] !== null ? round((float)$item['unit_price_lbp'], 2) : null,
+            ]);
+        }
+    }
+
+    return [
+        'invoice_id' => $invoiceId,
+        'invoice_number' => $invoiceNumber,
+        'invoice_status' => $invoiceStatus,
+        'created' => $newInvoiceCreated,
+        'skipped_reasons' => [],
+    ];
+}
+
+/**
+ * Promotes draft invoices to issued when the order advances to a fulfilment stage.
+ *
+ * @return array{invoice_id:int,invoice_number:string}|null
+ */
+function auto_promote_invoice_if_ready(PDO $pdo, int $orderId, string $newStatus, int $actorUserId): ?array
+{
+    $promoteStatuses = ['approved', 'preparing', 'ready'];
+    if (!in_array($newStatus, $promoteStatuses, true)) {
+        return null;
+    }
+
+    $invoiceStmt = $pdo->prepare("
+        SELECT id, invoice_number, status
+        FROM invoices
+        WHERE order_id = :order_id
+        ORDER BY id DESC
+        LIMIT 1
+    ");
+    $invoiceStmt->execute([':order_id' => $orderId]);
+    $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$invoice || (string)$invoice['status'] !== 'draft') {
+        return null;
+    }
+
+    $orderStmt = $pdo->prepare("
+        SELECT customer_id, sales_rep_id, total_usd, total_lbp
+        FROM orders
+        WHERE id = :order_id
+        LIMIT 1
+    ");
+    $orderStmt->execute([':order_id' => $orderId]);
+    $order = $orderStmt->fetch(PDO::FETCH_ASSOC);
+    if (
+        !$order ||
+        empty($order['customer_id']) ||
+        empty($order['sales_rep_id'])
+    ) {
+        return null;
+    }
+
+    $totalUsd = isset($order['total_usd']) ? (float)$order['total_usd'] : 0.0;
+    $totalLbp = isset($order['total_lbp']) ? (float)$order['total_lbp'] : 0.0;
+    if ($totalUsd <= 0 && $totalLbp <= 0) {
+        return null;
+    }
+
+    $update = $pdo->prepare("
+        UPDATE invoices
+        SET status = 'issued',
+            issued_at = NOW()
+        WHERE id = :id
+    ");
+    $update->execute([':id' => (int)$invoice['id']]);
+
+    record_invoice_status_event(
+        $pdo,
+        (int)$invoice['id'],
+        'issued',
+        $actorUserId,
+        'Invoice issued automatically when order advanced.'
+    );
+
+    return [
+        'invoice_id' => (int)$invoice['id'],
+        'invoice_number' => (string)$invoice['invoice_number'],
+    ];
+}
+
+function describe_invoice_reasons(array $reasons): string
+{
+    if (empty($reasons)) {
+        return '';
+    }
+
+    $labels = [
+        'order_missing' => 'order not found',
+        'missing_customer' => 'missing customer',
+        'missing_sales_rep' => 'missing sales rep',
+        'missing_items' => 'no order items',
+        'zero_total' => 'order total is zero',
+    ];
+
+    $parts = [];
+    foreach ($reasons as $reason) {
+        $parts[] = $labels[$reason] ?? $reason;
+    }
+
+    return implode(', ', $parts);
+}
+
+function fetch_order_summary(PDO $pdo, int $orderId): ?array
+{
+    global $latestStatusSql;
+
+    $stmt = $pdo->prepare("
+        SELECT
+            o.id,
+            o.order_number,
+            o.updated_at,
+            latest.status AS order_status,
+            latest.created_at AS order_status_changed_at,
+            (
+                SELECT i.id
+                FROM invoices i
+                WHERE i.order_id = o.id
+                ORDER BY i.id DESC
+                LIMIT 1
+            ) AS invoice_id,
+            (
+                SELECT i.invoice_number
+                FROM invoices i
+                WHERE i.order_id = o.id
+                ORDER BY i.id DESC
+                LIMIT 1
+            ) AS invoice_number,
+            (
+                SELECT i.status
+                FROM invoices i
+                WHERE i.order_id = o.id
+                ORDER BY i.id DESC
+                LIMIT 1
+            ) AS invoice_status
+        FROM orders o
+        LEFT JOIN ({$latestStatusSql}) latest ON latest.order_id = o.id
+        WHERE o.id = :order_id
+        LIMIT 1
+    ");
+    $stmt->execute([':order_id' => $orderId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row ?: null;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -416,7 +751,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $productId = isset($item['product_id']) ? (int)$item['product_id'] : 0;
-            $quantity = isset($item['quantity']) ? (float)$item['quantity'] : 0.0;
+            $quantityValue = isset($item['quantity']) ? (float)$item['quantity'] : 0.0;
+            $quantity = (int)floor($quantityValue);
             $unitPriceUsd = isset($item['unit_price_usd']) && $item['unit_price_usd'] !== '' ? (float)$item['unit_price_usd'] : 0.0;
             $unitPriceLbp = isset($item['unit_price_lbp']) && $item['unit_price_lbp'] !== '' ? (float)$item['unit_price_lbp'] : null;
 
@@ -684,8 +1020,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 VALUES (:order_id, :product_id, :quantity, :unit_price_usd, :unit_price_lbp, 0.00)
             ");
 
-            $orderItemsForInvoice = [];
-
             foreach ($sanitizedItems as $item) {
                 $unitPriceUsd = round($item['unit_price_usd'], 2);
                 $unitPriceLbp = $item['unit_price_lbp'] !== null ? round($item['unit_price_lbp'], 2) : null;
@@ -697,59 +1031,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ':unit_price_usd' => $unitPriceUsd,
                     ':unit_price_lbp' => $unitPriceLbp,
                 ]);
-
-                $orderItemsForInvoice[] = [
-                    'order_item_id' => (int)$pdo->lastInsertId(),
-                    'product_id' => $item['product_id'],
-                    'description' => $productsMap[$item['product_id']]['name'] ?? null,
-                    'quantity' => $item['quantity'],
-                    'unit_price_usd' => $unitPriceUsd,
-                    'unit_price_lbp' => $unitPriceLbp,
-                ];
             }
 
-            $invoicePlaceholder = str_replace('.', '', uniqid('INV-TMP-', true));
-            $invoiceStmt = $pdo->prepare("
-                INSERT INTO invoices (invoice_number, order_id, sales_rep_id, status, total_usd, total_lbp)
-                VALUES (:invoice_number, :order_id, :sales_rep_id, :status, :total_usd, :total_lbp)
-            ");
-            $invoiceStmt->execute([
-                ':invoice_number' => $invoicePlaceholder,
-                ':order_id' => $orderId,
-                ':sales_rep_id' => $salesRepId,
-                ':status' => 'draft',
-                ':total_usd' => $totalUsd,
-                ':total_lbp' => $totalLbp,
-            ]);
-
-            $invoiceId = (int)$pdo->lastInsertId();
-            $invoiceNumber = sprintf('INV-%06d', $invoiceId);
-
-            $pdo->prepare("
-                UPDATE invoices SET invoice_number = :invoice_number WHERE id = :id
-            ")->execute([
-                ':invoice_number' => $invoiceNumber,
-                ':id' => $invoiceId,
-            ]);
-
-            if ($orderItemsForInvoice) {
-                $invoiceItemStmt = $pdo->prepare("
-                    INSERT INTO invoice_items (invoice_id, order_item_id, product_id, description, quantity, unit_price_usd, unit_price_lbp, discount_percent)
-                    VALUES (:invoice_id, :order_item_id, :product_id, :description, :quantity, :unit_price_usd, :unit_price_lbp, 0.00)
-                ");
-
-                foreach ($orderItemsForInvoice as $invoiceItem) {
-                    $invoiceItemStmt->execute([
-                        ':invoice_id' => $invoiceId,
-                        ':order_item_id' => $invoiceItem['order_item_id'] > 0 ? $invoiceItem['order_item_id'] : null,
-                        ':product_id' => $invoiceItem['product_id'],
-                        ':description' => $invoiceItem['description'],
-                        ':quantity' => $invoiceItem['quantity'],
-                        ':unit_price_usd' => $invoiceItem['unit_price_usd'],
-                        ':unit_price_lbp' => $invoiceItem['unit_price_lbp'],
-                    ]);
-                }
-            }
+            $invoiceSync = sync_order_invoice($pdo, $orderId, (int)$user['id']);
+            $invoiceId = $invoiceSync['invoice_id'];
+            $invoiceNumber = $invoiceSync['invoice_number'];
+            $invoiceStatus = $invoiceSync['invoice_status'];
+            $newInvoiceCreated = (bool)$invoiceSync['created'];
+            $invoiceSkippedReasons = $invoiceSync['skipped_reasons'];
 
             $statusStmt = $pdo->prepare("
                 INSERT INTO order_status_events (order_id, status, actor_user_id, note)
@@ -762,10 +1051,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ':note' => $statusNote !== '' ? $statusNote : null,
             ]);
 
+            if ($newInvoiceCreated && $invoiceId !== null && empty($invoiceSkippedReasons)) {
+                $invoiceLogStmt = $pdo->prepare("
+                    INSERT INTO order_status_events (order_id, status, actor_user_id, note)
+                    VALUES (:order_id, :status, :actor_user_id, :note)
+                ");
+                $invoiceLogStmt->execute([
+                    ':order_id' => $orderId,
+                    ':status' => 'invoice_created',
+                    ':actor_user_id' => (int)$user['id'],
+                    ':note' => $invoiceNumber
+                        ? ('Invoice ' . $invoiceNumber . ' auto-created when the order was saved.')
+                        : 'Invoice auto-created when the order was saved.',
+                ]);
+            }
+
             refresh_invoice_ready($pdo, $orderId);
 
             $pdo->commit();
-            flash('success', 'Order created successfully and draft invoice prepared.');
+
+            $flashLines = [];
+            if (!empty($invoiceSkippedReasons)) {
+                $flashLines[] = 'Invoice not created because: ' . describe_invoice_reasons($invoiceSkippedReasons) . '.';
+            } elseif ($invoiceNumber) {
+                $invoiceLabel = $invoiceStatusLabels[$invoiceStatus] ?? ucwords(str_replace('_', ' ', (string)$invoiceStatus));
+                if ($newInvoiceCreated) {
+                    $flashLines[] = sprintf('Invoice #%s was created for this order.', $invoiceNumber);
+                } else {
+                    $flashLines[] = sprintf('Invoice #%s is up to date for this order.', $invoiceNumber);
+                }
+                $flashLines[] = sprintf('Invoice status: %s.', $invoiceLabel);
+            }
+
+            $flashLines[] = sprintf(
+                'Current order status: %s.',
+                $statusLabels[$initialStatus] ?? ucwords(str_replace('_', ' ', $initialStatus))
+            );
+
+            flash('success', '', [
+                'title' => sprintf('Order %s saved', $orderNumber),
+                'lines' => $flashLines,
+                'dismissible' => true,
+            ]);
+
+            $_SESSION['order_focus_after_redirect'] = [
+                'order_id' => $orderId,
+                'invoice_id' => $invoiceId,
+                'invoice_number' => $invoiceNumber,
+                'invoice_status' => $invoiceStatus,
+                'invoice_skipped_reasons' => $invoiceSkippedReasons ?? [],
+            ];
         } catch (RuntimeException $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -776,6 +1111,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->rollBack();
             }
             flash('error', 'Failed to create order.');
+        }
+
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+
+    if ($action === 'create_invoice_from_order') {
+        $orderId = (int)($_POST['order_id'] ?? 0);
+
+        if ($orderId > 0) {
+            try {
+                $pdo->beginTransaction();
+
+                $invoiceSync = sync_order_invoice($pdo, $orderId, (int)$user['id']);
+                refresh_invoice_ready($pdo, $orderId);
+
+                $pdo->commit();
+
+                $summary = fetch_order_summary($pdo, $orderId);
+                $orderNumberLabel = $summary['order_number'] ?? sprintf('ORD-%06d', $orderId);
+                $currentStatus = $summary['order_status'] ?? null;
+                $invoiceId = $invoiceSync['invoice_id'] ?? ($summary['invoice_id'] ?? null);
+                $invoiceNumber = $invoiceSync['invoice_number'] ?? ($summary['invoice_number'] ?? null);
+                $invoiceStatus = $invoiceSync['invoice_status'] ?? ($summary['invoice_status'] ?? null);
+                $invoiceReasons = $invoiceSync['skipped_reasons'] ?? [];
+
+                $flashLines = [];
+                if (!empty($invoiceReasons)) {
+                    $flashLines[] = 'Invoice not created because: ' . describe_invoice_reasons($invoiceReasons) . '.';
+                } elseif ($invoiceNumber) {
+                    $invoiceLabel = $invoiceStatusLabels[$invoiceStatus] ?? ucwords(str_replace('_', ' ', (string)$invoiceStatus));
+                    if (!empty($invoiceSync['created'])) {
+                        $flashLines[] = sprintf('Invoice #%s was created for this order.', $invoiceNumber);
+                    } else {
+                        $flashLines[] = sprintf('Invoice #%s already existed and is synced.', $invoiceNumber);
+                    }
+                    $flashLines[] = sprintf('Invoice status: %s.', $invoiceLabel);
+                } else {
+                    $flashLines[] = 'Invoice not found for this order.';
+                }
+
+                $flashLines[] = sprintf(
+                    'Current order status: %s.',
+                    $statusLabels[$currentStatus] ?? ($currentStatus ? ucwords(str_replace('_', ' ', (string)$currentStatus)) : '—')
+                );
+
+                flash('success', '', [
+                    'title' => sprintf('Order %s updated', $orderNumberLabel),
+                    'lines' => $flashLines,
+                    'dismissible' => true,
+                ]);
+
+                $_SESSION['order_focus_after_redirect'] = [
+                    'order_id' => $orderId,
+                    'invoice_id' => $invoiceId,
+                    'invoice_number' => $invoiceNumber,
+                    'invoice_status' => $invoiceStatus,
+                    'invoice_skipped_reasons' => $invoiceReasons,
+                ];
+            } catch (PDOException $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                flash('error', 'Failed to create invoice from this order.');
+            }
+        } else {
+            flash('error', 'Invalid order id for invoice creation.');
         }
 
         header('Location: ' . $_SERVER['REQUEST_URI']);
@@ -805,12 +1207,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("UPDATE orders SET updated_at = NOW() WHERE id = :id")
                     ->execute([':id' => $orderId]);
 
+                $invoiceSync = sync_order_invoice($pdo, $orderId, (int)$user['id']);
+                $promotion = auto_promote_invoice_if_ready($pdo, $orderId, $newStatus, (int)$user['id']);
+                if ($promotion !== null) {
+                    $invoiceSync['invoice_id'] = $promotion['invoice_id'];
+                    $invoiceSync['invoice_number'] = $promotion['invoice_number'];
+                    $invoiceSync['invoice_status'] = 'issued';
+                }
+
                 refresh_invoice_ready($pdo, $orderId);
 
                 $pdo->commit();
-                flash('success', 'Order status updated.');
+
+                $summary = fetch_order_summary($pdo, $orderId);
+                $orderNumberLabel = $summary['order_number'] ?? sprintf('ORD-%06d', $orderId);
+                $currentStatus = $summary['order_status'] ?? $newStatus;
+                $invoiceId = $invoiceSync['invoice_id'] ?? ($summary['invoice_id'] ?? null);
+                $invoiceNumber = $invoiceSync['invoice_number'] ?? ($summary['invoice_number'] ?? null);
+                $invoiceStatus = $invoiceSync['invoice_status'] ?? ($summary['invoice_status'] ?? null);
+                $invoiceReasons = $invoiceSync['skipped_reasons'] ?? [];
+
+                $flashLines = [];
+
+                if (!empty($invoiceReasons)) {
+                    $flashLines[] = 'Invoice not created because: ' . describe_invoice_reasons($invoiceReasons) . '.';
+                } elseif ($invoiceNumber) {
+                    if (!empty($promotion)) {
+                        $flashLines[] = sprintf('Invoice #%s was marked as Issued automatically.', $invoiceNumber);
+                    } elseif (!empty($invoiceSync['created'])) {
+                        $flashLines[] = sprintf('Invoice #%s was created for this order.', $invoiceNumber);
+                    } else {
+                        $flashLines[] = sprintf('Invoice #%s is synced with this update.', $invoiceNumber);
+                    }
+
+                    if ($invoiceStatus) {
+                        $invoiceLabel = $invoiceStatusLabels[$invoiceStatus] ?? ucwords(str_replace('_', ' ', (string)$invoiceStatus));
+                        $flashLines[] = sprintf('Invoice status: %s.', $invoiceLabel);
+                    }
+                }
+
+                $flashLines[] = sprintf(
+                    'Current order status: %s.',
+                    $statusLabels[$currentStatus] ?? ucwords(str_replace('_', ' ', (string)$currentStatus))
+                );
+
+                flash('success', '', [
+                    'title' => sprintf('Order %s updated', $orderNumberLabel),
+                    'lines' => $flashLines,
+                    'dismissible' => true,
+                ]);
+
+                $_SESSION['order_focus_after_redirect'] = [
+                    'order_id' => $orderId,
+                    'invoice_id' => $invoiceId,
+                    'invoice_number' => $invoiceNumber,
+                    'invoice_status' => $invoiceStatus,
+                    'invoice_skipped_reasons' => $invoiceReasons,
+                ];
             } catch (PDOException $e) {
-                $pdo->rollBack();
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
                 flash('error', 'Failed to update order status.');
             }
         } else {
@@ -834,22 +1291,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($orderId > 0) {
+            $repName = null;
             if ($repId !== null) {
-                $checkStmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE id = :id AND role = 'sales_rep'");
+                $checkStmt = $pdo->prepare("SELECT name FROM users WHERE id = :id AND role = 'sales_rep'");
                 $checkStmt->execute([':id' => $repId]);
-                if ((int)$checkStmt->fetchColumn() === 0) {
+                $repRecord = $checkStmt->fetch(PDO::FETCH_ASSOC);
+                if (!$repRecord) {
                     flash('error', 'Sales rep not found.');
                     header('Location: ' . $_SERVER['REQUEST_URI']);
                     exit;
                 }
+                $repName = trim((string)$repRecord['name']);
             }
 
             try {
+                $pdo->beginTransaction();
+
                 $pdo->prepare("UPDATE orders SET sales_rep_id = :rep_id, updated_at = NOW() WHERE id = :id")
                     ->execute([':rep_id' => $repId, ':id' => $orderId]);
+
+                $invoiceSync = sync_order_invoice($pdo, $orderId, (int)$user['id']);
                 refresh_invoice_ready($pdo, $orderId);
-                flash('success', 'Sales rep updated for order.');
+
+                $pdo->commit();
+
+                $summary = fetch_order_summary($pdo, $orderId);
+                $orderNumberLabel = $summary['order_number'] ?? sprintf('ORD-%06d', $orderId);
+                $currentStatus = $summary['order_status'] ?? null;
+                $invoiceId = $invoiceSync['invoice_id'] ?? ($summary['invoice_id'] ?? null);
+                $invoiceNumber = $invoiceSync['invoice_number'] ?? ($summary['invoice_number'] ?? null);
+                $invoiceStatus = $invoiceSync['invoice_status'] ?? ($summary['invoice_status'] ?? null);
+                $invoiceReasons = $invoiceSync['skipped_reasons'] ?? [];
+
+                $flashLines = [];
+                $flashLines[] = $repName !== null
+                    ? sprintf('Sales representative assigned: %s.', $repName)
+                    : 'Sales representative cleared.';
+
+                if (!empty($invoiceReasons)) {
+                    $flashLines[] = 'Invoice not created because: ' . describe_invoice_reasons($invoiceReasons) . '.';
+                } elseif ($invoiceNumber) {
+                    $invoiceLabel = $invoiceStatusLabels[$invoiceStatus] ?? ucwords(str_replace('_', ' ', (string)$invoiceStatus));
+                    if (!empty($invoiceSync['created'])) {
+                        $flashLines[] = sprintf('Invoice #%s was created for this order.', $invoiceNumber);
+                    } else {
+                        $flashLines[] = sprintf('Invoice #%s now reflects the latest totals.', $invoiceNumber);
+                    }
+                    $flashLines[] = sprintf('Invoice status: %s.', $invoiceLabel);
+                }
+
+                $flashLines[] = sprintf(
+                    'Current order status: %s.',
+                    $statusLabels[$currentStatus] ?? ($currentStatus ? ucwords(str_replace('_', ' ', (string)$currentStatus)) : '—')
+                );
+
+                flash('success', '', [
+                    'title' => sprintf('Order %s updated', $orderNumberLabel),
+                    'lines' => $flashLines,
+                    'dismissible' => true,
+                ]);
+
+                $_SESSION['order_focus_after_redirect'] = [
+                    'order_id' => $orderId,
+                    'invoice_id' => $invoiceId,
+                    'invoice_number' => $invoiceNumber,
+                    'invoice_status' => $invoiceStatus,
+                    'invoice_skipped_reasons' => $invoiceReasons,
+                ];
             } catch (PDOException $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
                 flash('error', 'Failed to reassign sales rep.');
             }
         } else {
@@ -1074,6 +1586,48 @@ $deliveredThisWeekStmt = $pdo->query("
 ");
 $deliveredThisWeek = (int)$deliveredThisWeekStmt->fetchColumn();
 
+$orderFocusData = null;
+if (!empty($_SESSION['order_focus_after_redirect']) && is_array($_SESSION['order_focus_after_redirect'])) {
+    $focusPayload = $_SESSION['order_focus_after_redirect'];
+    unset($_SESSION['order_focus_after_redirect']);
+
+    $focusOrderId = (int)($focusPayload['order_id'] ?? 0);
+    if ($focusOrderId > 0) {
+        $summary = fetch_order_summary($pdo, $focusOrderId);
+        if ($summary) {
+            $orderStatusKey = $summary['order_status'] ?? null;
+            $orderStatusLabel = $orderStatusKey
+                ? ($statusLabels[$orderStatusKey] ?? ucwords(str_replace('_', ' ', (string)$orderStatusKey)))
+                : '—';
+            $invoiceId = $summary['invoice_id'] ?? null;
+            $invoiceNumber = $summary['invoice_number'] ?? null;
+            $invoiceStatusKey = $summary['invoice_status'] ?? null;
+            $invoiceStatusLabel = $invoiceStatusKey
+                ? ($invoiceStatusLabels[$invoiceStatusKey] ?? ucwords(str_replace('_', ' ', (string)$invoiceStatusKey)))
+                : '—';
+            $lastUpdateSource = $summary['order_status_changed_at'] ?? $summary['updated_at'] ?? null;
+            $lastUpdateFormatted = $lastUpdateSource ? date('Y-m-d H:i', strtotime($lastUpdateSource)) : null;
+
+            $focusReasons = $focusPayload['invoice_skipped_reasons'] ?? [];
+            if (!is_array($focusReasons)) {
+                $focusReasons = $focusReasons ? [$focusReasons] : [];
+            }
+
+            $orderFocusData = [
+                'order_id' => (int)$summary['id'],
+                'order_number' => $summary['order_number'] ?? sprintf('ORD-%06d', (int)$summary['id']),
+                'order_status_label' => $orderStatusLabel,
+                'invoice_id' => $invoiceId ? (int)$invoiceId : null,
+                'invoice_number' => $invoiceNumber ?: null,
+                'invoice_status_label' => $invoiceStatusLabel,
+                'last_update' => $lastUpdateFormatted,
+                'invoice_reasons_text' => $focusReasons ? describe_invoice_reasons($focusReasons) : '',
+                'invoice_has_reasons' => !empty($focusReasons),
+            ];
+        }
+    }
+}
+
 $flashes = consume_flashes();
 
 admin_render_layout_start([
@@ -1083,32 +1637,150 @@ admin_render_layout_start([
     'active' => 'orders',
     'user' => $user,
 ]);
+
+admin_render_flashes($flashes);
 ?>
 
+<?php if ($orderFocusData): ?>
+    <section class="order-focus-card card">
+        <div class="order-focus-card__content">
+            <header class="order-focus-card__header">
+                <div>
+                    <span class="order-focus-card__eyebrow">Recently updated</span>
+                    <h2 class="order-focus-card__title"><?= htmlspecialchars($orderFocusData['order_number'], ENT_QUOTES, 'UTF-8') ?></h2>
+                </div>
+                <?php if ($orderFocusData['last_update']): ?>
+                    <div class="order-focus-card__stamp">Last update <?= htmlspecialchars($orderFocusData['last_update'], ENT_QUOTES, 'UTF-8') ?></div>
+                <?php endif; ?>
+            </header>
+            <div class="order-focus-card__grid">
+                <div>
+                    <span class="order-focus-card__label">Order status</span>
+                    <span class="order-focus-card__value"><?= htmlspecialchars($orderFocusData['order_status_label'], ENT_QUOTES, 'UTF-8') ?></span>
+                </div>
+                <div>
+                    <span class="order-focus-card__label">Invoice status</span>
+                    <span class="order-focus-card__value"><?= htmlspecialchars($orderFocusData['invoice_status_label'], ENT_QUOTES, 'UTF-8') ?></span>
+                </div>
+                <div>
+                    <span class="order-focus-card__label">Invoice number</span>
+                    <span class="order-focus-card__value"><?= $orderFocusData['invoice_number'] ? htmlspecialchars($orderFocusData['invoice_number'], ENT_QUOTES, 'UTF-8') : '—' ?></span>
+                </div>
+            </div>
+            <?php if ($orderFocusData['invoice_has_reasons'] && $orderFocusData['invoice_reasons_text'] !== ''): ?>
+                <p class="order-focus-card__notice">
+                    Invoice not created because: <?= htmlspecialchars($orderFocusData['invoice_reasons_text'], ENT_QUOTES, 'UTF-8') ?>.
+                </p>
+            <?php endif; ?>
+        </div>
+        <div class="order-focus-card__actions">
+            <?php if ($orderFocusData['invoice_id']): ?>
+                <a class="btn btn-primary" href="invoices.php?id=<?= (int)$orderFocusData['invoice_id'] ?>">Open invoice</a>
+            <?php endif; ?>
+            <?php if (!$orderFocusData['invoice_id'] || $orderFocusData['invoice_has_reasons']): ?>
+                <form method="post" class="order-focus-card__form">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="create_invoice_from_order">
+                    <input type="hidden" name="order_id" value="<?= (int)$orderFocusData['order_id'] ?>">
+                    <button type="submit" class="btn">Create invoice from this order</button>
+                </form>
+            <?php endif; ?>
+        </div>
+    </section>
+<?php endif; ?>
+
 <style>
-    .flash {
-        padding: 12px 16px;
+    .order-focus-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: stretch;
+        gap: 24px;
+        margin-bottom: 28px;
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-card);
+    }
+    .order-focus-card__content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+    .order-focus-card__header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+    .order-focus-card__eyebrow {
+        font-size: 0.75rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+    .order-focus-card__title {
+        margin: 4px 0 0;
+        font-size: 1.4rem;
+    }
+    .order-focus-card__stamp {
+        font-size: 0.85rem;
+        color: var(--muted);
+    }
+    .order-focus-card__grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 18px;
+    }
+    .order-focus-card__label {
+        display: block;
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 4px;
+    }
+    .order-focus-card__value {
+        font-size: 1.05rem;
+        font-weight: 600;
+    }
+    .order-focus-card__notice {
+        margin: 0;
+        padding: 12px;
         border-radius: 8px;
-        margin-bottom: 16px;
+        background: rgba(250, 204, 21, 0.15);
+        color: #92400e;
         font-size: 0.9rem;
-        border: 1px solid var(--bd);
-        background: var(--chip);
-        color: var(--ink);
     }
-    .flash-success {
-        border-color: rgba(6, 95, 70, 0.25);
-        background: rgba(6, 95, 70, 0.09);
-        color: var(--ok);
+    .order-focus-card__actions {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-width: 200px;
     }
-    .flash-error {
-        border-color: rgba(153, 27, 27, 0.2);
-        background: rgba(153, 27, 27, 0.08);
-        color: var(--err);
+    .order-focus-card__form {
+        margin: 0;
     }
-    .flash-info {
-        border-color: rgba(31, 111, 235, 0.2);
-        background: rgba(31, 111, 235, 0.08);
-        color: var(--brand);
+    .invoice-note {
+        display: block;
+        color: var(--muted);
+        font-size: 0.78rem;
+        margin-top: 6px;
+    }
+    .invoice-note--positive {
+        color: var(--ok, #047857);
+    }
+    @media (max-width: 720px) {
+        .order-focus-card {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .order-focus-card__actions {
+            width: 100%;
+        }
+        .order-focus-card__actions .btn {
+            width: 100%;
+            justify-content: center;
+        }
     }
     .metric-grid {
         display: grid;
@@ -1423,7 +2095,7 @@ admin_render_layout_start([
         box-shadow: 0 18px 30px rgba(15, 23, 42, 0.18);
         max-height: 260px;
         overflow-y: auto;
-        z-index: 20;
+        z-index: 40;
     }
     .suggestion-item {
         padding: 10px 14px;
@@ -1440,6 +2112,16 @@ admin_render_layout_start([
         font-size: 0.78rem;
         color: var(--muted);
     }
+    .suggestion-item .suggestion-meta {
+        font-weight: 600;
+        color: var(--ink);
+    }
+    .suggestion-item .suggestion-meta.is-out {
+        color: var(--err, #dc2626);
+    }
+    #existing-customer-fields {
+        position: relative;
+    }
     .suggestion-item:hover,
     .suggestion-item.active {
         background: rgba(31, 111, 235, 0.08);
@@ -1451,6 +2133,15 @@ admin_render_layout_start([
         display: flex;
         flex-direction: column;
         gap: 12px;
+    }
+    .order-items-helper {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.85rem;
+    }
+    .order-items-table td.stock-out {
+        color: var(--err, #dc2626);
+        font-weight: 600;
     }
     .order-items-search {
         position: relative;
@@ -1754,12 +2445,6 @@ admin_render_layout_start([
     }
 </style>
 
-<?php foreach ($flashes as $flash): ?>
-    <div class="flash flash-<?= htmlspecialchars($flash['type'], ENT_QUOTES, 'UTF-8') ?>">
-        <?= htmlspecialchars($flash['message'], ENT_QUOTES, 'UTF-8') ?>
-    </div>
-<?php endforeach; ?>
-
 <section class="card">
     <div class="metric-grid">
         <div class="metric-card">
@@ -1847,21 +2532,24 @@ admin_render_layout_start([
                                 <table class="order-items-table">
                                     <thead>
                                         <tr>
-                                            <th scope="col" style="width: 34%;">Product</th>
+                                            <th scope="col" style="width: 28%;">Product</th>
                                             <th scope="col" style="width: 12%;">SKU / Unit</th>
+                                            <th scope="col" style="width: 10%;">Stock</th>
                                             <th scope="col" style="width: 12%;">Qty</th>
                                             <th scope="col" style="width: 14%;">Unit USD</th>
-                                            <th scope="col" style="width: 14%;">Unit LBP</th>
-                                            <th scope="col" style="width: 14%;">Line Total</th>
+                                            <th scope="col" style="width: 12%;">Unit LBP</th>
+                                            <th scope="col" style="width: 12%;">Line Total</th>
                                         </tr>
                                     </thead>
                                     <tbody id="order-items-body">
                                         <tr class="order-items-empty">
-                                            <td colspan="6">Search for a product to add it to the order.</td>
+                                            <td colspan="7">Search for a product to add it to the order.</td>
                                         </tr>
                                     </tbody>
                                 </table>
                             </div>
+                            <p class="helper order-items-helper">Quantities are whole units. For fractional items, contact warehouse.</p>
+                            <p class="helper order-items-helper">Quantities will be reflected in the invoice automatically.</p>
                         </div>
                     </div>
 
@@ -1916,7 +2604,7 @@ admin_render_layout_start([
                     </div>
 
                     <div class="form-field">
-                        <button type="submit" class="btn btn-primary" id="create-order-btn" disabled>Place order</button>
+                        <button type="submit" class="btn btn-primary" id="create-order-btn" disabled>Confirm order</button>
                         <p class="helper">Order number is assigned automatically.</p>
                         <div class="helper-checklist" id="order-checklist">
                             <span class="helper-title">Before placing the order:</span>
@@ -2093,6 +2781,33 @@ admin_render_layout_start([
                             option.appendChild(priceSpan);
                         }
 
+                        if (item.quantity_on_hand !== undefined && item.quantity_on_hand !== null) {
+                            const stockSpan = document.createElement('span');
+                            const numeric = Number(item.quantity_on_hand);
+                            let label = '';
+                            let isOut = false;
+                            if (Number.isFinite(numeric)) {
+                                if (numeric <= 0) {
+                                    label = 'Stock: Out';
+                                    isOut = true;
+                                } else if (numeric >= 1000) {
+                                    label = 'Stock: ' + Math.round(numeric).toLocaleString();
+                                } else if (numeric >= 10) {
+                                    label = 'Stock: ' + Math.round(numeric);
+                                } else {
+                                    label = 'Stock: ' + numeric.toFixed(2).replace(/\.00$/, '');
+                                }
+                            } else {
+                                label = 'Stock: —';
+                            }
+                            stockSpan.textContent = label;
+                            stockSpan.className = 'suggestion-meta';
+                            if (isOut) {
+                                stockSpan.classList.add('is-out');
+                            }
+                            option.appendChild(stockSpan);
+                        }
+
                         option.addEventListener('mousedown', function (event) {
                             event.preventDefault();
                             selectProductSuggestion(item);
@@ -2128,8 +2843,13 @@ admin_render_layout_start([
                     return parts.length ? parts.join(' · ') : '—';
                 }
 
+                function normalizeQuantity(value) {
+                    const parsed = Number.parseInt(String(value), 10);
+                    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+                }
+
                 function calculateLineTotals(item) {
-                    const quantity = Number(item.quantity) || 0;
+                    const quantity = normalizeQuantity(item.quantity);
                     const priceUsd = Number(item.unit_price_usd) || 0;
                     const priceLbp = exchangeRateValue > 0
                         ? priceUsd * exchangeRateValue
@@ -2151,6 +2871,26 @@ admin_render_layout_start([
                     return value > 0 ? 'LBP ' + Math.round(value).toLocaleString() : 'LBP 0';
                 }
 
+                function formatStockDisplay(value) {
+                    if (value === null || value === undefined) {
+                        return '—';
+                    }
+                    const numeric = Number(value);
+                    if (!Number.isFinite(numeric)) {
+                        return '—';
+                    }
+                    if (numeric <= 0) {
+                        return 'Out';
+                    }
+                    if (numeric >= 1000) {
+                        return Math.round(numeric).toLocaleString();
+                    }
+                    if (numeric >= 10) {
+                        return Math.round(numeric).toString();
+                    }
+                    return numeric.toFixed(2).replace(/\.00$/, '');
+                }
+
                 function hasValidCustomerSelection() {
                     if (customerModeInput.value === 'new') {
                         const name = customerNameInput ? customerNameInput.value.trim() : '';
@@ -2165,9 +2905,9 @@ admin_render_layout_start([
                         return false;
                     }
                     return orderItems.every(item => {
-                        const qty = Number(item.quantity) || 0;
+                        const qty = normalizeQuantity(item.quantity);
                         const priceUsd = Number(item.unit_price_usd) || 0;
-                        return qty > 0 && priceUsd > 0;
+                        return qty >= 1 && priceUsd > 0;
                     });
                 }
 
@@ -2203,7 +2943,7 @@ admin_render_layout_start([
                     }
                     const payload = orderItems.map(item => ({
                         product_id: item.product_id,
-                        quantity: Number(item.quantity) || 0,
+                        quantity: normalizeQuantity(item.quantity),
                         unit_price_usd: Number(item.unit_price_usd) || 0,
                         unit_price_lbp: exchangeRateValue > 0
                             ? Math.round((Number(item.unit_price_usd) || 0) * exchangeRateValue)
@@ -2256,7 +2996,7 @@ admin_render_layout_start([
                         const emptyRow = document.createElement('tr');
                         emptyRow.className = 'order-items-empty';
                         const emptyCell = document.createElement('td');
-                        emptyCell.colSpan = 6;
+                        emptyCell.colSpan = 7;
                         emptyCell.textContent = 'Search for a product to add it to the order.';
                         emptyRow.appendChild(emptyCell);
                         orderItemsBody.appendChild(emptyRow);
@@ -2284,26 +3024,37 @@ admin_render_layout_start([
                         skuCell.textContent = item.sku || '—';
                         row.appendChild(skuCell);
 
+                        const stockCell = document.createElement('td');
+                        const stockText = formatStockDisplay(orderItems[index].stock_available);
+                        stockCell.textContent = stockText;
+                        if (orderItems[index].stock_available !== undefined && orderItems[index].stock_available !== null) {
+                            const numericStock = Number(orderItems[index].stock_available);
+                            if (Number.isFinite(numericStock) && numericStock <= 0) {
+                                stockCell.classList.add('stock-out');
+                            }
+                        }
+                        row.appendChild(stockCell);
+
                         const qtyCell = document.createElement('td');
                         const qtyInput = document.createElement('input');
                         qtyInput.type = 'number';
-                        qtyInput.min = '0.001';
-                        qtyInput.step = '0.001';
-                        qtyInput.value = item.quantity;
+                        qtyInput.min = '1';
+                        qtyInput.step = '1';
+                        qtyInput.inputMode = 'numeric';
+                        qtyInput.pattern = '[0-9]*';
+                        qtyInput.value = normalizeQuantity(item.quantity);
                         qtyInput.addEventListener('input', function (event) {
-                            const value = parseFloat(event.target.value);
-                            orderItems[index].quantity = Number.isFinite(value) && value > 0 ? value : 0;
+                            const sanitized = normalizeQuantity(event.target.value);
+                            orderItems[index].quantity = sanitized;
+                            event.target.value = String(sanitized);
                             const totals = calculateLineTotals(orderItems[index]);
                             lineTotalValue.textContent = formatLineTotalDisplay(totals);
                             updateTotals();
                         });
                         qtyInput.addEventListener('blur', function (event) {
-                            let value = parseFloat(event.target.value);
-                            if (!Number.isFinite(value) || value <= 0) {
-                                value = 1;
-                            }
+                            const value = normalizeQuantity(event.target.value);
                             orderItems[index].quantity = value;
-                            event.target.value = value;
+                            event.target.value = String(value);
                             const totals = calculateLineTotals(orderItems[index]);
                             lineTotalValue.textContent = formatLineTotalDisplay(totals);
                             updateTotals();
@@ -2434,7 +3185,12 @@ admin_render_layout_start([
                     }
                     const existingIndex = orderItems.findIndex(existing => String(existing.product_id) === String(item.id));
                     if (existingIndex >= 0) {
-                        orderItems[existingIndex].quantity = Number(orderItems[existingIndex].quantity) + 1;
+                        orderItems[existingIndex].quantity = normalizeQuantity(orderItems[existingIndex].quantity) + 1;
+                        if (orderItems[existingIndex].stock_available === undefined || orderItems[existingIndex].stock_available === null) {
+                            orderItems[existingIndex].stock_available = item.quantity_on_hand !== undefined && item.quantity_on_hand !== null
+                                ? Number(item.quantity_on_hand)
+                                : orderItems[existingIndex].stock_available ?? null;
+                        }
                         applyExchangeRateToItem(orderItems[existingIndex]);
                     } else {
                         orderItems.push({
@@ -2445,6 +3201,9 @@ admin_render_layout_start([
                             quantity: 1,
                             unit_price_usd: defaultUnitPriceUsd(item),
                             unit_price_lbp: null,
+                            stock_available: item.quantity_on_hand !== undefined && item.quantity_on_hand !== null
+                                ? Number(item.quantity_on_hand)
+                                : null,
                         });
                         applyExchangeRateToItem(orderItems[orderItems.length - 1]);
                     }
@@ -2713,6 +3472,7 @@ admin_render_layout_start([
                     <th>Customer</th>
                     <th>Sales rep</th>
                     <th>Status</th>
+                    <th>Invoice</th>
                     <th>Financials</th>
                     <th>Delivery</th>
                     <th style="width: 220px;">Actions</th>
@@ -2721,7 +3481,7 @@ admin_render_layout_start([
             <tbody>
                 <?php if (!$orders): ?>
                     <tr>
-                        <td colspan="7" class="empty-state">
+                        <td colspan="8" class="empty-state">
                             No orders match the current filters.
                         </td>
                     </tr>
@@ -2731,9 +3491,6 @@ admin_render_layout_start([
                         $latestStatus = $order['latest_status'] ?? null;
                         $statusClass = $statusBadgeClasses[$latestStatus] ?? 'status-default';
                         $statusLabel = $statusLabels[$latestStatus] ?? 'No status logged';
-
-                        $invoiceStatus = $order['latest_invoice_status'] ?? null;
-                        $invoiceLabel = $invoiceStatusLabels[$invoiceStatus] ?? null;
 
                         $invoiceTotalUsd = $order['invoice_total_usd'] !== null ? (float)$order['invoice_total_usd'] : 0.0;
                         $invoiceTotalLbp = $order['invoice_total_lbp'] !== null ? (float)$order['invoice_total_lbp'] : 0.0;
@@ -2755,6 +3512,15 @@ admin_render_layout_start([
                                 return htmlspecialchars($reason, ENT_QUOTES, 'UTF-8');
                             }, $invoiceReasons));
                         }
+                        $invoiceStatusKey = $order['latest_invoice_status'] ?? null;
+                        $hasInvoiceRecord = $invoiceCount > 0 && $latestInvoiceId > 0;
+                        if (!$hasInvoiceRecord) {
+                            $invoiceStatusKey = null;
+                        }
+                        $invoiceDisplayLabel = $invoiceStatusKey
+                            ? ($invoiceStatusLabels[$invoiceStatusKey] ?? ucwords(str_replace('_', ' ', (string)$invoiceStatusKey)))
+                            : 'No invoice';
+                        $invoiceBadgeClass = $invoiceBadgeClasses[$invoiceStatusKey ?? 'none'] ?? 'status-default';
                         ?>
                         <tr>
                             <td>
@@ -2780,22 +3546,25 @@ admin_render_layout_start([
                                 <?php if (!empty($order['status_changed_at'])): ?>
                                     <small>Updated <?= htmlspecialchars(date('Y-m-d H:i', strtotime($order['status_changed_at'])), ENT_QUOTES, 'UTF-8') ?></small>
                                 <?php endif; ?>
-                                <?php if ($invoiceLabel): ?>
-                                    <small>Invoice: <?= htmlspecialchars($invoiceLabel, ENT_QUOTES, 'UTF-8') ?></small>
+                            </td>
+                            <td>
+                                <span class="status-badge <?= $invoiceBadgeClass ?>">
+                                    <?= htmlspecialchars($invoiceDisplayLabel, ENT_QUOTES, 'UTF-8') ?>
+                                </span>
+                                <?php if ($latestInvoiceNumber): ?>
+                                    <small class="invoice-note">#<?= htmlspecialchars($latestInvoiceNumber, ENT_QUOTES, 'UTF-8') ?></small>
+                                <?php endif; ?>
+                                <?php if ($isInvoiceReady): ?>
+                                    <small class="invoice-note invoice-note--positive">Ready to issue</small>
+                                <?php elseif ($readinessTooltip !== ''): ?>
+                                    <small class="invoice-note tooltip">Needs action
+                                        <span class="tooltip-text"><?= $readinessTooltip ?></span>
+                                    </small>
+                                <?php elseif (!$hasInvoiceRecord): ?>
+                                    <small class="invoice-note">Invoice will be created on save</small>
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <div>
-                                    <?php if ($isInvoiceReady): ?>
-                                        <span class="chip badge-success" aria-label="Invoice ready">Invoice ready</span>
-                                    <?php elseif ($readinessTooltip !== ''): ?>
-                                        <span class="chip tooltip">Pending invoice
-                                            <span class="tooltip-text"><?= $readinessTooltip ?></span>
-                                        </span>
-                                    <?php else: ?>
-                                        <span class="chip">Pending invoice</span>
-                                    <?php endif; ?>
-                                </div>
                                 <div>
                                     <span class="chip">USD <?= number_format($invoiceTotalUsd, 2) ?></span>
                                     <small>Paid <?= number_format($paidUsd, 2) ?> · Balance <?= number_format($balanceUsd, 2) ?></small>
@@ -2858,7 +3627,7 @@ admin_render_layout_start([
                                         <button type="submit" class="btn-compact">Assign</button>
                                     </form>
                                     <?php if ($invoiceCount > 0 && $latestInvoiceId > 0): ?>
-                                        <a class="btn-compact btn-primary" href="invoices.php?path=admin/invoices&amp;order_id=<?= (int)$order['id'] ?>">View invoice</a>
+                                        <a class="btn-compact btn-primary" href="invoices.php?id=<?= (int)$latestInvoiceId ?>">Open invoice</a>
                                     <?php elseif ($isInvoiceReady): ?>
                                         <a class="btn-compact btn-primary" href="invoices.php?path=admin/invoices&amp;order_id=<?= (int)$order['id'] ?>">Issue invoice</a>
                                     <?php else: ?>

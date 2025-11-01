@@ -16,7 +16,8 @@ $pdo = db();
 $title = 'Admin · Invoices';
 
 $statusLabels = [
-    'draft' => 'Draft',
+    'draft' => 'Pending',
+    'pending' => 'Pending',
     'issued' => 'Issued',
     'paid' => 'Paid',
     'voided' => 'Voided',
@@ -24,6 +25,7 @@ $statusLabels = [
 
 $statusBadgeClasses = [
     'draft' => 'badge-warning',
+    'pending' => 'badge-warning',
     'issued' => 'badge-info',
     'paid' => 'badge-success',
     'voided' => 'badge-neutral',
@@ -38,6 +40,7 @@ $repFilter = (int)($_GET['rep'] ?? 0);
 $dateFrom = $_GET['date_from'] ?? '';
 $dateTo = $_GET['date_to'] ?? '';
 $orderFilter = (int)($_GET['order_id'] ?? 0);
+$invoiceId = (int)($_GET['id'] ?? 0);
 
 $where = ['1=1'];
 $params = [];
@@ -65,6 +68,12 @@ if ($repFilter > 0) {
 if ($orderFilter > 0) {
     $where[] = "i.order_id = :filter_order_id";
     $params[':filter_order_id'] = $orderFilter;
+}
+
+if ($invoiceId > 0) {
+    $where[] = "i.id = :filter_invoice_id";
+    $params[':filter_invoice_id'] = $invoiceId;
+    $page = 1;
 }
 
 if ($dateFrom !== '') {
@@ -150,6 +159,65 @@ $invoiceStmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
 $invoiceStmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $invoiceStmt->execute();
 $invoices = $invoiceStmt->fetchAll(PDO::FETCH_ASSOC);
+$invoiceFocusData = null;
+if ($invoiceId > 0) {
+    foreach ($invoices as $invoiceRow) {
+        if ((int)($invoiceRow['id'] ?? 0) === $invoiceId) {
+            $invoiceFocusData = [
+                'invoice_number' => $invoiceRow['invoice_number'] ?? sprintf('INV-%06d', $invoiceId),
+                'status' => $invoiceRow['status'] ?? 'draft',
+                'status_label' => $statusLabels[$invoiceRow['status'] ?? 'draft'] ?? ucwords((string)($invoiceRow['status'] ?? '')),
+                'status_class' => $statusBadgeClasses[$invoiceRow['status'] ?? 'draft'] ?? 'badge-info',
+                'total_usd' => (float)($invoiceRow['total_usd'] ?? 0),
+                'total_lbp' => (float)($invoiceRow['total_lbp'] ?? 0),
+                'order_id' => $invoiceRow['order_id'] ?? null,
+                'order_number' => $invoiceRow['order_number'] ?? null,
+                'customer_name' => $invoiceRow['customer_name'] ?? null,
+                'issued_at' => $invoiceRow['issued_at'] ?? null,
+                'created_at' => $invoiceRow['created_at'] ?? null,
+            ];
+            break;
+        }
+    }
+
+    if ($invoiceFocusData === null) {
+        $focusStmt = $pdo->prepare("
+            SELECT
+                i.id,
+                i.invoice_number,
+                i.status,
+                i.total_usd,
+                i.total_lbp,
+                i.issued_at,
+                i.created_at,
+                o.id AS order_id,
+                o.order_number,
+                c.name AS customer_name
+            FROM invoices i
+            LEFT JOIN orders o ON o.id = i.order_id
+            LEFT JOIN customers c ON c.id = o.customer_id
+            WHERE i.id = :focus_id
+            LIMIT 1
+        ");
+        $focusStmt->execute([':focus_id' => $invoiceId]);
+        $focusRow = $focusStmt->fetch(PDO::FETCH_ASSOC);
+        if ($focusRow) {
+            $invoiceFocusData = [
+                'invoice_number' => $focusRow['invoice_number'] ?? sprintf('INV-%06d', $invoiceId),
+                'status' => $focusRow['status'] ?? 'draft',
+                'status_label' => $statusLabels[$focusRow['status'] ?? 'draft'] ?? ucwords((string)($focusRow['status'] ?? '')),
+                'status_class' => $statusBadgeClasses[$focusRow['status'] ?? 'draft'] ?? 'badge-info',
+                'total_usd' => (float)($focusRow['total_usd'] ?? 0),
+                'total_lbp' => (float)($focusRow['total_lbp'] ?? 0),
+                'order_id' => $focusRow['order_id'] ?? null,
+                'order_number' => $focusRow['order_number'] ?? null,
+                'customer_name' => $focusRow['customer_name'] ?? null,
+                'issued_at' => $focusRow['issued_at'] ?? null,
+                'created_at' => $focusRow['created_at'] ?? null,
+            ];
+        }
+    }
+}
 $filteredOrderLabel = null;
 if ($orderFilter > 0) {
     if (!empty($invoices)) {
@@ -221,34 +289,11 @@ admin_render_layout_start([
     'active' => 'invoices',
     'user' => $user,
 ]);
+
+admin_render_flashes($flashes);
 ?>
 
 <style>
-    /* Flash messages */
-    .flash {
-        padding: 12px 16px;
-        border-radius: 8px;
-        margin-bottom: 16px;
-        font-size: 0.9rem;
-        border: 1px solid var(--bd);
-        background: var(--chip);
-        color: var(--ink);
-    }
-    .flash-success {
-        border-color: rgba(6, 95, 70, 0.25);
-        background: rgba(6, 95, 70, 0.09);
-        color: var(--ok);
-    }
-    .flash-error {
-        border-color: rgba(153, 27, 27, 0.2);
-        background: rgba(153, 27, 27, 0.08);
-        color: var(--err);
-    }
-    .flash-info {
-        border-color: rgba(31, 111, 235, 0.2);
-        background: rgba(31, 111, 235, 0.08);
-        color: var(--brand);
-    }
     .flash-warning {
         border-color: rgba(146, 64, 14, 0.25);
         background: rgba(146, 64, 14, 0.1);
@@ -539,12 +584,6 @@ admin_render_layout_start([
         }
     }
 </style>
-
-<?php foreach ($flashes as $flash): ?>
-    <div class="flash flash-<?= htmlspecialchars($flash['type'], ENT_QUOTES, 'UTF-8') ?>">
-        <?= htmlspecialchars($flash['message'], ENT_QUOTES, 'UTF-8') ?>
-    </div>
-<?php endforeach; ?>
 
 <section class="card">
     <div class="metric-grid">

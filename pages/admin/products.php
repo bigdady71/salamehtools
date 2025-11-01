@@ -17,7 +17,7 @@ $title = 'Admin · Products';
 
 // Pagination & filtering
 $page = max(1, (int)($_GET['page'] ?? 1));
-$perPage = 25;
+$perPage = 75;
 $search = trim($_GET['search'] ?? '');
 $category = $_GET['category'] ?? '';
 $stockFilter = $_GET['stock'] ?? '';
@@ -167,6 +167,8 @@ admin_render_layout_start([
         ['label' => 'Export CSV', 'href' => 'products_export.php'],
     ],
 ]);
+
+admin_render_flashes($flashes);
 ?>
 
 <style>
@@ -276,29 +278,7 @@ admin_render_layout_start([
         background: var(--accent-2);
         color: #fff;
     }
-    .flash {
-        padding: 12px 16px;
-        border-radius: 8px;
-        margin-bottom: 16px;
-        font-size: 0.9rem;
-    }
-    .flash-success {
-        background: rgba(110, 231, 183, 0.2);
-        color: #6ee7b7;
-        border: 1px solid rgba(110, 231, 183, 0.3);
-    }
-    .flash-error {
-        background: rgba(255, 92, 122, 0.2);
-        color: #ff5c7a;
-        border: 1px solid rgba(255, 92, 122, 0.3);
-    }
 </style>
-
-<?php foreach ($flashes as $flash): ?>
-    <div class="flash flash-<?= htmlspecialchars($flash['type']) ?>">
-        <?= htmlspecialchars($flash['message']) ?>
-    </div>
-<?php endforeach; ?>
 
 <div class="stats-grid">
     <div class="stat-card">

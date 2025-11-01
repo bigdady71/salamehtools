@@ -139,3 +139,71 @@ function admin_render_layout_end(): void
 {
     echo '</main></div></body></html>';
 }
+
+/**
+ * Renders flash messages directly below the page header.
+ *
+ * @param array<int, array{type:string,message:string,title:?string,lines:array<int,string>,list:array<int,string>,dismissible:bool}> $flashes
+ */
+function admin_render_flashes(array $flashes): void
+{
+    if (!$flashes) {
+        return;
+    }
+
+    echo '<div class="flash-stack">';
+
+    foreach ($flashes as $flash) {
+        $type = htmlspecialchars($flash['type'] ?? 'info', ENT_QUOTES, 'UTF-8');
+        $dismissible = !empty($flash['dismissible']);
+        $title = isset($flash['title']) && $flash['title'] !== null ? trim((string)$flash['title']) : '';
+        $message = trim((string)($flash['message'] ?? ''));
+        $lines = isset($flash['lines']) && is_array($flash['lines']) ? $flash['lines'] : [];
+        $list = isset($flash['list']) && is_array($flash['list']) ? $flash['list'] : [];
+
+        $classes = 'flash flash-' . $type;
+        if ($dismissible) {
+            $classes .= ' is-dismissible';
+        }
+
+        echo '<div class="', $classes, '" role="alert">';
+
+        if ($dismissible) {
+            echo '<button type="button" class="flash-close" aria-label="Dismiss message">&times;</button>';
+        }
+
+        if ($title !== '') {
+            echo '<div class="flash-title">', htmlspecialchars($title, ENT_QUOTES, 'UTF-8'), '</div>';
+        }
+
+        if ($message !== '') {
+            echo '<div class="flash-message">', htmlspecialchars($message, ENT_QUOTES, 'UTF-8'), '</div>';
+        }
+
+        if ($lines) {
+            echo '<div class="flash-lines">';
+            foreach ($lines as $line) {
+                if ($line === null || $line === '') {
+                    continue;
+                }
+                echo '<div>', htmlspecialchars((string)$line, ENT_QUOTES, 'UTF-8'), '</div>';
+            }
+            echo '</div>';
+        }
+
+        if ($list) {
+            echo '<ul class="flash-list">';
+            foreach ($list as $item) {
+                if ($item === null || $item === '') {
+                    continue;
+                }
+                echo '<li>', htmlspecialchars((string)$item, ENT_QUOTES, 'UTF-8'), '</li>';
+            }
+            echo '</ul>';
+        }
+
+        echo '</div>';
+    }
+
+    echo '</div>';
+}

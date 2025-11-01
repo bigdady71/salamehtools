@@ -44,8 +44,10 @@ $latestStatusSubquery = "
     JOIN (
         SELECT order_id, MAX(id) AS max_id
         FROM order_status_events
+        WHERE status <> 'invoice_created'
         GROUP BY order_id
     ) latest ON latest.order_id = ose.order_id AND latest.max_id = ose.id
+    WHERE ose.status <> 'invoice_created'
 ";
 
 $ordersToday = (int)$scalar('Orders today', "SELECT COUNT(*) FROM orders WHERE DATE(created_at) = CURRENT_DATE()");

@@ -1,0 +1,247 @@
+:root {
+    --bg: #f3f4f6;
+    --bg-panel: #ffffff;
+    --bg-panel-alt: #f9fafc;
+    --text: #111827;
+    --muted: #6b7280;
+    --accent: #1f6feb;
+    --accent-2: #0ea5e9;
+    --success: #059669;
+    --warning: #f59e0b;
+    --danger: #dc2626;
+    --neutral: #9ca3af;
+    --border: #e5e7eb;
+    --chip: #f3f4f6;
+    --shadow-card: 0 24px 40px rgba(15, 23, 42, 0.08);
+    --shadow-focus: 0 0 0 3px rgba(31, 111, 235, 0.12);
+    --shadow-focus-strong: 0 0 0 4px rgba(31, 111, 235, 0.18);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    min-height: 100vh;
+}
+
+a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+.layout {
+    display: flex;
+    flex: 1;
+}
+
+.sidebar {
+    width: 248px;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    padding: 28px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+.brand {
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    color: var(--accent);
+}
+
+.nav-links {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.nav-links a {
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    color: var(--muted);
+    transition: background .2s, color .2s, box-shadow .2s;
+}
+
+.nav-links a:hover {
+    background: var(--chip);
+    color: var(--text);
+    box-shadow: var(--shadow-focus);
+}
+
+.nav-links a.active {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    box-shadow: var(--shadow-focus-strong);
+}
+
+.user-card {
+    margin-top: auto;
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel-alt);
+    font-size: 0.9rem;
+    color: var(--muted);
+}
+
+.user-card strong {
+    display: block;
+    font-size: 1rem;
+    color: var(--text);
+}
+
+.main {
+    flex: 1;
+    padding: 36px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 18px;
+}
+
+.page-header h1 {
+    margin: 0;
+    font-size: 2rem;
+}
+
+.page-header p {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+.card {
+    background: var(--bg-panel);
+    border-radius: 16px;
+    padding: 28px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-card);
+}
+
+.card h2 {
+    margin: 0 0 12px;
+    font-size: 1.4rem;
+}
+
+.card p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.6;
+}
+
+.card ul {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--muted);
+    line-height: 1.6;
+}
+
+.card ul li {
+    margin-bottom: 6px;
+}
+
+.actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: #fff;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-weight: 600;
+    text-decoration: none;
+    transition: box-shadow .2s, transform .2s;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-focus);
+}
+
+.btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.btn-primary:hover {
+    box-shadow: var(--shadow-focus-strong);
+}
+
+@media (max-width: 900px) {
+    .layout {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: auto;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 22px;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .nav-links {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .nav-links a {
+        padding: 8px 10px;
+    }
+
+    .user-card {
+        margin-top: 0;
+    }
+
+    .main {
+        padding: 24px;
+    }
+}
+
+@media (max-width: 640px) {
+    .sidebar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .nav-links {
+        width: 100%;
+    }
+
+    .nav-links a {
+        width: 100%;
+    }
+}
