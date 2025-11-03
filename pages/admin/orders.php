@@ -111,7 +111,7 @@ $dateTo = $_GET['date_to'] ?? '';
 
 $validStatusFilters = array_merge(array_keys($statusLabels), ['none']);
 if (!in_array($statusFilter, $validStatusFilters, true)) {
-    $statusFilter = 'none';
+    $statusFilter = '';
 }
 
 $repIdFilter = null;
@@ -129,10 +129,10 @@ $latestStatusSql = <<<SQL
     INNER JOIN (
         SELECT order_id, MAX(id) AS max_id
         FROM order_status_events
-        WHERE status <> 'invoice_created'
+        WHERE status <> 'invoice_created' AND status <> '' AND status IS NOT NULL
         GROUP BY order_id
     ) latest ON latest.order_id = ose.order_id AND latest.max_id = ose.id
-    WHERE ose.status <> 'invoice_created'
+    WHERE ose.status <> 'invoice_created' AND ose.status <> '' AND ose.status IS NOT NULL
 SQL;
 
 if (($_GET['ajax'] ?? '') === 'customer_search') {
@@ -1187,9 +1187,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'set_status') {
         $orderId = (int)($_POST['order_id'] ?? 0);
         $newStatus = $_POST['new_status'] ?? '';
+        $currentStatus = $_POST['current_status'] ?? '';
         $note = trim($_POST['note'] ?? '');
 
         if ($orderId > 0 && isset($statusLabels[$newStatus])) {
+            // Check if the status is actually changing
+            if ($currentStatus !== '' && $newStatus === $currentStatus) {
+                flash('warning', 'Order status is already set to ' . $statusLabels[$newStatus] . '.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+
             try {
                 $pdo->beginTransaction();
 
@@ -1268,7 +1276,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
-                flash('error', 'Failed to update order status.');
+                flash('error', 'Failed to update order status: ' . $e->getMessage());
             }
         } else {
             flash('error', 'Invalid status update request.');
@@ -1640,6 +1648,71 @@ admin_render_layout_start([
 
 admin_render_flashes($flashes);
 ?>
+
+<!-- LBP Currency Toggle -->
+<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-weight: 600; color: #374151; font-size: 0.95rem;">Show LBP Values</span>
+        <label class="currency-toggle-switch" style="position: relative; display: inline-block; width: 52px; height: 28px;">
+            <input type="checkbox" id="lbpToggle" style="opacity: 0; width: 0; height: 0;">
+            <span class="currency-toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; border-radius: 28px; transition: 0.3s;"></span>
+        </label>
+    </div>
+    <small style="color: #6b7280; font-size: 0.85rem;">Toggle to show/hide Lebanese Pound values and exchange rates</small>
+</div>
+
+<style>
+    /* Toggle Switch Styles */
+    .currency-toggle-switch input:checked + .currency-toggle-slider {
+        background-color: #6666ff;
+    }
+    .currency-toggle-slider:before {
+        position: absolute;
+        content: "";
+        height: 20px;
+        width: 20px;
+        left: 4px;
+        bottom: 4px;
+        background-color: white;
+        border-radius: 50%;
+        transition: 0.3s;
+    }
+    .currency-toggle-switch input:checked + .currency-toggle-slider:before {
+        transform: translateX(24px);
+    }
+
+    /* Hide LBP elements by default */
+    body:not(.show-lbp) .lbp-value,
+    body:not(.show-lbp) .lbp-field,
+    body:not(.show-lbp) .lbp-column {
+        display: none !important;
+    }
+</style>
+
+<script>
+(function() {
+    // Check localStorage for saved preference
+    const lbpToggle = document.getElementById('lbpToggle');
+    const savedState = localStorage.getItem('showLBP');
+
+    // Set initial state (default: hidden/unchecked)
+    if (savedState === 'true') {
+        lbpToggle.checked = true;
+        document.body.classList.add('show-lbp');
+    }
+
+    // Toggle handler
+    lbpToggle.addEventListener('change', function() {
+        if (this.checked) {
+            document.body.classList.add('show-lbp');
+            localStorage.setItem('showLBP', 'true');
+        } else {
+            document.body.classList.remove('show-lbp');
+            localStorage.setItem('showLBP', 'false');
+        }
+    });
+})();
+</script>
 
 <?php if ($orderFocusData): ?>
     <section class="order-focus-card card">
@@ -2025,10 +2098,10 @@ admin_render_flashes($flashes);
         justify-content: center;
         gap: 0.5rem;
         padding: 0.75rem 1.25rem;
-        border: 1px solid var(--bd);
+        border: 1px solid #6666ff;
         border-radius: 10px;
-        background: #fff;
-        color: var(--ink);
+        background: #6666ff;
+        color: #ffffff;
         font-weight: 600;
         cursor: pointer;
         min-height: 44px;
@@ -2037,17 +2110,22 @@ admin_render_flashes($flashes);
         font-size: 0.95rem;
     }
     .btn:hover:not(:disabled) {
-        background: var(--chip);
+        background: #003366;
+        border-color: #003366;
+        color: #ffffff;
         transform: translateY(-1px);
         box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
     }
     .btn-primary {
-        background: blue;
-        border-color: blue;
-        color: #ffffffff;
+        background: #6666ff;
+        border-color: #6666ff;
+        color: #ffffff;
     }
     .btn-primary:hover:not(:disabled) {
-        box-shadow: 0 4px 12px rgba(31, 111, 235, 0.25);
+        background: #003366;
+        border-color: #003366;
+        color: #ffffff;
+        box-shadow: 0 4px 12px rgba(0, 51, 102, 0.25);
         transform: translateY(-1px);
     }
     .btn[disabled],
@@ -2062,19 +2140,31 @@ admin_render_flashes($flashes);
         align-items: center;
         justify-content: center;
         padding: 0.5rem 0.85rem;
-        border: 1px solid var(--bd);
+        border: 1px solid #6666ff;
         border-radius: 10px;
-        background: #fff;
-        color: var(--ink);
+        background: #6666ff;
+        color: #ffffff;
         font-weight: 600;
         min-height: 40px;
         cursor: pointer;
         text-decoration: none;
+        transition: all 0.2s ease;
+    }
+    .btn-compact:hover:not(:disabled):not([aria-disabled="true"]) {
+        background: #003366;
+        border-color: #003366;
+        color: #ffffff;
+        transform: translateY(-1px);
     }
     .btn-compact.btn-primary {
-        background: var(--brand);
-        border-color: var(--brand);
-        color: #fff;
+        background: #6666ff;
+        border-color: #6666ff;
+        color: #ffffff;
+    }
+    .btn-compact.btn-primary:hover:not(:disabled):not([aria-disabled="true"]) {
+        background: #003366;
+        border-color: #003366;
+        color: #ffffff;
     }
     .btn-compact[aria-disabled="true"] {
         opacity: 0.6;
@@ -2543,7 +2633,7 @@ admin_render_flashes($flashes);
                                             <th scope="col" style="width: 10%;">Stock</th>
                                             <th scope="col" style="width: 12%;">Qty</th>
                                             <th scope="col" style="width: 14%;">Unit USD</th>
-                                            <th scope="col" style="width: 12%;">Unit LBP</th>
+                                            <th scope="col" style="width: 12%;" class="lbp-column">Unit LBP</th>
                                             <th scope="col" style="width: 12%;">Line Total</th>
                                         </tr>
                                     </thead>
@@ -2584,11 +2674,11 @@ admin_render_flashes($flashes);
                             <span class="order-summary-label">Total USD</span>
                             <span class="order-summary-value" id="summary_total_usd">USD 0.00</span>
                         </div>
-                        <div class="order-summary-row">
+                        <div class="order-summary-row lbp-value">
                             <span class="order-summary-label">Total LBP</span>
                             <span class="order-summary-value" id="summary_total_lbp">LBP 0</span>
                         </div>
-                        <p class="helper">
+                        <p class="helper lbp-value">
                             <?= $activeExchangeRate['rate'] > 0 ? 'Exchange rate: 1 USD = ' . number_format((float)$activeExchangeRate['rate'], 2) . ' LBP.' : 'Add an exchange rate to enable LBP totals.' ?>
                         </p>
                     </div>
@@ -2844,9 +2934,10 @@ admin_render_flashes($flashes);
                         parts.push('USD ' + totals.usd.toFixed(2));
                     }
                     if (totals.lbp > 0) {
-                        parts.push('LBP ' + Math.round(totals.lbp).toLocaleString());
+                        parts.push('<span class="lbp-value">LBP ' + Math.round(totals.lbp).toLocaleString() + '</span>');
                     }
-                    return parts.length ? parts.join(' · ') : '—';
+                    const result = parts.length ? parts.join(' <span class="lbp-value">·</span> ') : '—';
+                    return result;
                 }
 
                 function normalizeQuantity(value) {
@@ -3054,7 +3145,7 @@ admin_render_flashes($flashes);
                             orderItems[index].quantity = sanitized;
                             event.target.value = String(sanitized);
                             const totals = calculateLineTotals(orderItems[index]);
-                            lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                            lineTotalValue.innerHTML = formatLineTotalDisplay(totals);
                             updateTotals();
                         });
                         qtyInput.addEventListener('blur', function (event) {
@@ -3062,7 +3153,7 @@ admin_render_flashes($flashes);
                             orderItems[index].quantity = value;
                             event.target.value = String(value);
                             const totals = calculateLineTotals(orderItems[index]);
-                            lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                            lineTotalValue.innerHTML = formatLineTotalDisplay(totals);
                             updateTotals();
                         });
                         qtyCell.appendChild(qtyInput);
@@ -3087,7 +3178,7 @@ admin_render_flashes($flashes);
                                 }
                             }
                             const totals = calculateLineTotals(orderItems[index]);
-                            lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                            lineTotalValue.innerHTML = formatLineTotalDisplay(totals);
                             updateTotals();
                         });
                         usdInput.addEventListener('blur', function (event) {
@@ -3106,13 +3197,14 @@ admin_render_flashes($flashes);
                                 }
                             }
                             const totals = calculateLineTotals(orderItems[index]);
-                            lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                            lineTotalValue.innerHTML = formatLineTotalDisplay(totals);
                             updateTotals();
                         });
                         usdCell.appendChild(usdInput);
                         row.appendChild(usdCell);
 
                         const lbpCell = document.createElement('td');
+                        lbpCell.className = 'lbp-column';
                         let lbpInput;
                         if (exchangeRateValue > 0) {
                             lbpValue = document.createElement('div');
@@ -3138,7 +3230,7 @@ admin_render_flashes($flashes);
                                     orderItems[index].unit_price_lbp = Number.isFinite(value) && value >= 0 ? value : 0;
                                 }
                                 const totals = calculateLineTotals(orderItems[index]);
-                                lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                                lineTotalValue.innerHTML = formatLineTotalDisplay(totals);
                                 updateTotals();
                             });
                             lbpInput.addEventListener('blur', function (event) {
@@ -3152,7 +3244,7 @@ admin_render_flashes($flashes);
                                 orderItems[index].unit_price_lbp = value;
                                 event.target.value = value.toFixed(2);
                                 const totals = calculateLineTotals(orderItems[index]);
-                                lineTotalValue.textContent = formatLineTotalDisplay(totals);
+                                lineTotalValue.innerHTML = formatLineTotalDisplay(totals);
                                 updateTotals();
                             });
                             lbpCell.appendChild(lbpInput);
@@ -3163,7 +3255,7 @@ admin_render_flashes($flashes);
                         const totalCell = document.createElement('td');
                         const lineTotalValue = document.createElement('div');
                         lineTotalValue.className = 'line-total';
-                        lineTotalValue.textContent = formatLineTotalDisplay(calculateLineTotals(item));
+                        lineTotalValue.innerHTML = formatLineTotalDisplay(calculateLineTotals(item));
                         totalCell.appendChild(lineTotalValue);
 
                         const removeButton = document.createElement('button');
@@ -3575,7 +3667,7 @@ admin_render_flashes($flashes);
                                     <span class="chip">USD <?= number_format($invoiceTotalUsd, 2) ?></span>
                                     <small>Paid <?= number_format($paidUsd, 2) ?> · Balance <?= number_format($balanceUsd, 2) ?></small>
                                 </div>
-                                <div>
+                                <div class="lbp-value">
                                     <span class="chip">LBP <?= number_format($invoiceTotalLbp, 0) ?></span>
                                     <small>Paid <?= number_format($paidLbp, 0) ?> · Balance <?= number_format($balanceLbp, 0) ?></small>
                                 </div>
@@ -3605,11 +3697,12 @@ admin_render_flashes($flashes);
                             </td>
                             <td>
                                 <div class="action-stack">
-                                    <form method="post" class="inline-form">
+                                    <form method="post" action="" class="inline-form" onsubmit="var sel = this.querySelector('select[name=new_status]'); if (sel.value === '<?= htmlspecialchars($latestStatus, ENT_QUOTES, 'UTF-8') ?>') { alert('Please select a different status to update.'); return false; } this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').textContent = 'Updating...';">
                                         <?= csrf_field() ?>
                                         <input type="hidden" name="action" value="set_status">
                                         <input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>">
-                                        <select name="new_status" class="tiny-select">
+                                        <input type="hidden" name="current_status" value="<?= htmlspecialchars($latestStatus, ENT_QUOTES, 'UTF-8') ?>">
+                                        <select name="new_status" class="tiny-select" required>
                                             <?php foreach ($statusLabels as $value => $label): ?>
                                                 <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>" <?= $value === $latestStatus ? 'selected' : '' ?>>
                                                     <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
@@ -3618,14 +3711,14 @@ admin_render_flashes($flashes);
                                         </select>
                                         <button type="submit" class="btn-compact">Update</button>
                                     </form>
-                                    <form method="post" class="inline-form">
+                                    <form method="post" action="" class="inline-form" onsubmit="this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').textContent = 'Assigning...';">
                                         <?= csrf_field() ?>
                                         <input type="hidden" name="action" value="reassign_sales_rep">
                                         <input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>">
-                                        <select name="sales_rep_id" class="tiny-select">
+                                        <select name="sales_rep_id" class="tiny-select" required>
                                             <option value="">Unassigned</option>
                                             <?php foreach ($salesReps as $rep): ?>
-                                                <option value="<?= (int)$rep['id'] ?>" <?= (string)$order['sales_rep_id'] === (string)$rep['id'] ? 'selected' : '' ?>>
+                                                <option value="<?= (int)$rep['id'] ?>" <?= (int)$order['sales_rep_id'] === (int)$rep['id'] ? 'selected' : '' ?>>
                                                     <?= htmlspecialchars($rep['name'], ENT_QUOTES, 'UTF-8') ?>
                                                 </option>
                                             <?php endforeach; ?>

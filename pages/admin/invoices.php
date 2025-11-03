@@ -31,6 +31,223 @@ $statusBadgeClasses = [
     'voided' => 'badge-neutral',
 ];
 
+// Handle POST requests for invoice actions
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verify_csrf((string)($_POST['_csrf'] ?? ''))) {
+        flash('error', 'Invalid CSRF token. Please try again.');
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+    $action = $_POST['action'] ?? '';
+
+    // Change invoice status
+    if ($action === 'change_status') {
+        $invoiceId = (int)($_POST['invoice_id'] ?? 0);
+        $newStatus = $_POST['new_status'] ?? '';
+
+        if ($invoiceId > 0 && isset($statusLabels[$newStatus])) {
+            try {
+                $pdo->beginTransaction();
+
+                // Get current invoice details
+                $invoiceStmt = $pdo->prepare("SELECT invoice_number, status, order_id FROM invoices WHERE id = :id");
+                $invoiceStmt->execute([':id' => $invoiceId]);
+                $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($invoice) {
+                    $oldStatus = $invoice['status'];
+
+                    // Update invoice status
+                    $updateStmt = $pdo->prepare("UPDATE invoices SET status = :status, issued_at = CASE WHEN :status = 'issued' AND status = 'draft' THEN NOW() ELSE issued_at END WHERE id = :id");
+                    $updateStmt->execute([
+                        ':status' => $newStatus,
+                        ':id' => $invoiceId
+                    ]);
+
+                    $pdo->commit();
+
+                    flash('success', sprintf(
+                        'Invoice %s status changed from %s to %s.',
+                        $invoice['invoice_number'],
+                        $statusLabels[$oldStatus] ?? ucfirst($oldStatus),
+                        $statusLabels[$newStatus]
+                    ));
+                } else {
+                    flash('error', 'Invoice not found.');
+                }
+            } catch (PDOException $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                flash('error', 'Failed to change invoice status: ' . $e->getMessage());
+            }
+        } else {
+            flash('error', 'Invalid status change request.');
+        }
+
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+
+    // Record payment
+    if ($action === 'record_payment') {
+        $invoiceId = (int)($_POST['invoice_id'] ?? 0);
+        $amountUsd = (float)($_POST['amount_usd'] ?? 0);
+        $amountLbp = (float)($_POST['amount_lbp'] ?? 0);
+        $method = $_POST['method'] ?? 'cash';
+        $receivedAt = $_POST['received_at'] ?? date('Y-m-d H:i:s');
+
+        $validMethods = ['cash', 'qr_cash', 'card', 'bank', 'other'];
+        if (!in_array($method, $validMethods, true)) {
+            $method = 'cash';
+        }
+
+        if ($invoiceId > 0 && ($amountUsd > 0 || $amountLbp > 0)) {
+            try {
+                $pdo->beginTransaction();
+
+                // Get invoice details
+                $invoiceStmt = $pdo->prepare("
+                    SELECT i.invoice_number, i.status, i.total_usd, i.total_lbp,
+                           COALESCE(SUM(p.amount_usd), 0) AS paid_usd,
+                           COALESCE(SUM(p.amount_lbp), 0) AS paid_lbp
+                    FROM invoices i
+                    LEFT JOIN payments p ON p.invoice_id = i.id
+                    WHERE i.id = :id
+                    GROUP BY i.id
+                ");
+                $invoiceStmt->execute([':id' => $invoiceId]);
+                $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$invoice) {
+                    flash('error', 'Invoice not found.');
+                    $pdo->rollBack();
+                    header('Location: ' . $_SERVER['REQUEST_URI']);
+                    exit;
+                }
+
+                if ($invoice['status'] === 'voided') {
+                    flash('error', 'Cannot record payment for voided invoice.');
+                    $pdo->rollBack();
+                    header('Location: ' . $_SERVER['REQUEST_URI']);
+                    exit;
+                }
+
+                // Check if payment would exceed invoice total
+                $newPaidUsd = (float)$invoice['paid_usd'] + $amountUsd;
+                $newPaidLbp = (float)$invoice['paid_lbp'] + $amountLbp;
+                $totalUsd = (float)$invoice['total_usd'];
+                $totalLbp = (float)$invoice['total_lbp'];
+
+                if ($newPaidUsd > $totalUsd + 0.01 || $newPaidLbp > $totalLbp + 0.01) {
+                    flash('warning', 'Payment amount exceeds invoice total. Payment recorded but may result in overpayment.');
+                }
+
+                // Insert payment
+                $paymentStmt = $pdo->prepare("
+                    INSERT INTO payments (invoice_id, method, amount_usd, amount_lbp, received_by_user_id, received_at)
+                    VALUES (:invoice_id, :method, :amount_usd, :amount_lbp, :user_id, :received_at)
+                ");
+                $paymentStmt->execute([
+                    ':invoice_id' => $invoiceId,
+                    ':method' => $method,
+                    ':amount_usd' => $amountUsd,
+                    ':amount_lbp' => $amountLbp,
+                    ':user_id' => (int)$user['id'],
+                    ':received_at' => $receivedAt
+                ]);
+
+                // Auto-update invoice status to paid if fully paid
+                if ($newPaidUsd >= $totalUsd - 0.01 && $newPaidLbp >= $totalLbp - 0.01 && $invoice['status'] !== 'paid') {
+                    $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE id = :id")
+                        ->execute([':id' => $invoiceId]);
+
+                    $paymentMsg = [];
+                    if ($amountUsd > 0) $paymentMsg[] = 'USD ' . number_format($amountUsd, 2);
+                    if ($amountLbp > 0) $paymentMsg[] = 'LBP ' . number_format($amountLbp, 0);
+
+                    flash('success', sprintf(
+                        'Payment of %s recorded for invoice %s via %s. Invoice marked as PAID.',
+                        implode(' + ', $paymentMsg),
+                        $invoice['invoice_number'],
+                        ucfirst(str_replace('_', ' ', $method))
+                    ));
+                } else {
+                    $paymentMsg = [];
+                    if ($amountUsd > 0) $paymentMsg[] = 'USD ' . number_format($amountUsd, 2);
+                    if ($amountLbp > 0) $paymentMsg[] = 'LBP ' . number_format($amountLbp, 0);
+
+                    $remainingUsd = max(0, $totalUsd - $newPaidUsd);
+                    $remainingLbp = max(0, $totalLbp - $newPaidLbp);
+                    $balanceMsg = [];
+                    if ($remainingUsd > 0.01) $balanceMsg[] = 'USD ' . number_format($remainingUsd, 2);
+                    if ($remainingLbp > 0.01) $balanceMsg[] = 'LBP ' . number_format($remainingLbp, 0);
+
+                    flash('success', sprintf(
+                        'Payment of %s recorded for invoice %s via %s. Remaining balance: %s',
+                        implode(' + ', $paymentMsg),
+                        $invoice['invoice_number'],
+                        ucfirst(str_replace('_', ' ', $method)),
+                        !empty($balanceMsg) ? implode(' + ', $balanceMsg) : 'Fully paid'
+                    ));
+                }
+
+                $pdo->commit();
+            } catch (PDOException $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                flash('error', 'Failed to record payment: ' . $e->getMessage());
+            }
+        } else {
+            flash('error', 'Invalid payment details.');
+        }
+
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+
+    // Void invoice
+    if ($action === 'void_invoice') {
+        $invoiceId = (int)($_POST['invoice_id'] ?? 0);
+
+        if ($invoiceId > 0) {
+            try {
+                $pdo->beginTransaction();
+
+                $invoiceStmt = $pdo->prepare("SELECT invoice_number, status FROM invoices WHERE id = :id");
+                $invoiceStmt->execute([':id' => $invoiceId]);
+                $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($invoice) {
+                    if ($invoice['status'] === 'voided') {
+                        flash('warning', 'Invoice is already voided.');
+                    } else {
+                        $pdo->prepare("UPDATE invoices SET status = 'voided' WHERE id = :id")
+                            ->execute([':id' => $invoiceId]);
+
+                        flash('success', sprintf('Invoice %s has been voided.', $invoice['invoice_number']));
+                    }
+                } else {
+                    flash('error', 'Invoice not found.');
+                }
+
+                $pdo->commit();
+            } catch (PDOException $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                flash('error', 'Failed to void invoice: ' . $e->getMessage());
+            }
+        } else {
+            flash('error', 'Invalid void request.');
+        }
+
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+}
+
 $perPage = 25;
 $page = max(1, (int)($_GET['page'] ?? 1));
 $search = trim($_GET['search'] ?? '');
@@ -293,6 +510,68 @@ admin_render_layout_start([
 admin_render_flashes($flashes);
 ?>
 
+<!-- LBP Currency Toggle -->
+<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-weight: 600; color: #374151; font-size: 0.95rem;">Show LBP Values</span>
+        <label class="currency-toggle-switch" style="position: relative; display: inline-block; width: 52px; height: 28px;">
+            <input type="checkbox" id="lbpToggle" style="opacity: 0; width: 0; height: 0;">
+            <span class="currency-toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; border-radius: 28px; transition: 0.3s;"></span>
+        </label>
+    </div>
+    <small style="color: #6b7280; font-size: 0.85rem;">Toggle to show/hide Lebanese Pound values and exchange rates</small>
+</div>
+
+<style>
+    .currency-toggle-switch input:checked + .currency-toggle-slider {
+        background-color: #6666ff;
+    }
+    .currency-toggle-slider:before {
+        position: absolute;
+        content: "";
+        height: 20px;
+        width: 20px;
+        left: 4px;
+        bottom: 4px;
+        background-color: white;
+        border-radius: 50%;
+        transition: 0.3s;
+    }
+    .currency-toggle-switch input:checked + .currency-toggle-slider:before {
+        transform: translateX(24px);
+    }
+
+    /* Hide LBP elements by default */
+    body:not(.show-lbp) .lbp-value,
+    body:not(.show-lbp) .lbp-field,
+    body:not(.show-lbp) .lbp-column {
+        display: none !important;
+    }
+</style>
+
+<script>
+(function() {
+    const lbpToggle = document.getElementById('lbpToggle');
+    const savedState = localStorage.getItem('showLBP');
+
+    // Restore saved state
+    if (savedState === 'true') {
+        lbpToggle.checked = true;
+        document.body.classList.add('show-lbp');
+    }
+
+    lbpToggle.addEventListener('change', function() {
+        if (this.checked) {
+            document.body.classList.add('show-lbp');
+            localStorage.setItem('showLBP', 'true');
+        } else {
+            document.body.classList.remove('show-lbp');
+            localStorage.setItem('showLBP', 'false');
+        }
+    });
+})();
+</script>
+
 <style>
     .flash-warning {
         border-color: rgba(146, 64, 14, 0.25);
@@ -385,10 +664,10 @@ admin_render_flashes($flashes);
         justify-content: center;
         gap: 0.5rem;
         padding: 0.75rem 1.25rem;
-        border: 1px solid var(--bd);
+        border: 1px solid #6666ff;
         border-radius: 10px;
-        background: #fff;
-        color: var(--ink);
+        background: #6666ff;
+        color: #ffffff;
         font-weight: 600;
         cursor: pointer;
         min-height: 44px;
@@ -397,19 +676,158 @@ admin_render_flashes($flashes);
         font-size: 0.95rem;
     }
     .btn:hover:not(:disabled) {
-        background: var(--chip);
+        background: #003366;
+        border-color: #003366;
+        color: #ffffff;
         transform: translateY(-1px);
         box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
         text-decoration: none;
     }
     .btn-primary {
-        background: var(--brand);
-        border-color: var(--brand);
-        color: #fff;
+        background: #6666ff;
+        border-color: #6666ff;
+        color: #ffffff;
     }
     .btn-primary:hover:not(:disabled) {
-        box-shadow: 0 4px 12px rgba(31, 111, 235, 0.25);
+        background: #003366;
+        border-color: #003366;
+        color: #ffffff;
+        box-shadow: 0 4px 12px rgba(0, 51, 102, 0.25);
         transform: translateY(-1px);
+    }
+
+    /* Compact buttons for inline actions */
+    .btn-compact {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 12px;
+        border: 1px solid #6666ff;
+        border-radius: 8px;
+        background: #6666ff;
+        color: #ffffff;
+        font-weight: 600;
+        cursor: pointer;
+        font-size: 0.8rem;
+        transition: all 0.2s ease;
+        text-decoration: none;
+    }
+    .btn-compact:hover:not(:disabled) {
+        background: #003366;
+        border-color: #003366;
+        color: #ffffff;
+        transform: translateY(-1px);
+        text-decoration: none;
+    }
+    .btn-compact.btn-primary {
+        background: #6666ff;
+        border-color: #6666ff;
+    }
+    .btn-compact.btn-danger {
+        background: #dc2626;
+        border-color: #dc2626;
+        color: #ffffff;
+    }
+    .btn-compact.btn-danger:hover:not(:disabled) {
+        background: #991b1b;
+        border-color: #991b1b;
+    }
+
+    /* Inline action forms */
+    .inline-action-form {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 4px;
+    }
+    .invoice-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 200px;
+    }
+    .tiny-select {
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid var(--bd);
+        background: #fff;
+        color: var(--ink);
+        font-size: 0.8rem;
+        min-width: 120px;
+    }
+
+    /* Payment Modal */
+    .payment-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .modal-content {
+        background: #ffffff;
+        border-radius: 16px;
+        padding: 32px;
+        max-width: 500px;
+        width: 90%;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        position: relative;
+    }
+    .modal-content h3 {
+        margin: 0 0 24px 0;
+        color: var(--ink);
+        font-size: 1.5rem;
+    }
+    .modal-close {
+        position: absolute;
+        top: 16px;
+        right: 20px;
+        font-size: 28px;
+        font-weight: bold;
+        color: var(--muted);
+        cursor: pointer;
+        transition: color 0.2s;
+    }
+    .modal-close:hover {
+        color: var(--ink);
+    }
+    .form-row {
+        margin-bottom: 18px;
+    }
+    .form-row label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 600;
+        color: var(--ink);
+        font-size: 0.9rem;
+    }
+    .form-input {
+        width: 100%;
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid var(--bd);
+        background: #fff;
+        color: var(--ink);
+        font-size: 0.95rem;
+        box-sizing: border-box;
+    }
+    .form-input:focus {
+        border-color: var(--brand);
+        box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.1);
+        outline: none;
+    }
+    .form-actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 24px;
+    }
+    .form-actions .btn {
+        flex: 1;
     }
 
     /* Invoice table */
@@ -514,6 +932,9 @@ admin_render_flashes($flashes);
         font-size: 0.8rem;
         color: var(--muted);
     }
+    .amount-stack a{
+        font-size: small;
+    }
     .empty-state {
         text-align: center;
         padding: 48px 0;
@@ -599,7 +1020,7 @@ admin_render_flashes($flashes);
             <span class="label">Outstanding USD</span>
             <span class="value money">$<?= number_format($outstandingUsd, 2) ?></span>
         </div>
-        <div class="metric-card">
+        <div class="metric-card lbp-value">
             <span class="label">Outstanding LBP</span>
             <span class="value money">ل.ل <?= number_format($outstandingLbp, 0) ?></span>
         </div>
@@ -607,7 +1028,7 @@ admin_render_flashes($flashes);
             <span class="label">Collections (7 days)</span>
             <span class="value">
                 $<?= number_format((float)$recentPayments['recent_usd'], 2) ?>
-                <small class="muted" style="display:block;">ل.ل <?= number_format((float)$recentPayments['recent_lbp'], 0) ?></small>
+                <small class="muted lbp-value" style="display:block;">ل.ل <?= number_format((float)$recentPayments['recent_lbp'], 0) ?></small>
             </span>
         </div>
     </div>
@@ -703,7 +1124,7 @@ admin_render_flashes($flashes);
                             <td>
                                 <div class="amount-stack">
                                     <strong>$<?= number_format($totalUsd, 2) ?></strong>
-                                    <span>ل.ل <?= number_format($totalLbp, 0) ?></span>
+                                    <span class="lbp-value">ل.ل <?= number_format($totalLbp, 0) ?></span>
                                 </div>
                             </td>
                             <td>
@@ -711,7 +1132,7 @@ admin_render_flashes($flashes);
                                     <strong>Collected: $<?= number_format($paidUsd, 2) ?></strong>
                                     <span>Balance: $<?= number_format($balanceUsd, 2) ?></span>
                                 </div>
-                                <div class="amount-stack" style="margin-top:6px;">
+                                <div class="amount-stack lbp-value" style="margin-top:6px;">
                                     <strong>Collected: ل.ل <?= number_format($paidLbp, 0) ?></strong>
                                     <span>Balance: ل.ل <?= number_format($balanceLbp, 0) ?></span>
                                 </div>
@@ -727,9 +1148,85 @@ admin_render_flashes($flashes);
                                 <span class="muted">Created <?= htmlspecialchars(date('Y-m-d', strtotime($invoice['created_at'])), ENT_QUOTES, 'UTF-8') ?></span>
                             </td>
                             <td>
-                                <div class="amount-stack" style="gap:8px;">
-                                    <a class="btn btn-primary" href="invoices_view.php?id=<?= (int)$invoice['id'] ?>">View</a>
-                                    <a class="btn" href="invoices_export.php?id=<?= (int)$invoice['id'] ?>">Download PDF</a>
+                                <div class="invoice-actions">
+                                    <!-- Status Change Form -->
+                                    <?php if ($status !== 'voided'): ?>
+                                        <form method="post" action="" class="inline-action-form" onsubmit="var sel = this.querySelector('select[name=new_status]'); if (sel.value === '<?= htmlspecialchars($status, ENT_QUOTES, 'UTF-8') ?>') { alert('Please select a different status.'); return false; } this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').textContent = 'Updating...';">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="change_status">
+                                            <input type="hidden" name="invoice_id" value="<?= (int)$invoice['id'] ?>">
+                                            <select name="new_status" class="tiny-select" required>
+                                                <?php foreach ($statusLabels as $sVal => $sLabel): ?>
+                                                    <option value="<?= htmlspecialchars($sVal, ENT_QUOTES, 'UTF-8') ?>" <?= $sVal === $status ? 'selected' : '' ?>>
+                                                        <?= htmlspecialchars($sLabel, ENT_QUOTES, 'UTF-8') ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <button type="submit" class="btn-compact">Change Status</button>
+                                        </form>
+                                    <?php endif; ?>
+
+                                    <!-- Payment Form (only for draft/issued invoices with balance) -->
+                                    <?php if ($status !== 'voided' && $status !== 'paid' && $balanceUsd > 0.01): ?>
+                                        <button type="button" class="btn-compact btn-primary" onclick="document.getElementById('payment-modal-<?= (int)$invoice['id'] ?>').style.display='block'">Record Payment</button>
+                                    <?php endif; ?>
+
+                                    <!-- View/Download -->
+                                    <a class="btn-compact" href="invoices_view.php?id=<?= (int)$invoice['id'] ?>">View</a>
+
+                                    <!-- Void Button -->
+                                    <?php if ($status !== 'voided' && $status !== 'paid'): ?>
+                                        <form method="post" action="" class="inline-action-form" onsubmit="return confirm('Are you sure you want to void this invoice? This cannot be undone.');">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="void_invoice">
+                                            <input type="hidden" name="invoice_id" value="<?= (int)$invoice['id'] ?>">
+                                            <button type="submit" class="btn-compact btn-danger">Void</button>
+                                        </form>
+                                    <?php endif; ?>
+                                </div>
+
+                                <!-- Payment Modal -->
+                                <div id="payment-modal-<?= (int)$invoice['id'] ?>" class="payment-modal" style="display:none;">
+                                    <div class="modal-content">
+                                        <span class="modal-close" onclick="document.getElementById('payment-modal-<?= (int)$invoice['id'] ?>').style.display='none'">&times;</span>
+                                        <h3>Record Payment for <?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?></h3>
+                                        <form method="post" action="">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="record_payment">
+                                            <input type="hidden" name="invoice_id" value="<?= (int)$invoice['id'] ?>">
+
+                                            <div class="form-row">
+                                                <label>Amount USD</label>
+                                                <input type="number" name="amount_usd" step="0.01" min="0" max="<?= $balanceUsd ?>" value="<?= number_format($balanceUsd, 2, '.', '') ?>" class="form-input">
+                                            </div>
+
+                                            <div class="form-row lbp-field">
+                                                <label>Amount LBP</label>
+                                                <input type="number" name="amount_lbp" step="0.01" min="0" max="<?= $balanceLbp ?>" value="<?= number_format($balanceLbp, 2, '.', '') ?>" class="form-input">
+                                            </div>
+
+                                            <div class="form-row">
+                                                <label>Payment Method</label>
+                                                <select name="method" class="form-input" required>
+                                                    <option value="cash">Cash</option>
+                                                    <option value="qr_cash">QR / Cash App</option>
+                                                    <option value="card">Card</option>
+                                                    <option value="bank">Bank Transfer</option>
+                                                    <option value="other">Other</option>
+                                                </select>
+                                            </div>
+
+                                            <div class="form-row">
+                                                <label>Received At</label>
+                                                <input type="datetime-local" name="received_at" value="<?= date('Y-m-d\TH:i') ?>" class="form-input" required>
+                                            </div>
+
+                                            <div class="form-actions">
+                                                <button type="submit" class="btn btn-primary">Record Payment</button>
+                                                <button type="button" class="btn" onclick="document.getElementById('payment-modal-<?= (int)$invoice['id'] ?>').style.display='none'">Cancel</button>
+                                            </div>
+                                        </form>
+                                    </div>
                                 </div>
                             </td>
                         </tr>
