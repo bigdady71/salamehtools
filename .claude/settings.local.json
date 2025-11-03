@@ -1,18 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DELETE FROM order_status_events WHERE id IN (9, 11);\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\":*)",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TRIGGER trg_invoice_item_to_smv\\G\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TRIGGER trg_smv_before_insert\\G\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SELECT u.username, s.product_id, p.item_name, s.qty_on_hand FROM s_stock s JOIN users u ON s.salesperson_id = u.id JOIN products p ON s.product_id = p.id WHERE u.username = ''Hsyn_sales_rep'';\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SELECT u.name, s.product_id, p.item_name, s.qty_on_hand FROM s_stock s JOIN users u ON s.salesperson_id = u.id JOIN products p ON s.product_id = p.id WHERE u.name = ''Hsyn_sales_rep'';\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools:*)",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"INSERT INTO s_stock_movements (salesperson_id, product_id, delta_qty, reason, note) SELECT o.sales_rep_id, oi.product_id, oi.quantity, ''load'', ''Initial stock for pending orders'' FROM orders o JOIN order_items oi ON o.id = oi.order_id WHERE o.order_number IN (''ORD-000010'', ''ORD-000011'') AND o.sales_rep_id IS NOT NULL GROUP BY o.sales_rep_id, oi.product_id;\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SELECT sm.id, sm.salesperson_id, u.name, sm.product_id, p.item_name, sm.delta_qty, sm.reason, sm.note, sm.created_at FROM s_stock_movements sm JOIN users u ON sm.salesperson_id = u.id JOIN products p ON sm.product_id = p.id WHERE u.name = ''Hsyn_sales_rep'' ORDER BY sm.created_at DESC LIMIT 10;\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"INSERT INTO s_stock_movements (salesperson_id, product_id, delta_qty, reason, note) VALUES (3, 1235, 10, ''load'', ''Additional stock for testing''), (3, 1240, 100, ''load'', ''Additional stock for testing'');\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE payments\\G\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE invoices\\G\")"
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE customers\\G\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE users\\G\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW TABLES LIKE ''ar_followups'';\")"
     ],
     "deny": [],
     "ask": []

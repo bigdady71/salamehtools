@@ -2,9 +2,7 @@
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/db.php';
 require_once __DIR__ . '/../../includes/admin_page.php';
-require_once __DIR__ . '/../../vendor/autoload.php';
-
-use PhpOffice\PhpSpreadsheet\IOFactory;
+require_once __DIR__ . '/../../includes/import_products.php';
 
 require_login();
 $user = auth_user();
@@ -61,185 +59,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors) && isset($path)) {
         $pdo = db();
         $pdo->beginTransaction();
-        
+
         try {
-            $spreadsheet = IOFactory::load($path);
-            $sheet = $spreadsheet->getActiveSheet();
-            $rows = $sheet->toArray(null, true, true, true);
-            
-            if (count($rows) < 2) {
-                throw new Exception('Excel file appears to be empty or has no data rows.');
-            }
-            
-            // Header validation
-            $expectedHeaders = [
-                'Type', 'Name', 'SecondName', 'Code', 'Unit', 'SalePrice',
-                'WholeSalePrice1', 'WholeSalePrice2', 'Description', 'ExistQuantity',
-                'TopCat', 'TopCatName', 'MidCat', 'MidCatName'
-            ];
+            // Use the reusable import function
+            $result = import_products_from_path($pdo, $path);
 
-            $headerRow = $rows[1] ?? [];
-            $idx = [];
-            foreach ($headerRow as $columnKey => $columnValue) {
-                $label = trim((string)$columnValue);
-                if ($label === '') {
-                    continue;
-                }
-                $idx[strtolower($label)] = $columnKey;
+            if ($result['ok']) {
+                $pdo->commit();
+                $summary = [
+                    'inserted' => $result['inserted'],
+                    'updated' => $result['updated'],
+                    'skipped' => $result['skipped'],
+                    'total' => $result['total']
+                ];
+                $warnings = array_merge($warnings, $result['warnings']);
+            } else {
+                $pdo->rollBack();
+                $errors = array_merge($errors, $result['errors']);
             }
-            
-            // Check for required headers
-            $missingHeaders = [];
-            foreach (['Code', 'Name'] as $required) {
-                if (!isset($idx[strtolower($required)])) {
-                    $missingHeaders[] = $required;
-                }
-            }
-            
-            if ($missingHeaders) {
-                throw new Exception('Missing required headers: ' . implode(', ', $missingHeaders));
-            }
-            
-            // Prepare insert/update statement
-            $stmt = $pdo->prepare("
-                INSERT INTO products
-                    (sku, code_clean, item_name, second_name,
-                     topcat, midcat, topcat_name, midcat_name,
-                     type, unit, sale_price_usd, wholesale_price_usd,
-                     min_quantity, minqty_disc1, minqty_disc2,
-                     description, quantity_on_hand, is_active, created_at, updated_at)
-                VALUES
-                    (:sku, :code_clean, :item_name, :second_name,
-                     :topcat, :midcat, :topcat_name, :midcat_name,
-                     :type, :unit, :sale_price_usd, :wholesale_price_usd,
-                     :min_quantity, :minqty_disc1, :minqty_disc2,
-                     :description, :quantity_on_hand, 1, NOW(), NOW())
-                ON DUPLICATE KEY UPDATE
-                    code_clean=VALUES(code_clean),
-                    item_name=VALUES(item_name),
-                    second_name=VALUES(second_name),
-                    topcat=VALUES(topcat),
-                    midcat=VALUES(midcat),
-                    topcat_name=VALUES(topcat_name),
-                    midcat_name=VALUES(midcat_name),
-                    type=VALUES(type),
-                    unit=VALUES(unit),
-                    sale_price_usd=VALUES(sale_price_usd),
-                    wholesale_price_usd=VALUES(wholesale_price_usd),
-                    min_quantity=VALUES(min_quantity),
-                    minqty_disc1=VALUES(minqty_disc1),
-                    minqty_disc2=VALUES(minqty_disc2),
-                    description=VALUES(description),
-                    quantity_on_hand=VALUES(quantity_on_hand),
-                    updated_at=NOW()
-            ");
-            
-            $inserted = 0;
-            $updated = 0;
-            $skipped = 0;
-            $lineErrors = [];
-            
-            // Process data rows
-            for ($r = 2; $r <= count($rows); $r++) {
-                $row = $rows[$r];
-                
-                // Helper to get column value
-                $get = function($name) use ($row, $idx) {
-                    $key = strtolower($name);
-                    if (!isset($idx[$key])) {
-                        return null;
-                    }
-                    $columnKey = $idx[$key];
-                    return $row[$columnKey] ?? null;
-                };
-                
-                $sku = trim((string)($get('Code') ?? ''));
-                $name = trim((string)($get('Name') ?? ''));
-                
-                if ($sku === '' && $name === '') {
-                    $skipped++;
-                    continue;
-                }
-                
-                if ($name === '') {
-                    $lineErrors[] = "Row {$r}: Product name is required";
-                    $skipped++;
-                    continue;
-                }
-                
-                try {
-                    // Parse numeric values
-                    $sale = (float)str_replace(',', '.', (string)($get('SalePrice') ?? 0));
-                    $ws1 = (float)str_replace(',', '.', (string)($get('WholeSalePrice1') ?? 0));
-                    $ws2 = (float)str_replace(',', '.', (string)($get('WholeSalePrice2') ?? 0));
-                    $qoh = (float)str_replace(',', '.', (string)($get('ExistQuantity') ?? 0));
-                    
-                    // Validate prices
-                    if ($sale < 0 || $ws1 < 0 || $ws2 < 0) {
-                        $warnings[] = "Row {$r}: Negative prices detected, setting to 0";
-                        $sale = max(0, $sale);
-                        $ws1 = max(0, $ws1);
-                        $ws2 = max(0, $ws2);
-                    }
 
-                    // Use first available wholesale price, fallback to sale price if needed
-                    $wholesale = $ws1 > 0 ? $ws1 : ($ws2 > 0 ? $ws2 : $sale);
-                    
-                    $stmt->execute([
-                        ':sku' => $sku,
-                        ':code_clean' => preg_replace('/[^A-Za-z0-9\-_.]/u', '', $sku),
-                        ':item_name' => $name,
-                        ':second_name' => trim((string)($get('SecondName') ?? '')),
-                        ':topcat' => (int)($get('TopCat') ?? 0),
-                        ':midcat' => (int)($get('MidCat') ?? 0),
-                        ':topcat_name' => trim((string)($get('TopCatName') ?? '')),
-                        ':midcat_name' => trim((string)($get('MidCatName') ?? '')),
-                        ':type' => trim((string)($get('Type') ?? '')),
-                        ':unit' => trim((string)($get('Unit') ?? '')),
-                        ':sale_price_usd' => $sale,
-                        ':wholesale_price_usd' => $wholesale,
-                        ':min_quantity' => 0,
-                        ':minqty_disc1' => $ws1,
-                        ':minqty_disc2' => $ws2,
-                        ':description' => trim((string)($get('Description') ?? '')),
-                        ':quantity_on_hand' => $qoh,
-                    ]);
-                    
-                    $affected = $stmt->rowCount();
-                    if ($affected === 1) $inserted++;
-                    elseif ($affected === 2) $updated++;
-                    else $skipped++;
-                    
-                } catch (PDOException $e) {
-                    $lineErrors[] = "Row {$r}: Database error - " . $e->getMessage();
-                    $skipped++;
-                }
-            }
-            
-            if ($lineErrors) {
-                $warnings = array_merge($warnings, array_slice($lineErrors, 0, 10));
-                if (count($lineErrors) > 10) {
-                    $warnings[] = '... and ' . (count($lineErrors) - 10) . ' more errors';
-                }
-            }
-            
-            $pdo->commit();
-            $summary = [
-                'inserted' => $inserted,
-                'updated' => $updated,
-                'skipped' => $skipped,
-                'total' => $inserted + $updated + $skipped
-            ];
-            
             // Clean up temp file if uploaded
             if (isset($uploadPath) && file_exists($uploadPath)) {
                 unlink($uploadPath);
             }
-            
+
         } catch (Exception $e) {
             $pdo->rollBack();
             $errors[] = 'Import failed: ' . $e->getMessage();
-            
+
             // Clean up temp file on error
             if (isset($uploadPath) && file_exists($uploadPath)) {
                 unlink($uploadPath);
