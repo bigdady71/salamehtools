@@ -46,8 +46,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             $pdo->beginTransaction();
 
-            // Import settings
+            // Handle file upload if provided
             $watchPath = trim($_POST['import_products_watch_path'] ?? '');
+            $uploadType = $_POST['upload_type'] ?? 'path';
+
+            if ($uploadType === 'file' && isset($_FILES['excel_file']) && $_FILES['excel_file']['error'] === UPLOAD_ERR_OK) {
+                $uploadedFile = $_FILES['excel_file'];
+                $allowedTypes = ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+                $fileExt = strtolower(pathinfo($uploadedFile['name'], PATHINFO_EXTENSION));
+
+                if (in_array($uploadedFile['type'], $allowedTypes) || in_array($fileExt, ['xls', 'xlsx'])) {
+                    // Create imports directory if it doesn't exist
+                    $importDir = __DIR__ . '/../../imports';
+                    if (!is_dir($importDir)) {
+                        mkdir($importDir, 0755, true);
+                    }
+
+                    // Save file with original name (or use timestamped name to avoid conflicts)
+                    $targetPath = $importDir . '/' . basename($uploadedFile['name']);
+
+                    // If file exists, add timestamp
+                    if (file_exists($targetPath)) {
+                        $pathInfo = pathinfo($uploadedFile['name']);
+                        $targetPath = $importDir . '/' . $pathInfo['filename'] . '_' . time() . '.' . $pathInfo['extension'];
+                    }
+
+                    if (move_uploaded_file($uploadedFile['tmp_name'], $targetPath)) {
+                        $watchPath = realpath($targetPath);
+                        flash('success', 'File uploaded successfully: ' . basename($targetPath));
+                    } else {
+                        flash('error', 'Failed to save uploaded file.');
+                    }
+                } else {
+                    flash('error', 'Invalid file type. Please upload an Excel file (.xls or .xlsx).');
+                }
+            }
+
+            // Import settings
             $importEnabled = isset($_POST['import_products_enabled']) ? '1' : '0';
 
             set_setting($pdo, 'import.products.watch_path', $watchPath);
@@ -68,6 +103,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 // Get current settings
 $watchPath = get_setting($pdo, 'import.products.watch_path', '');
 $importEnabled = get_setting($pdo, 'import.products.enabled', '0') === '1';
+
+// Scan for Excel files in common import directories
+$availableFiles = [];
+$searchPaths = [
+    'C:\\imports',
+    'C:\\xampp\\htdocs\\salamehtools\\imports',
+    __DIR__ . '/../../imports',
+];
+
+foreach ($searchPaths as $searchPath) {
+    if (is_dir($searchPath) && is_readable($searchPath)) {
+        $files = glob($searchPath . '/*.{xlsx,xls,XLSX,XLS}', GLOB_BRACE);
+        if ($files) {
+            foreach ($files as $file) {
+                $availableFiles[] = realpath($file);
+            }
+        }
+    }
+}
+
+// Remove duplicates and sort
+$availableFiles = array_unique($availableFiles);
+sort($availableFiles);
 
 // Get last import run status
 $lastImportRun = $pdo->query("
@@ -241,7 +299,80 @@ $flashes = consume_flashes();
         border: 1px solid rgba(255, 92, 122, 0.3);
         color: #ff5c7a;
     }
+    .upload-tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 20px;
+    }
+    .upload-tab {
+        padding: 10px 20px;
+        background: var(--bg-panel-alt);
+        border: 1px solid var(--border);
+        border-radius: 8px 8px 0 0;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-weight: 600;
+    }
+    .upload-tab.active {
+        background: #6666ff;
+        color: #fff;
+        border-color: #6666ff;
+    }
+    .upload-tab:hover:not(.active) {
+        background: var(--bg-panel);
+    }
+    .tab-content {
+        display: none;
+    }
+    .tab-content.active {
+        display: block;
+    }
 </style>
+
+<script>
+function switchTab(tab) {
+    // Update tab buttons
+    document.querySelectorAll('.upload-tab').forEach(t => t.classList.remove('active'));
+    event.target.classList.add('active');
+
+    // Update tab content
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.getElementById(tab + '-tab').classList.add('active');
+
+    // Update hidden input
+    document.getElementById('upload_type').value = tab;
+}
+
+// Handle custom path toggle
+<?php if (!empty($availableFiles)): ?>
+document.addEventListener('DOMContentLoaded', function() {
+    const select = document.getElementById('import_products_watch_path');
+    const customInput = document.getElementById('custom_path_input');
+
+    if (select) {
+        select.addEventListener('change', function() {
+            if (this.value === 'custom') {
+                customInput.style.display = 'block';
+                customInput.required = true;
+                customInput.focus();
+            } else {
+                customInput.style.display = 'none';
+                customInput.required = false;
+                customInput.value = '';
+            }
+        });
+    }
+
+    // Handle form submission
+    document.querySelector('form').addEventListener('submit', function(e) {
+        if (select.value === 'custom' && customInput.value.trim() !== '') {
+            // Replace select value with custom input value
+            select.value = customInput.value.trim();
+        }
+    });
+});
+<?php endif; ?>
+</script>
 
 <div class="settings-container">
     <?php foreach ($flashes as $flash): ?>
@@ -253,30 +384,85 @@ $flashes = consume_flashes();
         </div>
     <?php endforeach; ?>
 
-    <form method="post" action="">
+    <form method="post" action="" enctype="multipart/form-data">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="save_settings">
+        <input type="hidden" name="upload_type" id="upload_type" value="path">
 
         <div class="settings-section">
             <h2 class="section-title">Product Auto-Import</h2>
             <p class="section-subtitle">Configure automatic product imports from a watched file path</p>
 
-            <div class="form-row">
-                <label class="form-label" for="import_products_watch_path">
-                    Watched File Path
-                </label>
-                <input
-                    type="text"
-                    id="import_products_watch_path"
-                    name="import_products_watch_path"
-                    class="form-input"
-                    value="<?= htmlspecialchars($watchPath, ENT_QUOTES, 'UTF-8') ?>"
-                    placeholder="e.g., C:\imports\products.xlsx or \\server\share\products.xlsx"
-                >
-                <p class="form-help">
-                    Absolute path to the Excel file that will be monitored for changes.
-                    Leave empty to disable path-based imports.
-                </p>
+            <div class="upload-tabs" style="margin-bottom: 20px;">
+                <div class="upload-tab active" onclick="switchTab('path')">Select Existing File</div>
+                <div class="upload-tab" onclick="switchTab('file')">Upload New File</div>
+            </div>
+
+            <div id="path-tab" class="tab-content active">
+                <div class="form-row">
+                    <label class="form-label" for="import_products_watch_path">
+                        Watched File Path
+                    </label>
+
+                    <?php if (!empty($availableFiles)): ?>
+                        <select
+                            id="import_products_watch_path"
+                            name="import_products_watch_path"
+                            class="form-input"
+                            style="font-family: 'Courier New', monospace;"
+                        >
+                            <option value="">-- Select a file --</option>
+                            <?php foreach ($availableFiles as $file): ?>
+                                <option value="<?= htmlspecialchars($file, ENT_QUOTES, 'UTF-8') ?>"
+                                        <?= $watchPath === $file ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($file, ENT_QUOTES, 'UTF-8') ?>
+                                </option>
+                            <?php endforeach; ?>
+                            <option value="custom">-- Enter custom path --</option>
+                        </select>
+
+                        <input
+                            type="text"
+                            id="custom_path_input"
+                            name="custom_watch_path"
+                            class="form-input"
+                            style="margin-top: 12px; display: none; font-family: 'Courier New', monospace;"
+                            placeholder="e.g., C:\imports\products.xlsx or \\server\share\products.xlsx"
+                        >
+                    <?php else: ?>
+                        <input
+                            type="text"
+                            id="import_products_watch_path"
+                            name="import_products_watch_path"
+                            class="form-input"
+                            value="<?= htmlspecialchars($watchPath, ENT_QUOTES, 'UTF-8') ?>"
+                            placeholder="e.g., C:\imports\products.xlsx or \\server\share\products.xlsx"
+                        >
+                        <p class="form-help" style="color: #ffd166; margin-top: 8px;">
+                            No Excel files found in default directories. Enter path manually or upload a file.
+                        </p>
+                    <?php endif; ?>
+
+                    <p class="form-help">
+                        <?php if (!empty($availableFiles)): ?>
+                            Select an Excel file to monitor for automatic imports.
+                        <?php else: ?>
+                            Absolute path to the Excel file that will be monitored for changes.
+                        <?php endif; ?>
+                        Leave empty to disable path-based imports.
+                    </p>
+                </div>
+            </div>
+
+            <div id="file-tab" class="tab-content">
+                <div class="form-row">
+                    <label class="form-label">Upload Excel File</label>
+                    <input type="file" name="excel_file" class="form-input" accept=".xls,.xlsx">
+                    <p class="form-help">
+                        Upload an Excel file to save it to the imports directory and use it for auto-import.
+                        Maximum file size: 10MB
+                    </p>
+                </div>
             </div>
 
             <div class="form-row">

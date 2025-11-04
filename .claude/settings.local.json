@@ -3,7 +3,16 @@
     "allow": [
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE customers\\G\")",
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE users\\G\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW TABLES LIKE ''ar_followups'';\")"
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW TABLES LIKE ''ar_followups'';\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DESCRIBE invoices;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DESCRIBE orders;\")",
+      "Bash(findstr:*)",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SELECT DISTINCT status FROM order_status_events ORDER BY status;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW TABLES;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema = ''salamaehtools'';\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW INDEX FROM orders;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW INDEX FROM invoices;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW INDEX FROM products;\")"
     ],
     "deny": [],
     "ask": []

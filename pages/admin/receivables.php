@@ -69,6 +69,7 @@ $agingQuery = "
         SUM(i.total_lbp - COALESCE(paid.paid_lbp, 0)) AS outstanding_lbp,
         COUNT(*) AS invoice_count
     FROM invoices i
+    INNER JOIN orders o ON i.order_id = o.id
     LEFT JOIN (
         SELECT invoice_id,
                SUM(amount_usd) AS paid_usd,
@@ -98,7 +99,8 @@ $customersQuery = "
         MAX(p.created_at) AS last_payment_date,
         DATEDIFF(CURDATE(), MAX(i.created_at)) AS days_overdue
     FROM customers c
-    INNER JOIN invoices i ON i.customer_id = c.id
+    INNER JOIN orders o ON o.customer_id = c.id
+    INNER JOIN invoices i ON i.order_id = o.id
     LEFT JOIN users u ON c.assigned_sales_rep_id = u.id
     LEFT JOIN (
         SELECT invoice_id,
@@ -158,6 +160,7 @@ if ($customerFilter > 0 && !empty($customers)) {
             i.status,
             DATEDIFF(CURDATE(), i.created_at) AS days_old
         FROM invoices i
+        INNER JOIN orders o ON i.order_id = o.id
         LEFT JOIN (
             SELECT invoice_id,
                    SUM(amount_usd) AS paid_usd,
@@ -165,7 +168,7 @@ if ($customerFilter > 0 && !empty($customers)) {
             FROM payments
             GROUP BY invoice_id
         ) paid ON paid.invoice_id = i.id
-        WHERE i.customer_id = :customer_id
+        WHERE o.customer_id = :customer_id
             AND i.status IN ('issued', 'paid')
             AND (i.total_usd - COALESCE(paid.paid_usd, 0) > 0.01 OR i.total_lbp - COALESCE(paid.paid_lbp, 0) > 0.01)
         ORDER BY i.created_at ASC
