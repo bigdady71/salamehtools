@@ -13,8 +13,13 @@ function admin_nav_links(): array
         'products' => ['label' => 'Products', 'href' => 'products.php'],
         'orders' => ['label' => 'Orders', 'href' => 'orders.php'],
         'invoices' => ['label' => 'Invoices', 'href' => 'invoices.php'],
+        'customers' => ['label' => 'Customers', 'href' => 'customers.php'],
+        'sales_reps' => ['label' => 'Sales Reps', 'href' => 'sales_reps.php'],
         'receivables' => ['label' => 'Receivables', 'href' => 'receivables.php'],
         'warehouse' => ['label' => 'Warehouse', 'href' => 'warehouse_stock.php'],
+        'analytics' => ['label' => 'Analytics', 'href' => 'analytics.php'],
+        'demo_filters' => ['label' => 'Filters Demo', 'href' => 'demo_filters_export.php'],
+        'stats' => ['label' => 'Statistics', 'href' => 'stats.php'],
         'settings' => ['label' => 'Settings', 'href' => 'settings.php'],
     ];
 }

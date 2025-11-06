@@ -394,6 +394,8 @@ body {
   <li><a href="../admin/sales_reps.php">Sales Reps</a></li>
   <li><a href="../admin/warehouse_stock.php">Warehouse</a></li>
   <li><a href="../admin/receivables.php">Receivables</a></li>
+  <li><a href="../admin/analytics.php">Analytics</a></li>
+  <li><a href="../admin/demo_filters_export.php">Filters Demo</a></li>
   <li><a href="../admin/stats.php">Statistics</a></li>
   <li><a href="../admin/settings.php">Settings</a></li>
 </ul>
