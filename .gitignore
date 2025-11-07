@@ -1,0 +1,56 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Database dumps
+*.sql
+!database/migrations/*.sql
+
+# Vendor dependencies
+/vendor/
+
+# User uploads
+/uploads/*
+!/uploads/.gitkeep
+
+# Import files
+/imports/*
+!/imports/.gitkeep
+
+# Storage
+/storage/*
+!/storage/.gitkeep
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+/storage/logs/*
+!/storage/logs/.gitkeep
+
+# Cache
+/storage/cache/*
+!/storage/cache/.gitkeep
+
+# Composer
+composer.phar
+
+# Node modules (if using npm)
+/node_modules/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~

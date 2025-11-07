@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/db.php';
 require_once __DIR__ . '/../../includes/admin_page.php';
 require_once __DIR__ . '/../../includes/flash.php';
+require_once __DIR__ . '/../../includes/CacheManager.php';
 
 require_login();
 $user = auth_user();
@@ -15,23 +16,38 @@ if (!$user || ($user['role'] ?? '') !== 'admin') {
 $pdo = db();
 $title = 'Admin · Settings';
 
-// Helper function to get setting value
+// Initialize cache manager (using file-based caching as fallback)
+$cache = new CacheManager('file');
+
+// Helper function to get setting value (with caching)
 function get_setting(PDO $pdo, string $key, string $default = ''): string
 {
-    $stmt = $pdo->prepare("SELECT v FROM settings WHERE k = :key");
-    $stmt->execute([':key' => $key]);
-    $result = $stmt->fetchColumn();
-    return $result !== false ? (string)$result : $default;
+    global $cache;
+
+    // Cache individual setting for 1 hour
+    return $cache->remember("setting:{$key}", 3600, function() use ($pdo, $key, $default) {
+        $stmt = $pdo->prepare("SELECT v FROM settings WHERE k = :key");
+        $stmt->execute([':key' => $key]);
+        $result = $stmt->fetchColumn();
+        return $result !== false ? (string)$result : $default;
+    });
 }
 
-// Helper function to set setting value
+// Helper function to set setting value (clears cache)
 function set_setting(PDO $pdo, string $key, string $value): void
 {
+    global $cache;
+
     $stmt = $pdo->prepare("
         INSERT INTO settings (k, v) VALUES (:key, :value)
         ON DUPLICATE KEY UPDATE v = VALUES(v), updated_at = CURRENT_TIMESTAMP
     ");
     $stmt->execute([':key' => $key, ':value' => $value]);
+
+    // Clear the cache for this setting
+    $cache->forget("setting:{$key}");
+    // Also clear all settings cache
+    $cache->forget('all_settings');
 }
 
 // Handle form submission

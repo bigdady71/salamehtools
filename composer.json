@@ -1,6 +1,31 @@
 {
+    "name": "salamehtools/b2b-system",
+    "description": "B2B Wholesale Distribution Management Platform",
+    "type": "project",
     "require": {
+        "php": ">=8.0",
         "phpoffice/phpspreadsheet": "^5.1",
         "maennchen/zipstream-php": "3.1.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "SalamehTools\\": "src/"
+        },
+        "files": [
+            "includes/db.php",
+            "includes/auth.php",
+            "includes/guard.php",
+            "includes/flash.php"
+        ]
+    },
+    "scripts": {
+        "post-update-cmd": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+        ]
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true
     }
 }

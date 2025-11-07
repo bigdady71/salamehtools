@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/db.php';
+require_once __DIR__ . '/../../includes/CacheManager.php';
 
 require_login();
 $user = auth_user();
@@ -14,6 +15,9 @@ $title = 'Admin · Dashboard';
 $pdo = db();
 $errors = [];
 $notices = [];
+
+// Initialize cache manager (using file-based caching)
+$cache = new CacheManager('file');
 
 $scalar = static function (string $label, string $sql, array $params = []) use ($pdo, &$errors) {
     try {
@@ -50,39 +54,51 @@ $latestStatusSubquery = "
     WHERE ose.status <> 'invoice_created'
 ";
 
-$ordersToday = (int)$scalar('Orders today', "SELECT COUNT(*) FROM orders WHERE DATE(created_at) = CURRENT_DATE()");
-$openOrders = (int)$scalar(
-    'Open orders',
-    "
-        SELECT COUNT(*)
-        FROM orders o
-        LEFT JOIN ({$latestStatusSubquery}) current_status ON current_status.order_id = o.id
-        WHERE current_status.status IS NULL
-           OR current_status.status NOT IN ('delivered','cancelled','returned')
-    "
-);
-$awaitingApproval = (int)$scalar(
-    'Awaiting approval',
-    "
-        SELECT COUNT(*)
-        FROM orders o
-        LEFT JOIN ({$latestStatusSubquery}) current_status ON current_status.order_id = o.id
-        WHERE COALESCE(current_status.status, 'on_hold') = 'on_hold'
-    "
-);
-$inTransit = (int)$scalar(
-    'In transit',
-    "
-        SELECT COUNT(*)
-        FROM orders o
-        JOIN ({$latestStatusSubquery}) current_status ON current_status.order_id = o.id
-        WHERE current_status.status = 'in_transit'
-    "
-);
-$deliveriesToday = (int)$scalar(
-    'Deliveries today',
-    "SELECT COUNT(*) FROM deliveries WHERE DATE(scheduled_at) = CURRENT_DATE()"
-);
+// Cache dashboard metrics for 5 minutes (300 seconds)
+$dashboardMetrics = $cache->remember('dashboard_metrics', 300, function() use ($scalar, $latestStatusSubquery) {
+    return [
+        'ordersToday' => (int)$scalar('Orders today', "SELECT COUNT(*) FROM orders WHERE DATE(created_at) = CURRENT_DATE()"),
+        'openOrders' => (int)$scalar(
+            'Open orders',
+            "
+                SELECT COUNT(*)
+                FROM orders o
+                LEFT JOIN ({$latestStatusSubquery}) current_status ON current_status.order_id = o.id
+                WHERE current_status.status IS NULL
+                   OR current_status.status NOT IN ('delivered','cancelled','returned')
+            "
+        ),
+        'awaitingApproval' => (int)$scalar(
+            'Awaiting approval',
+            "
+                SELECT COUNT(*)
+                FROM orders o
+                LEFT JOIN ({$latestStatusSubquery}) current_status ON current_status.order_id = o.id
+                WHERE COALESCE(current_status.status, 'on_hold') = 'on_hold'
+            "
+        ),
+        'inTransit' => (int)$scalar(
+            'In transit',
+            "
+                SELECT COUNT(*)
+                FROM orders o
+                JOIN ({$latestStatusSubquery}) current_status ON current_status.order_id = o.id
+                WHERE current_status.status = 'in_transit'
+            "
+        ),
+        'deliveriesToday' => (int)$scalar(
+            'Deliveries today',
+            "SELECT COUNT(*) FROM deliveries WHERE DATE(scheduled_at) = CURRENT_DATE()"
+        ),
+    ];
+});
+
+// Extract cached values
+$ordersToday = $dashboardMetrics['ordersToday'];
+$openOrders = $dashboardMetrics['openOrders'];
+$awaitingApproval = $dashboardMetrics['awaitingApproval'];
+$inTransit = $dashboardMetrics['inTransit'];
+$deliveriesToday = $dashboardMetrics['deliveriesToday'];
 
 $openInvoicesUsd = 0.0;
 $openInvoicesLbp = 0.0;
@@ -519,8 +535,13 @@ $now = new DateTimeImmutable('now');
                 <a href="products.php">Products</a>
                 <a href="orders.php">Orders</a>
                 <a href="invoices.php">Invoices</a>
+                <a href="customers.php">Customers</a>
+                <a href="sales_reps.php">Sales Reps</a>
                 <a href="receivables.php">Receivables</a>
                 <a href="warehouse_stock.php">Warehouse</a>
+                <a href="analytics.php">Analytics</a>
+                <a href="stats.php">Statistics</a>
+                <a href="demo_filters_export.php">Filters Demo</a>
                 <a href="settings.php">Settings</a>
             </nav>
             <div class="user-card">

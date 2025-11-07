@@ -82,9 +82,14 @@ if ($filterStatus === 'active') {
 
 $whereClause = 'WHERE ' . implode(' AND ', $whereConditions);
 
-// Validate sort column
-$allowedSort = ['name', 'customer_count', 'order_count', 'total_revenue'];
-$sortColumn = in_array($sortBy, $allowedSort) ? $sortBy : 'total_revenue';
+// Validate sort column - map to actual columns for ORDER BY
+$sortMap = [
+    'name' => 'u.name',
+    'customer_count' => 'customer_count',
+    'order_count' => 'order_count',
+    'total_revenue' => 'total_revenue_usd'
+];
+$sortColumn = $sortMap[$sortBy] ?? 'total_revenue_usd';
 $sortDir = strtoupper($sortOrder) === 'ASC' ? 'ASC' : 'DESC';
 
 // ========================================

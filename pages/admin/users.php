@@ -622,8 +622,13 @@ $flashes = consume_flashes();
             <a href="products.php">Products</a>
             <a href="orders.php">Orders</a>
             <a href="invoices.php">Invoices</a>
+            <a href="customers.php">Customers</a>
+            <a href="sales_reps.php">Sales Reps</a>
             <a href="receivables.php">Receivables</a>
             <a href="warehouse_stock.php">Warehouse</a>
+            <a href="analytics.php">Analytics</a>
+            <a href="stats.php">Statistics</a>
+            <a href="demo_filters_export.php">Filters Demo</a>
             <a href="settings.php">Settings</a>
         </nav>
         <div class="user-card">

@@ -129,9 +129,9 @@ $recentActivity = $pdo->query("
 $warehouseStats = $pdo->query("
     SELECT
         COUNT(*) as total_movements,
-        SUM(CASE WHEN movement_type = 'in' THEN 1 ELSE 0 END) as movements_in,
-        SUM(CASE WHEN movement_type = 'out' THEN 1 ELSE 0 END) as movements_out,
-        SUM(CASE WHEN movement_type = 'adjustment' THEN 1 ELSE 0 END) as adjustments
+        SUM(CASE WHEN kind = 'in' THEN 1 ELSE 0 END) as movements_in,
+        SUM(CASE WHEN kind = 'out' THEN 1 ELSE 0 END) as movements_out,
+        SUM(CASE WHEN kind = 'adjust' THEN 1 ELSE 0 END) as adjustments
     FROM warehouse_movements
 ")->fetch(PDO::FETCH_ASSOC);
 

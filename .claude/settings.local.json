@@ -33,7 +33,13 @@
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DESCRIBE order_items;\")",
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DESCRIBE products;\")",
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DESCRIBE customers;\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DESCRIBE users;\")"
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DESCRIBE users;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DESCRIBE warehouse_movements;\")",
+      "Bash(tree:*)",
+      "Bash(rm:*)",
+      "Bash(git rm:*)",
+      "Bash(composer dump-autoload:*)",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DESCRIBE s_stock;\")"
     ],
     "deny": [],
     "ask": []
