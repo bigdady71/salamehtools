@@ -1,357 +1,450 @@
 <?php
+
+declare(strict_types=1);
+
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/admin_page.php';
+require_once __DIR__ . '/../../includes/sales_portal.php';
+require_once __DIR__ . '/../../includes/db.php';
+require_once __DIR__ . '/../../includes/SalesPortalDashboard.php';
 
-use SalamehTools\Middleware\RBACMiddleware;
-
-require_login();
-RBACMiddleware::requireRole('sales_rep', 'Access denied. Sales representatives only.');
-
-$user = auth_user();
-$pdo = db();
+$user = sales_portal_bootstrap();
+$navLinks = sales_portal_nav_links();
 $title = 'Sales Dashboard';
+$pdo = db();
 
-// Get sales rep stats
-$repId = $user['id'];
+$dashboardData = sales_portal_dashboard_data($pdo, (int)$user['id']);
+$metrics = $dashboardData['metrics'];
+$deliveriesToday = $dashboardData['deliveries_today'];
+$invoiceTotals = $dashboardData['invoice_totals'];
+$latestOrders = $dashboardData['latest_orders'];
+$pendingInvoices = $dashboardData['pending_invoices'];
+$recentPayments = $dashboardData['recent_payments'];
+$upcomingDeliveries = $dashboardData['upcoming_deliveries'];
+$vanStockSummary = $dashboardData['van_stock_summary'];
+$vanStockMovements = $dashboardData['van_stock_movements'];
+$errors = $dashboardData['errors'];
+$notices = $dashboardData['notices'];
 
-// Today's orders
-$todayOrders = $pdo->prepare("
-    SELECT COUNT(*) as count, COALESCE(SUM(total_usd), 0) as total_usd
-    FROM orders
-    WHERE sales_rep_id = :rep_id AND DATE(created_at) = CURRENT_DATE()
-");
-$todayOrders->execute([':rep_id' => $repId]);
-$today = $todayOrders->fetch(PDO::FETCH_ASSOC);
+$orderStatusLabels = [
+    'on_hold' => 'On Hold',
+    'approved' => 'Approved',
+    'preparing' => 'Preparing',
+    'ready' => 'Ready for Pickup',
+    'in_transit' => 'In Transit',
+    'delivered' => 'Delivered',
+    'cancelled' => 'Cancelled',
+    'returned' => 'Returned',
+];
 
-// This month's stats
-$monthStats = $pdo->prepare("
-    SELECT
-        COUNT(*) as order_count,
-        COALESCE(SUM(total_usd), 0) as total_usd,
-        COALESCE(SUM(total_lbp), 0) as total_lbp
-    FROM orders
-    WHERE sales_rep_id = :rep_id
-      AND YEAR(created_at) = YEAR(CURRENT_DATE())
-      AND MONTH(created_at) = MONTH(CURRENT_DATE())
-");
-$monthStats->execute([':rep_id' => $repId]);
-$month = $monthStats->fetch(PDO::FETCH_ASSOC);
+$invoiceStatusLabels = [
+    'draft' => 'Pending Draft',
+    'pending' => 'Pending',
+    'issued' => 'Issued',
+    'paid' => 'Paid',
+    'voided' => 'Voided',
+];
 
-// My customers
-$customerCount = $pdo->prepare("
-    SELECT COUNT(*) FROM customers WHERE assigned_sales_rep_id = :rep_id AND is_active = 1
-");
-$customerCount->execute([':rep_id' => $repId]);
-$myCustomers = $customerCount->fetchColumn();
-
-// My van stock value
-$vanStockValue = $pdo->prepare("
-    SELECT COALESCE(SUM(s.qty_on_hand * p.sale_price_usd), 0) as value
-    FROM s_stock s
-    INNER JOIN products p ON p.id = s.product_id
-    WHERE s.salesperson_id = :rep_id AND s.qty_on_hand > 0
-");
-$vanStockValue->execute([':rep_id' => $repId]);
-$vanValue = $vanStockValue->fetchColumn();
-
-// Recent orders
-$recentOrders = $pdo->prepare("
-    SELECT
-        o.id,
-        o.order_number,
-        o.created_at,
-        o.total_usd,
-        o.total_lbp,
-        c.name as customer_name,
-        (SELECT status FROM order_status_events WHERE order_id = o.id ORDER BY id DESC LIMIT 1) as current_status
-    FROM orders o
-    LEFT JOIN customers c ON c.id = o.customer_id
-    WHERE o.sales_rep_id = :rep_id
-    ORDER BY o.created_at DESC
-    LIMIT 10
-");
-$recentOrders->execute([':rep_id' => $repId]);
-$orders = $recentOrders->fetchAll(PDO::FETCH_ASSOC);
-
-// Pending collections (invoices not fully paid)
-$pendingCollections = $pdo->prepare("
-    SELECT
-        i.id,
-        i.invoice_number,
-        i.total_usd,
-        i.total_lbp,
-        c.name as customer_name,
-        COALESCE(paid.paid_usd, 0) as paid_usd,
-        COALESCE(paid.paid_lbp, 0) as paid_lbp,
-        (i.total_usd - COALESCE(paid.paid_usd, 0)) as balance_usd,
-        (i.total_lbp - COALESCE(paid.paid_lbp, 0)) as balance_lbp
-    FROM invoices i
-    INNER JOIN orders o ON o.id = i.order_id
-    LEFT JOIN customers c ON c.id = o.customer_id
-    LEFT JOIN (
-        SELECT invoice_id, SUM(amount_usd) as paid_usd, SUM(amount_lbp) as paid_lbp
-        FROM payments
-        GROUP BY invoice_id
-    ) paid ON paid.invoice_id = i.id
-    WHERE o.sales_rep_id = :rep_id
-      AND i.status IN ('issued', 'paid')
-      AND (i.total_usd > COALESCE(paid.paid_usd, 0) OR i.total_lbp > COALESCE(paid.paid_lbp, 0))
-    ORDER BY i.created_at DESC
-    LIMIT 5
-");
-$pendingCollections->execute([':rep_id' => $repId]);
-$collections = $pendingCollections->fetchAll(PDO::FETCH_ASSOC);
-
-admin_render_layout_start(['title' => $title, 'user' => $user]);
-?>
-
+$extraHead = <<<'HTML'
 <style>
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 20px;
-    margin-bottom: 30px;
-}
-.stat-card {
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 24px;
-}
-.stat-card h3 {
-    margin: 0 0 8px 0;
-    font-size: 14px;
-    font-weight: 500;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-.stat-card .value {
-    font-size: 32px;
-    font-weight: 700;
-    color: #1e293b;
-    margin: 0;
-}
-.stat-card .subvalue {
-    font-size: 14px;
-    color: #64748b;
-    margin-top: 4px;
-}
-.action-buttons {
+.sales-dashboard__alerts {
     display: flex;
+    flex-direction: column;
     gap: 12px;
-    margin-bottom: 30px;
-    flex-wrap: wrap;
+    margin-bottom: 16px;
 }
-.btn {
-    padding: 12px 24px;
-    border-radius: 6px;
-    text-decoration: none;
-    font-weight: 500;
-    border: none;
-    cursor: pointer;
-    transition: all 0.2s;
+.sales-dashboard__alert {
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 0.95rem;
 }
-.btn-primary {
-    background: #3b82f6;
-    color: white;
+.sales-dashboard__alert--error {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #b91c1c;
 }
-.btn-primary:hover {
-    background: #2563eb;
+.sales-dashboard__alert--notice {
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    color: #1d4ed8;
 }
-.btn-secondary {
-    background: #64748b;
-    color: white;
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
 }
-.btn-secondary:hover {
-    background: #475569;
+.metric-card {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
-.section {
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 24px;
-    margin-bottom: 24px;
+.metric-card span.label {
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
 }
-.section h2 {
-    margin: 0 0 20px 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: #1e293b;
+.metric-card strong {
+    font-size: 1.8rem;
 }
-.table {
+.metric-card small {
+    color: var(--muted);
+}
+.data-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 24px;
+    margin-bottom: 32px;
+}
+.data-card {
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.data-card header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.data-card h2 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+.data-card table {
     width: 100%;
     border-collapse: collapse;
+    font-size: 0.9rem;
 }
-.table th {
+.data-card table th,
+.data-card table td {
+    padding: 8px 4px;
     text-align: left;
-    padding: 12px;
-    background: #f8fafc;
-    border-bottom: 2px solid #e2e8f0;
-    font-size: 13px;
-    font-weight: 600;
-    color: #475569;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.3);
 }
-.table td {
-    padding: 12px;
-    border-bottom: 1px solid #e2e8f0;
-    font-size: 14px;
+.data-card table th {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
 }
-.table tr:hover {
-    background: #f8fafc;
+.data-card table tr:last-child td {
+    border-bottom: none;
+}
+.empty-state {
+    padding: 16px;
+    border-radius: 12px;
+    background: var(--bg-panel-alt);
+    color: var(--muted);
+    text-align: center;
+}
+.van-stock-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+}
+.van-stock-summary .label {
+    display: block;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 4px;
 }
 .badge {
-    display: inline-block;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
 }
-.badge-success { background: #d1fae5; color: #065f46; }
-.badge-warning { background: #fef3c7; color: #92400e; }
-.badge-info { background: #dbeafe; color: #1e40af; }
-.empty-state {
-    text-align: center;
-    padding: 40px;
-    color: #64748b;
-}
+.badge-warning { background: rgba(251, 191, 36, 0.15); color: #b45309; }
+.badge-info { background: rgba(59, 130, 246, 0.15); color: #1d4ed8; }
+.badge-success { background: rgba(34, 197, 94, 0.15); color: #15803d; }
+.badge-neutral { background: rgba(148, 163, 184, 0.3); color: #475569; }
 </style>
+HTML;
 
-<h1>Sales Dashboard</h1>
-<p style="color: #64748b; margin-bottom: 30px;">Welcome back, <?= htmlspecialchars($user['name']) ?>!</p>
+sales_portal_render_layout_start([
+    'title' => $title,
+    'heading' => $title,
+    'subtitle' => 'Live view of your pipeline, invoices, deliveries, and van stock.',
+    'user' => $user,
+    'nav_links' => $navLinks,
+    'active' => 'dashboard',
+    'extra_head' => $extraHead,
+]);
+?>
 
-<!-- Quick Stats -->
-<div class="stats-grid">
-    <div class="stat-card">
-        <h3>Today's Orders</h3>
-        <div class="value"><?= (int)$today['count'] ?></div>
-        <div class="subvalue">$<?= number_format($today['total_usd'], 2) ?></div>
+<?php if ($errors || $notices): ?>
+    <div class="sales-dashboard__alerts">
+        <?php foreach ($errors as $error): ?>
+            <div class="sales-dashboard__alert sales-dashboard__alert--error">
+                <?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?>
+            </div>
+        <?php endforeach; ?>
+        <?php foreach ($notices as $notice): ?>
+            <div class="sales-dashboard__alert sales-dashboard__alert--notice">
+                <?= htmlspecialchars($notice, ENT_QUOTES, 'UTF-8') ?>
+            </div>
+        <?php endforeach; ?>
     </div>
+<?php endif; ?>
 
-    <div class="stat-card">
-        <h3>This Month</h3>
-        <div class="value"><?= (int)$month['order_count'] ?></div>
-        <div class="subvalue">$<?= number_format($month['total_usd'], 2) ?></div>
-    </div>
+<section class="metrics-grid">
+    <article class="metric-card">
+        <span class="label">Orders Today</span>
+        <strong><?= number_format($metrics['orders_today'] ?? 0) ?></strong>
+        <small>Created since midnight</small>
+    </article>
+    <article class="metric-card">
+        <span class="label">Open Orders</span>
+        <strong><?= number_format($metrics['open_orders'] ?? 0) ?></strong>
+        <small>Not yet delivered</small>
+    </article>
+    <article class="metric-card">
+        <span class="label">Awaiting Approval</span>
+        <strong><?= number_format($metrics['awaiting_approval'] ?? 0) ?></strong>
+        <small>Still on hold</small>
+    </article>
+    <article class="metric-card">
+        <span class="label">In Transit</span>
+        <strong><?= number_format($metrics['in_transit'] ?? 0) ?></strong>
+        <small>Orders currently en route</small>
+    </article>
+    <article class="metric-card">
+        <span class="label">Deliveries Today</span>
+        <strong><?= number_format($deliveriesToday) ?></strong>
+        <small>Scheduled for today</small>
+    </article>
+    <article class="metric-card">
+        <span class="label">Open Receivables</span>
+        <strong>$<?= number_format($invoiceTotals['usd'], 2) ?></strong>
+        <small><?= number_format($invoiceTotals['lbp']) ?> LBP</small>
+    </article>
+</section>
 
-    <div class="stat-card">
-        <h3>My Customers</h3>
-        <div class="value"><?= (int)$myCustomers ?></div>
-        <div class="subvalue">Active accounts</div>
-    </div>
+<section class="data-grid">
+    <article class="data-card">
+        <header>
+            <h2>Recent Orders</h2>
+            <span class="badge badge-info">Latest</span>
+        </header>
+        <?php if (!$latestOrders): ?>
+            <div class="empty-state">No orders found.</div>
+        <?php else: ?>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Order</th>
+                        <th>Status</th>
+                        <th>Total (USD)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($latestOrders as $order): ?>
+                        <?php
+                        $statusKey = $order['status'] ?? 'on_hold';
+                        $statusLabel = $orderStatusLabels[$statusKey] ?? ucfirst((string)$statusKey);
+                        ?>
+                        <tr>
+                            <td>
+                                <strong><?= htmlspecialchars($order['order_number'] ?? ('#' . (int)$order['id']), ENT_QUOTES, 'UTF-8') ?></strong><br>
+                                <small><?= htmlspecialchars($order['customer_name'] ?? 'Unassigned', ENT_QUOTES, 'UTF-8') ?></small>
+                            </td>
+                            <td><?= htmlspecialchars($statusLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                            <td>$<?= number_format((float)($order['total_usd'] ?? 0), 2) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </article>
 
-    <div class="stat-card">
-        <h3>Van Stock Value</h3>
-        <div class="value">$<?= number_format($vanValue, 0) ?></div>
-        <div class="subvalue">Current inventory</div>
-    </div>
-</div>
+    <article class="data-card">
+        <header>
+            <h2>Pending Invoices</h2>
+            <span class="badge badge-warning">Receivables</span>
+        </header>
+        <?php if (!$pendingInvoices): ?>
+            <div class="empty-state">No invoices issued yet.</div>
+        <?php else: ?>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Status</th>
+                        <th>Balance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($pendingInvoices as $invoice): ?>
+                        <?php
+                        $balanceUsd = max(0.0, (float)$invoice['total_usd'] - (float)$invoice['paid_usd']);
+                        $statusKey = $invoice['status'] ?? 'pending';
+                        $statusLabel = $invoiceStatusLabels[$statusKey] ?? ucfirst((string)$statusKey);
+                        ?>
+                        <tr>
+                            <td>
+                                <strong><?= htmlspecialchars($invoice['invoice_number'] ?? ('INV-' . (int)$invoice['id']), ENT_QUOTES, 'UTF-8') ?></strong><br>
+                                <small><?= htmlspecialchars($invoice['customer_name'] ?? '—', ENT_QUOTES, 'UTF-8') ?></small>
+                            </td>
+                            <td><?= htmlspecialchars($statusLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                            <td>
+                                $<?= number_format($balanceUsd, 2) ?><br>
+                                <small><?= number_format(max(0.0, (float)$invoice['total_lbp'] - (float)$invoice['paid_lbp'])) ?> LBP</small>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </article>
 
-<!-- Quick Actions -->
-<div class="action-buttons">
-    <a href="create_order.php" class="btn btn-primary">+ Create Order</a>
-    <a href="van_stock.php" class="btn btn-secondary">Van Stock</a>
-    <a href="collections.php" class="btn btn-secondary">Collections</a>
-</div>
+    <article class="data-card">
+        <header>
+            <h2>Upcoming Deliveries</h2>
+            <span class="badge badge-info">Logistics</span>
+        </header>
+        <?php if (!$upcomingDeliveries): ?>
+            <div class="empty-state">No upcoming deliveries scheduled.</div>
+        <?php else: ?>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Customer</th>
+                        <th>When</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($upcomingDeliveries as $delivery): ?>
+                        <?php
+                        $scheduledAt = $delivery['scheduled_at'] ?? null;
+                        $scheduledLabel = $scheduledAt ? date('M j, H:i', strtotime($scheduledAt)) : '—';
+                        ?>
+                        <tr>
+                            <td><?= htmlspecialchars($delivery['customer_name'] ?? '—', ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars($scheduledLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string)($delivery['status'] ?? 'pending'))), ENT_QUOTES, 'UTF-8') ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </article>
 
-<!-- Recent Orders -->
-<div class="section">
-    <h2>Recent Orders</h2>
-    <?php if (empty($orders)): ?>
-        <div class="empty-state">
-            <p>No orders yet. Create your first order to get started!</p>
+    <article class="data-card">
+        <header>
+            <h2>Recent Payments</h2>
+            <span class="badge badge-success">Collections</span>
+        </header>
+        <?php if (!$recentPayments): ?>
+            <div class="empty-state">No payments recorded yet.</div>
+        <?php else: ?>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Amount</th>
+                        <th>Received</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($recentPayments as $payment): ?>
+                        <?php
+                        $receivedAt = $payment['received_at'] ?? null;
+                        $receivedLabel = $receivedAt ? date('M j, H:i', strtotime($receivedAt)) : '—';
+                        ?>
+                        <tr>
+                            <td>
+                                <strong><?= htmlspecialchars($payment['invoice_number'] ?? ('INV-' . (int)$payment['invoice_id']), ENT_QUOTES, 'UTF-8') ?></strong><br>
+                                <small><?= htmlspecialchars($payment['customer_name'] ?? '—', ENT_QUOTES, 'UTF-8') ?></small>
+                            </td>
+                            <td>
+                                <?php if ((float)$payment['amount_usd'] > 0): ?>
+                                    $<?= number_format((float)$payment['amount_usd'], 2) ?><br>
+                                <?php endif; ?>
+                                <?php if ((float)$payment['amount_lbp'] > 0): ?>
+                                    <small><?= number_format((float)$payment['amount_lbp']) ?> LBP</small>
+                                <?php endif; ?>
+                                <?php if (!(float)$payment['amount_usd'] && !(float)$payment['amount_lbp']): ?>
+                                    <small>—</small>
+                                <?php endif; ?>
+                            </td>
+                            <td><?= htmlspecialchars($receivedLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </article>
+</section>
+
+<section class="data-card">
+    <header>
+        <h2>Van Stock Snapshot</h2>
+        <span class="badge badge-neutral">Inventory</span>
+    </header>
+    <div class="van-stock-summary">
+        <div>
+            <span class="label">SKUs</span>
+            <strong><?= number_format((int)$vanStockSummary['sku_count']) ?></strong>
         </div>
+        <div>
+            <span class="label">Units On Hand</span>
+            <strong><?= number_format((float)$vanStockSummary['total_units'], 1) ?></strong>
+        </div>
+        <div>
+            <span class="label">Stock Value (USD)</span>
+            <strong>$<?= number_format((float)$vanStockSummary['total_value_usd'], 2) ?></strong>
+        </div>
+    </div>
+
+    <h3>Latest Movements</h3>
+    <?php if (!$vanStockMovements): ?>
+        <div class="empty-state">No van stock movements recorded.</div>
     <?php else: ?>
-        <table class="table">
+        <table>
             <thead>
                 <tr>
-                    <th>Order #</th>
-                    <th>Customer</th>
                     <th>Date</th>
-                    <th>Amount</th>
-                    <th>Status</th>
+                    <th>Item</th>
+                    <th>Change</th>
+                    <th>Reason</th>
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($orders as $order): ?>
-                <tr>
-                    <td>
-                        <a href="../admin/orders.php?id=<?= $order['id'] ?>" style="color: #3b82f6; text-decoration: none;">
-                            <?= htmlspecialchars($order['order_number']) ?>
-                        </a>
-                    </td>
-                    <td><?= htmlspecialchars($order['customer_name'] ?? 'N/A') ?></td>
-                    <td><?= date('M j, Y', strtotime($order['created_at'])) ?></td>
-                    <td>
-                        $<?= number_format($order['total_usd'], 2) ?>
-                        <?php if ($order['total_lbp'] > 0): ?>
-                            <br><small style="color: #64748b;"><?= number_format($order['total_lbp'], 0) ?> LBP</small>
-                        <?php endif; ?>
-                    </td>
-                    <td>
-                        <?php
-                        $status = $order['current_status'] ?? 'pending';
-                        $badgeClass = 'badge-info';
-                        if (in_array($status, ['delivered', 'completed'])) $badgeClass = 'badge-success';
-                        if (in_array($status, ['on_hold', 'pending'])) $badgeClass = 'badge-warning';
-                        ?>
-                        <span class="badge <?= $badgeClass ?>"><?= htmlspecialchars($status) ?></span>
-                    </td>
-                </tr>
+                <?php foreach ($vanStockMovements as $movement): ?>
+                    <?php
+                    $delta = (float)($movement['delta_qty'] ?? 0);
+                    $deltaLabel = ($delta > 0 ? '+' : '') . number_format($delta, 1);
+                    $movementAt = $movement['created_at'] ?? null;
+                    $movementLabel = $movementAt ? date('M j, H:i', strtotime($movementAt)) : '—';
+                    ?>
+                    <tr>
+                        <td><?= htmlspecialchars($movementLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                        <td>
+                            <?= htmlspecialchars($movement['item_name'] ?? '—', ENT_QUOTES, 'UTF-8') ?><br>
+                            <small><?= htmlspecialchars($movement['sku'] ?? '', ENT_QUOTES, 'UTF-8') ?></small>
+                        </td>
+                        <td><?= $deltaLabel ?></td>
+                        <td><?= htmlspecialchars($movement['reason'] ?? '—', ENT_QUOTES, 'UTF-8') ?></td>
+                    </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
     <?php endif; ?>
-</div>
+</section>
 
-<!-- Pending Collections -->
-<?php if (!empty($collections)): ?>
-<div class="section">
-    <h2>Pending Collections</h2>
-    <table class="table">
-        <thead>
-            <tr>
-                <th>Invoice #</th>
-                <th>Customer</th>
-                <th>Total</th>
-                <th>Paid</th>
-                <th>Balance</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($collections as $inv): ?>
-            <tr>
-                <td><?= htmlspecialchars($inv['invoice_number']) ?></td>
-                <td><?= htmlspecialchars($inv['customer_name'] ?? 'N/A') ?></td>
-                <td>
-                    $<?= number_format($inv['total_usd'], 2) ?>
-                    <?php if ($inv['total_lbp'] > 0): ?>
-                        <br><small style="color: #64748b;"><?= number_format($inv['total_lbp'], 0) ?> LBP</small>
-                    <?php endif; ?>
-                </td>
-                <td>
-                    $<?= number_format($inv['paid_usd'], 2) ?>
-                    <?php if ($inv['paid_lbp'] > 0): ?>
-                        <br><small style="color: #64748b;"><?= number_format($inv['paid_lbp'], 0) ?> LBP</small>
-                    <?php endif; ?>
-                </td>
-                <td style="font-weight: 600; color: #dc2626;">
-                    $<?= number_format($inv['balance_usd'], 2) ?>
-                    <?php if ($inv['balance_lbp'] > 0): ?>
-                        <br><small><?= number_format($inv['balance_lbp'], 0) ?> LBP</small>
-                    <?php endif; ?>
-                </td>
-                <td>
-                    <a href="collections.php?invoice_id=<?= $inv['id'] ?>" class="btn btn-primary" style="padding: 6px 12px; font-size: 13px;">
-                        Record Payment
-                    </a>
-                </td>
-            </tr>
-            <?php endforeach; ?>
-        </tbody>
-    </table>
-</div>
-<?php endif; ?>
-
-<?php admin_render_layout_end(); ?>
+<?php sales_portal_render_layout_end(); ?>

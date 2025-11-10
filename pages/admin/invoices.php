@@ -30,7 +30,7 @@ $statusBadgeClasses = [
     'paid' => 'badge-success',
     'voided' => 'badge-neutral',
 ];
-
+/*  */
 // Handle POST requests for invoice actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf((string)($_POST['_csrf'] ?? ''))) {

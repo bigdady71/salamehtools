@@ -34,6 +34,9 @@ function admin_render_layout_start(array $options = []): void
     $extraHead = (string)($options['extra_head'] ?? '');
 
     $navItems = admin_nav_links();
+    if (isset($options['nav_links']) && is_array($options['nav_links']) && $options['nav_links']) {
+        $navItems = $options['nav_links'];
+    }
     $escTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
     $escHeading = htmlspecialchars($heading, ENT_QUOTES, 'UTF-8');
     $escSubtitle = $subtitle !== null ? htmlspecialchars((string)$subtitle, ENT_QUOTES, 'UTF-8') : null;

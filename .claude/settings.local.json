@@ -39,7 +39,8 @@
       "Bash(rm:*)",
       "Bash(git rm:*)",
       "Bash(composer dump-autoload:*)",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DESCRIBE s_stock;\")"
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DESCRIBE s_stock;\")",
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []
