@@ -54,3 +54,5 @@ composer.phar
 *.swp
 *.swo
 *~
+
+/nul
