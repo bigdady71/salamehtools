@@ -58,7 +58,7 @@ $totalPages = max(1, (int)ceil($totalProducts / $perPage));
 $page = min($page, $totalPages);
 $offset = ($page - 1) * $perPage;
 
-// Get products
+// Get products with margin calculation
 $stmt = $pdo->prepare("
     SELECT
         p.id,
@@ -70,9 +70,20 @@ $stmt = $pdo->prepare("
         p.midcat_name,
         p.sale_price_usd,
         p.wholesale_price_usd,
+        p.cost_price_usd,
         p.min_quantity,
         p.quantity_on_hand,
-        p.is_active
+        p.is_active,
+        CASE
+            WHEN p.cost_price_usd > 0 AND p.sale_price_usd > 0
+            THEN ((p.sale_price_usd - p.cost_price_usd) / p.sale_price_usd) * 100
+            ELSE NULL
+        END as margin_percent,
+        CASE
+            WHEN p.cost_price_usd > 0 AND p.wholesale_price_usd > 0
+            THEN ((p.wholesale_price_usd - p.cost_price_usd) / p.wholesale_price_usd) * 100
+            ELSE NULL
+        END as wholesale_margin_percent
     FROM products p
     WHERE {$whereClause}
     ORDER BY p.sku ASC
@@ -435,18 +446,41 @@ sales_portal_render_layout_start([
             <?php endif; ?>
 
             <div class="product-details">
-                <div class="product-detail">
-                    <div class="product-detail-label">Wholesale Price</div>
-                    <div class="product-detail-value price">
-                        $<?= number_format((float)$product['wholesale_price_usd'], 2) ?>
+                <!-- Pricing Tiers -->
+                <div style="background: rgba(59, 130, 246, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                    <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #1d4ed8; margin-bottom: 8px;">💰 Pricing</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: var(--muted);">Retail</div>
+                            <div style="font-size: 1.1rem; font-weight: 600; color: #15803d;">
+                                $<?= number_format((float)$product['sale_price_usd'], 2) ?>
+                            </div>
+                            <?php if ($product['margin_percent'] !== null): ?>
+                                <div style="font-size: 0.75rem; color: <?= $product['margin_percent'] < 20 ? '#dc2626' : '#15803d' ?>;">
+                                    <?= number_format((float)$product['margin_percent'], 1) ?>% margin
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: var(--muted);">Wholesale</div>
+                            <div style="font-size: 1.1rem; font-weight: 600; color: #1d4ed8;">
+                                $<?= number_format((float)$product['wholesale_price_usd'], 2) ?>
+                            </div>
+                            <?php if ($product['wholesale_margin_percent'] !== null): ?>
+                                <div style="font-size: 0.75rem; color: <?= $product['wholesale_margin_percent'] < 15 ? '#dc2626' : '#15803d' ?>;">
+                                    <?= number_format((float)$product['wholesale_margin_percent'], 1) ?>% margin
+                                </div>
+                            <?php endif; ?>
+                        </div>
                     </div>
-                </div>
-
-                <div class="product-detail">
-                    <div class="product-detail-label">Retail Price</div>
-                    <div class="product-detail-value">
-                        $<?= number_format((float)$product['sale_price_usd'], 2) ?>
-                    </div>
+                    <?php if ($product['cost_price_usd'] !== null && $product['cost_price_usd'] > 0): ?>
+                        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.75rem; color: var(--muted);">Cost Basis</div>
+                            <div style="font-size: 0.9rem; font-weight: 500;">
+                                $<?= number_format((float)$product['cost_price_usd'], 2) ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                 </div>
 
                 <div class="product-detail">
@@ -477,6 +511,14 @@ sales_portal_render_layout_start([
                         <?php endif; ?>
                     </div>
                 </div>
+
+                <!-- Margin Alert -->
+                <?php if ($product['margin_percent'] !== null && $product['margin_percent'] < 15): ?>
+                    <div style="margin-top: 8px; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #dc2626;">
+                        <div style="font-size: 0.75rem; color: #991b1b; font-weight: 600;">⚠️ Low Margin Alert</div>
+                        <div style="font-size: 0.7rem; color: #991b1b; margin-top: 2px;">Retail margin below 15% - negotiate carefully</div>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
         <?php endforeach; ?>

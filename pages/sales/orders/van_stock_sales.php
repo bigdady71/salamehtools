@@ -5,6 +5,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../bootstrap.php';
 require_once __DIR__ . '/../../../includes/guard.php';
 require_once __DIR__ . '/../../../includes/sales_portal.php';
+require_once __DIR__ . '/../../../includes/counter.php';
+require_once __DIR__ . '/../../../includes/audit.php';
 
 $user = sales_portal_bootstrap();
 $repId = (int)$user['id'];
@@ -98,16 +100,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
             try {
                 $pdo->beginTransaction();
 
-                // Generate order number
-                $orderNumberStmt = $pdo->query("SELECT order_number FROM orders ORDER BY id DESC LIMIT 1");
-                $lastOrder = $orderNumberStmt->fetch(PDO::FETCH_ASSOC);
-                $lastNumber = 1;
-                if ($lastOrder && $lastOrder['order_number']) {
-                    if (preg_match('/ORD-(\d+)/', $lastOrder['order_number'], $matches)) {
-                        $lastNumber = (int)$matches[1] + 1;
-                    }
-                }
-                $orderNumber = 'ORD-' . str_pad((string)$lastNumber, 6, '0', STR_PAD_LEFT);
+                // Generate order number atomically (race-condition safe)
+                $orderNumber = generate_order_number($pdo);
 
                 // Calculate totals and verify stock availability
                 $totalUSD = 0;
@@ -175,10 +169,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     // Create order
                     $orderStmt = $pdo->prepare("
                         INSERT INTO orders (
-                            order_number, customer_id, sales_rep_id, exchange_rate_id,
+                            order_number, order_type, status, customer_id, sales_rep_id, exchange_rate_id,
                             total_usd, total_lbp, notes, created_at, updated_at
                         ) VALUES (
-                            :order_number, :customer_id, :sales_rep_id, :exchange_rate_id,
+                            :order_number, 'van_stock_sale', 'delivered', :customer_id, :sales_rep_id, :exchange_rate_id,
                             :total_usd, :total_lbp, :notes, NOW(), NOW()
                         )
                     ");
@@ -193,6 +187,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     ]);
 
                     $orderId = (int)$pdo->lastInsertId();
+
+                    // Audit log: order created
+                    audit_log($pdo, $repId, 'order_created_van_stock', 'orders', $orderId, [
+                        'order_number' => $orderNumber,
+                        'customer_id' => $customerId,
+                        'total_usd' => $totalUSD,
+                        'total_lbp' => $totalLBP,
+                        'item_count' => count($itemsWithPrices)
+                    ]);
 
                     // Insert order items
                     $itemStmt = $pdo->prepare("
@@ -260,16 +263,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     }
 
                     // Create invoice for the order
-                    // Generate invoice number
-                    $invoiceNumberStmt = $pdo->query("SELECT invoice_number FROM invoices ORDER BY id DESC LIMIT 1");
-                    $lastInvoice = $invoiceNumberStmt->fetch(PDO::FETCH_ASSOC);
-                    $lastInvNumber = 1;
-                    if ($lastInvoice && $lastInvoice['invoice_number']) {
-                        if (preg_match('/INV-(\d+)/', $lastInvoice['invoice_number'], $matches)) {
-                            $lastInvNumber = (int)$matches[1] + 1;
-                        }
-                    }
-                    $invoiceNumber = 'INV-' . str_pad((string)$lastInvNumber, 6, '0', STR_PAD_LEFT);
+                    // Generate invoice number atomically (race-condition safe)
+                    $invoiceNumber = generate_invoice_number($pdo);
 
                     // Create invoice with 'issued' status since it's already delivered
                     $invoiceStmt = $pdo->prepare("
@@ -928,6 +923,13 @@ echo '    updateSummary();';
 echo '  }';
 echo '}';
 echo '';
+echo '// HTML escape function to prevent XSS';
+echo 'function escapeHtml(text) {';
+echo '  const div = document.createElement("div");';
+echo '  div.textContent = text;';
+echo '  return div.innerHTML;';
+echo '}';
+echo '';
 echo 'function renderSelectedProducts() {';
 echo '  const container = document.getElementById("selectedProductsList");';
 echo '  if (selectedProducts.length === 0) {';
@@ -937,10 +939,12 @@ echo '  }';
 echo '  let html = "";';
 echo '  selectedProducts.forEach(product => {';
 echo '    const subtotal = product.priceUSD * product.quantity * (1 - product.discount / 100);';
+echo '    const safeName = escapeHtml(product.name);';
+echo '    const safeSku = escapeHtml(product.sku);';
 echo '    html += `<div class="selected-product">`;';
 echo '    html += `<div class="selected-product-header">`;';
-echo '    html += `<div><div class="selected-product-name">${product.name}</div>`;';
-echo '    html += `<div style="font-size:0.85rem;color:var(--muted);">SKU: ${product.sku} | Unit: $${product.priceUSD.toFixed(2)} | Stock: ${product.maxStock}</div></div>`;';
+echo '    html += `<div><div class="selected-product-name">${safeName}</div>`;';
+echo '    html += `<div style="font-size:0.85rem;color:var(--muted);">SKU: ${safeSku} | Unit: $${product.priceUSD.toFixed(2)} | Stock: ${product.maxStock}</div></div>`;';
 echo '    html += `<button type="button" class="btn-remove" onclick="removeProduct(${product.id})">Remove</button>`;';
 echo '    html += `</div>`;';
 echo '    html += `<div class="selected-product-controls">`;';

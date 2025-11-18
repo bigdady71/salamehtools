@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../bootstrap.php';
 require_once __DIR__ . '/../../../includes/guard.php';
 require_once __DIR__ . '/../../../includes/sales_portal.php';
+require_once __DIR__ . '/../../../includes/counter.php';
 
 $user = sales_portal_bootstrap();
 $repId = (int)$user['id'];
@@ -99,16 +100,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
             try {
                 $pdo->beginTransaction();
 
-                // Generate order number
-                $orderNumberStmt = $pdo->query("SELECT order_number FROM orders ORDER BY id DESC LIMIT 1");
-                $lastOrder = $orderNumberStmt->fetch(PDO::FETCH_ASSOC);
-                $lastNumber = 1;
-                if ($lastOrder && $lastOrder['order_number']) {
-                    if (preg_match('/ORD-(\d+)/', $lastOrder['order_number'], $matches)) {
-                        $lastNumber = (int)$matches[1] + 1;
-                    }
-                }
-                $orderNumber = 'ORD-' . str_pad((string)$lastNumber, 6, '0', STR_PAD_LEFT);
+                // Generate order number atomically (race-condition safe)
+                $orderNumber = generate_order_number($pdo);
 
                 // Calculate totals and verify products exist
                 $totalUSD = 0;
@@ -173,10 +166,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     // Create order
                     $orderStmt = $pdo->prepare("
                         INSERT INTO orders (
-                            order_number, customer_id, sales_rep_id, exchange_rate_id,
+                            order_number, order_type, status, customer_id, sales_rep_id, exchange_rate_id,
                             total_usd, total_lbp, notes, invoice_ready, created_at, updated_at
                         ) VALUES (
-                            :order_number, :customer_id, :sales_rep_id, :exchange_rate_id,
+                            :order_number, 'company_order', 'on_hold', :customer_id, :sales_rep_id, :exchange_rate_id,
                             :total_usd, :total_lbp, :notes, 0, NOW(), NOW()
                         )
                     ");
@@ -798,6 +791,13 @@ echo '    updateSummary();';
 echo '  }';
 echo '}';
 echo '';
+echo '// HTML escape function to prevent XSS';
+echo 'function escapeHtml(text) {';
+echo '  const div = document.createElement("div");';
+echo '  div.textContent = text;';
+echo '  return div.innerHTML;';
+echo '}';
+echo '';
 echo 'function renderSelectedProducts() {';
 echo '  const container = document.getElementById("selectedProductsList");';
 echo '  if (selectedProducts.length === 0) {';
@@ -808,10 +808,12 @@ echo '  let html = "";';
 echo '  selectedProducts.forEach(product => {';
 echo '    const subtotal = product.priceUSD * product.quantity * (1 - product.discount / 100);';
 echo '    const stockWarning = product.quantity > product.warehouseStock ? " (⚠️ Exceeds warehouse stock)" : "";';
+echo '    const safeName = escapeHtml(product.name);';
+echo '    const safeSku = escapeHtml(product.sku);';
 echo '    html += `<div class="selected-product">`;';
 echo '    html += `<div class="selected-product-header">`;';
-echo '    html += `<div><div class="selected-product-name">${product.name}</div>`;';
-echo '    html += `<div style="font-size:0.85rem;color:var(--muted);">SKU: ${product.sku} | Unit: $${product.priceUSD.toFixed(2)} | Warehouse: ${product.warehouseStock}${stockWarning}</div></div>`;';
+echo '    html += `<div><div class="selected-product-name">${safeName}</div>`;';
+echo '    html += `<div style="font-size:0.85rem;color:var(--muted);">SKU: ${safeSku} | Unit: $${product.priceUSD.toFixed(2)} | Warehouse: ${product.warehouseStock}${stockWarning}</div></div>`;';
 echo '    html += `<button type="button" class="btn-remove" onclick="removeProduct(${product.id})">Remove</button>`;';
 echo '    html += `</div>`;';
 echo '    html += `<div class="selected-product-controls">`;';

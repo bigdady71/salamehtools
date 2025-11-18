@@ -201,6 +201,245 @@ sales_portal_render_layout_start([
     </div>
 <?php endif; ?>
 
+<?php
+// Get current month/year quota and performance
+$currentYear = (int)date('Y');
+$currentMonth = (int)date('M');
+$repId = (int)$user['id'];
+
+// Get this month's quota
+$quotaStmt = $pdo->prepare("
+    SELECT quota_usd
+    FROM sales_quotas
+    WHERE sales_rep_id = :rep_id AND year = :year AND month = :month
+");
+$quotaStmt->execute([':rep_id' => $repId, ':year' => $currentYear, ':month' => $currentMonth]);
+$monthlyQuota = (float)($quotaStmt->fetchColumn() ?: 0);
+
+// Get this month's actual sales (delivered orders only)
+$salesStmt = $pdo->prepare("
+    SELECT COALESCE(SUM(o.total_usd), 0) as monthly_sales
+    FROM orders o
+    INNER JOIN customers c ON c.id = o.customer_id
+    WHERE c.assigned_sales_rep_id = :rep_id
+      AND o.status = 'delivered'
+      AND YEAR(o.created_at) = :year
+      AND MONTH(o.created_at) = :month
+");
+$salesStmt->execute([':rep_id' => $repId, ':year' => $currentYear, ':month' => $currentMonth]);
+$monthlySales = (float)($salesStmt->fetchColumn() ?: 0);
+
+// Calculate YTD
+$ytdStmt = $pdo->prepare("
+    SELECT
+        COALESCE(SUM(sq.quota_usd), 0) as ytd_quota,
+        COALESCE(SUM(o.total_usd), 0) as ytd_sales
+    FROM sales_quotas sq
+    LEFT JOIN customers c ON c.assigned_sales_rep_id = sq.sales_rep_id
+    LEFT JOIN orders o ON o.customer_id = c.id
+        AND o.status = 'delivered'
+        AND YEAR(o.created_at) = sq.year
+        AND MONTH(o.created_at) = sq.month
+    WHERE sq.sales_rep_id = :rep_id
+      AND sq.year = :year
+");
+$ytdStmt->execute([':rep_id' => $repId, ':year' => $currentYear]);
+$ytdData = $ytdStmt->fetch(PDO::FETCH_ASSOC);
+$ytdQuota = (float)($ytdData['ytd_quota'] ?: 0);
+$ytdSales = (float)($ytdData['ytd_sales'] ?: 0);
+
+$quotaPercent = $monthlyQuota > 0 ? ($monthlySales / $monthlyQuota) * 100 : 0;
+$ytdPercent = $ytdQuota > 0 ? ($ytdSales / $ytdQuota) * 100 : 0;
+
+// Get overdue invoices
+$overdueStmt = $pdo->prepare("
+    SELECT
+        i.invoice_number,
+        c.id as customer_id,
+        c.name as customer_name,
+        i.issued_at,
+        i.due_date,
+        DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) as days_overdue,
+        (i.total_usd - COALESCE(pay.paid_usd, 0)) as balance_usd,
+        (i.total_lbp - COALESCE(pay.paid_lbp, 0)) as balance_lbp
+    FROM invoices i
+    INNER JOIN orders o ON o.id = i.order_id
+    INNER JOIN customers c ON c.id = o.customer_id
+    LEFT JOIN (
+        SELECT invoice_id, SUM(amount_usd) as paid_usd, SUM(amount_lbp) as paid_lbp
+        FROM payments
+        GROUP BY invoice_id
+    ) pay ON pay.invoice_id = i.id
+    WHERE c.assigned_sales_rep_id = :rep_id
+      AND i.status != 'paid'
+      AND i.status != 'voided'
+      AND (i.total_usd - COALESCE(pay.paid_usd, 0) > 0.01 OR i.total_lbp - COALESCE(pay.paid_lbp, 0) > 0.01)
+      AND DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) > 30
+    ORDER BY days_overdue DESC
+    LIMIT 10
+");
+$overdueStmt->execute([':rep_id' => $repId]);
+$overdueInvoices = $overdueStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Get critical AR summary
+$arSummaryStmt = $pdo->prepare("
+    SELECT
+        COUNT(DISTINCT i.id) as overdue_count,
+        SUM(i.total_usd - COALESCE(pay.paid_usd, 0)) as overdue_usd,
+        SUM(CASE WHEN DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) > 90 THEN (i.total_usd - COALESCE(pay.paid_usd, 0)) ELSE 0 END) as critical_usd
+    FROM invoices i
+    INNER JOIN orders o ON o.id = i.order_id
+    INNER JOIN customers c ON c.id = o.customer_id
+    LEFT JOIN (
+        SELECT invoice_id, SUM(amount_usd) as paid_usd
+        FROM payments
+        GROUP BY invoice_id
+    ) pay ON pay.invoice_id = i.id
+    WHERE c.assigned_sales_rep_id = :rep_id
+      AND i.status != 'paid'
+      AND i.status != 'voided'
+      AND (i.total_usd - COALESCE(pay.paid_usd, 0) > 0.01)
+      AND DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) > 30
+");
+$arSummaryStmt->execute([':rep_id' => $repId]);
+$arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
+?>
+
+<!-- Overdue Payment Alerts -->
+<?php if (!empty($overdueInvoices)): ?>
+<section style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); border-radius: 16px; padding: 24px; margin-bottom: 24px; color: white;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+        <div>
+            <h2 style="margin: 0 0 8px 0; font-size: 1.4rem; font-weight: 700; color: white;">🚨 Overdue Payments Alert</h2>
+            <p style="margin: 0; opacity: 0.9; font-size: 0.95rem;">These invoices require immediate attention</p>
+        </div>
+        <a href="receivables.php" style="background: rgba(255,255,255,0.2); color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.3);">
+            View AR Dashboard →
+        </a>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+        <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 16px; backdrop-filter: blur(10px);">
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;">Overdue Invoices</div>
+            <div style="font-size: 2rem; font-weight: 700;"><?= number_format((int)$arSummary['overdue_count']) ?></div>
+        </div>
+        <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 16px; backdrop-filter: blur(10px);">
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;">Total Overdue</div>
+            <div style="font-size: 2rem; font-weight: 700;">$<?= number_format((float)$arSummary['overdue_usd'], 0) ?></div>
+        </div>
+        <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 16px; backdrop-filter: blur(10px);">
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;">Critical (90+ days)</div>
+            <div style="font-size: 2rem; font-weight: 700;">$<?= number_format((float)$arSummary['critical_usd'], 0) ?></div>
+        </div>
+    </div>
+
+    <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 16px; max-height: 300px; overflow-y: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="border-bottom: 2px solid rgba(255,255,255,0.3);">
+                    <th style="text-align: left; padding: 8px; font-size: 0.85rem; opacity: 0.9;">Invoice</th>
+                    <th style="text-align: left; padding: 8px; font-size: 0.85rem; opacity: 0.9;">Customer</th>
+                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;">Days Overdue</th>
+                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;">Amount</th>
+                    <th style="text-align: center; padding: 8px; font-size: 0.85rem; opacity: 0.9;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($overdueInvoices as $inv): ?>
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                    <td style="padding: 10px; font-weight: 600;"><?= htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8') ?></td>
+                    <td style="padding: 10px;"><?= htmlspecialchars($inv['customer_name'], ENT_QUOTES, 'UTF-8') ?></td>
+                    <td style="padding: 10px; text-align: right;">
+                        <span style="background: <?= $inv['days_overdue'] > 90 ? '#7f1d1d' : ($inv['days_overdue'] > 60 ? '#991b1b' : '#b91c1c') ?>; padding: 4px 10px; border-radius: 6px; font-weight: 600;">
+                            <?= (int)$inv['days_overdue'] ?> days
+                        </span>
+                    </td>
+                    <td style="padding: 10px; text-align: right; font-weight: 600; font-size: 1.05rem;">
+                        $<?= number_format((float)$inv['balance_usd'], 2) ?>
+                    </td>
+                    <td style="padding: 10px; text-align: center;">
+                        <a href="invoices.php" style="background: rgba(255,255,255,0.9); color: #dc2626; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: 600;">
+                            Record Payment
+                        </a>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</section>
+<?php endif; ?>
+
+<!-- Sales Quota Performance -->
+<?php if ($monthlyQuota > 0 || $ytdQuota > 0): ?>
+<section style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; padding: 24px; margin-bottom: 32px; color: white;">
+    <h2 style="margin: 0 0 20px 0; font-size: 1.4rem; font-weight: 700; color: white;">🎯 Sales Quota Performance</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+        <!-- This Month -->
+        <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 20px; backdrop-filter: blur(10px);">
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">This Month</div>
+            <div style="font-size: 2rem; font-weight: 700; margin-bottom: 8px;">$<?= number_format($monthlySales, 0) ?></div>
+            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 12px;">of $<?= number_format($monthlyQuota, 0) ?> quota</div>
+            <div style="background: rgba(255,255,255,0.2); border-radius: 8px; height: 12px; overflow: hidden;">
+                <div style="background: <?= $quotaPercent >= 100 ? '#10b981' : ($quotaPercent >= 75 ? '#f59e0b' : '#ef4444') ?>; height: 100%; width: <?= min(100, $quotaPercent) ?>%; transition: width 0.3s;"></div>
+            </div>
+            <div style="margin-top: 8px; font-size: 1.2rem; font-weight: 600;">
+                <?= number_format($quotaPercent, 1) ?>%
+                <?php if ($quotaPercent >= 100): ?>
+                    <span style="color: #10b981;">✓ Achieved!</span>
+                <?php elseif ($quotaPercent >= 75): ?>
+                    <span style="color: #fbbf24;">▲ On Track</span>
+                <?php else: ?>
+                    <span style="color: #fca5a5;">⚠ Needs Attention</span>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Year to Date -->
+        <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 20px; backdrop-filter: blur(10px);">
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">Year to Date</div>
+            <div style="font-size: 2rem; font-weight: 700; margin-bottom: 8px;">$<?= number_format($ytdSales, 0) ?></div>
+            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 12px;">of $<?= number_format($ytdQuota, 0) ?> quota</div>
+            <div style="background: rgba(255,255,255,0.2); border-radius: 8px; height: 12px; overflow: hidden;">
+                <div style="background: <?= $ytdPercent >= 100 ? '#10b981' : ($ytdPercent >= 75 ? '#f59e0b' : '#ef4444') ?>; height: 100%; width: <?= min(100, $ytdPercent) ?>%; transition: width 0.3s;"></div>
+            </div>
+            <div style="margin-top: 8px; font-size: 1.2rem; font-weight: 600;">
+                <?= number_format($ytdPercent, 1) ?>%
+                <?php if ($ytdPercent >= 100): ?>
+                    <span style="color: #10b981;">✓ Exceeding!</span>
+                <?php elseif ($ytdPercent >= 90): ?>
+                    <span style="color: #fbbf24;">▲ Strong</span>
+                <?php else: ?>
+                    <span style="color: #fca5a5;">⚠ Behind Pace</span>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Gap to Quota -->
+        <?php $gapAmount = $monthlyQuota - $monthlySales; ?>
+        <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 20px; backdrop-filter: blur(10px);">
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">
+                <?= $gapAmount > 0 ? 'Gap to Quota' : 'Surplus' ?>
+            </div>
+            <div style="font-size: 2rem; font-weight: 700; margin-bottom: 8px; color: <?= $gapAmount > 0 ? '#fca5a5' : '#86efac' ?>;">
+                $<?= number_format(abs($gapAmount), 0) ?>
+            </div>
+            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 12px;">
+                <?php
+                $daysLeft = (int)date('t') - (int)date('j');
+                echo $daysLeft . ' days left in month';
+                ?>
+            </div>
+            <?php if ($gapAmount > 0 && $daysLeft > 0): ?>
+                <div style="font-size: 0.85rem; background: rgba(255,255,255,0.2); padding: 10px; border-radius: 6px; margin-top: 8px;">
+                    <strong>Daily target:</strong> $<?= number_format($gapAmount / $daysLeft, 0) ?>/day
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</section>
+<?php endif; ?>
+
 <section class="metrics-grid">
     <article class="metric-card">
         <span class="label">Orders Today</span>

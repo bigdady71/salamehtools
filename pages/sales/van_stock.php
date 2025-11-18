@@ -135,6 +135,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'adjust_stock') {
     }
 }
 
+// Handle CSV export
+if ($action === 'export') {
+    $search = trim((string)($_GET['search'] ?? ''));
+    $categoryFilter = (string)($_GET['category'] ?? '');
+    $alertFilter = (string)($_GET['alert'] ?? '');
+
+    // Build WHERE clause
+    $where = ['s.salesperson_id = :rep_id'];
+    $params = [':rep_id' => $repId];
+
+    if ($search !== '') {
+        $where[] = '(p.item_name LIKE :search OR p.sku LIKE :search)';
+        $params[':search'] = '%' . $search . '%';
+    }
+
+    if ($categoryFilter !== '') {
+        $where[] = 'p.topcat = :category';
+        $params[':category'] = $categoryFilter;
+    }
+
+    if ($alertFilter === 'low') {
+        $where[] = 's.qty_on_hand <= 5';
+    } elseif ($alertFilter === 'out') {
+        $where[] = 's.qty_on_hand = 0';
+    }
+
+    $whereClause = implode(' AND ', $where);
+
+    // Export query
+    $exportStmt = $pdo->prepare("
+        SELECT
+            p.sku,
+            p.item_name,
+            p.second_name,
+            p.topcat as category,
+            p.unit,
+            p.sale_price_usd,
+            (p.sale_price_usd * 9000) as sale_price_lbp,
+            s.qty_on_hand,
+            (s.qty_on_hand * p.sale_price_usd) as stock_value_usd,
+            (s.qty_on_hand * p.sale_price_usd * 9000) as stock_value_lbp,
+            s.updated_at
+        FROM s_stock s
+        INNER JOIN products p ON p.id = s.product_id
+        WHERE {$whereClause}
+        ORDER BY p.item_name ASC
+    ");
+    $exportStmt->execute($params);
+    $exportData = $exportStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Generate CSV
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename=my_van_stock_' . date('Y-m-d_His') . '.csv');
+
+    $output = fopen('php://output', 'w');
+    fwrite($output, "\xEF\xBB\xBF"); // UTF-8 BOM
+
+    // Headers
+    fputcsv($output, [
+        'SKU',
+        'Product Name',
+        'Second Name',
+        'Category',
+        'Unit',
+        'Sale Price (USD)',
+        'Sale Price (LBP)',
+        'Qty on Hand',
+        'Stock Value (USD)',
+        'Stock Value (LBP)',
+        'Last Updated'
+    ]);
+
+    // Data rows
+    foreach ($exportData as $row) {
+        fputcsv($output, [
+            $row['sku'],
+            $row['item_name'],
+            $row['second_name'] ?? '',
+            $row['category'] ?? '',
+            $row['unit'] ?? '',
+            number_format((float)$row['sale_price_usd'], 2),
+            number_format((float)$row['sale_price_lbp'], 0),
+            number_format((float)$row['qty_on_hand'], 1),
+            number_format((float)$row['stock_value_usd'], 2),
+            number_format((float)$row['stock_value_lbp'], 0),
+            $row['updated_at'] ? date('Y-m-d H:i:s', strtotime($row['updated_at'])) : ''
+        ]);
+    }
+
+    fclose($output);
+    exit;
+}
+
 // Get filter parameters
 $search = trim((string)($_GET['search'] ?? ''));
 $categoryFilter = (string)($_GET['category'] ?? '');
@@ -700,6 +793,18 @@ echo '<button class="btn-filter" onclick="applyFilters()">Apply Filters</button>
 if ($search !== '' || $categoryFilter !== '' || $alertFilter !== '') {
     echo '<button class="btn-clear btn-filter" onclick="clearFilters()">Clear</button>';
 }
+// Export button with current filters
+$exportUrl = '?action=export';
+if ($search !== '') {
+    $exportUrl .= '&search=' . urlencode($search);
+}
+if ($categoryFilter !== '') {
+    $exportUrl .= '&category=' . urlencode($categoryFilter);
+}
+if ($alertFilter !== '') {
+    $exportUrl .= '&alert=' . urlencode($alertFilter);
+}
+echo '<a href="', htmlspecialchars($exportUrl, ENT_QUOTES, 'UTF-8'), '" class="btn-filter" style="text-decoration: none; display: inline-block;">📊 Export CSV</a>';
 echo '<button class="btn-adjust" onclick="openAdjustModal()">⚡ Adjust Stock</button>';
 echo '</div>';
 echo '</div>';

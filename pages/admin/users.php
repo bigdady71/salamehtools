@@ -486,18 +486,18 @@ $flashes = consume_flashes();
 
     <style>
         :root {
-            --bg: #0c1022;
-            --bg-panel: #141834;
-            --bg-panel-alt: #1b2042;
-            --text: #f4f6ff;
-            --muted: #9aa3c7;
-            --accent: #00ff88;
-            --accent-2: #4a7dff;
-            --danger: #ff5c7a;
-            --warning: #ffd166;
-            --success: #6ee7b7;
-            --neutral: #3b3f5c;
-            --border: rgba(255,255,255,0.08);
+            --bg: #f3f4f6;
+            --bg-panel: #ffffff;
+            --bg-panel-alt: #f9fafc;
+            --text: #111827;
+            --muted: #6b7280;
+            --accent: #10b981;
+            --accent-2: #1f6feb;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --success: #10b981;
+            --neutral: #9ca3af;
+            --border: #e5e7eb;
         }
         * { box-sizing: border-box; }
         body {
@@ -513,24 +513,25 @@ $flashes = consume_flashes();
         /* LAYOUT + NAVBAR (from dashboard) */
         .layout { display: flex; flex: 1; }
         .sidebar {
-            width: 240px; background: #080a1a; padding: 24px 18px;
+            width: 240px; background: #ffffff; border-right: 1px solid var(--border); padding: 24px 18px;
             display: flex; flex-direction: column; gap: 24px;
+            position: fixed; top: 0; left: 0; bottom: 0; overflow-y: auto;
         }
-        .brand { font-size: 1.6rem; font-weight: 700; letter-spacing: .04em; }
+        .brand { font-size: 1.6rem; font-weight: 700; letter-spacing: .04em; color: var(--accent-2); }
         .nav-links { display: flex; flex-direction: column; gap: 6px; }
         .nav-links a {
             padding: 10px 12px; border-radius: 8px; color: var(--muted);
             font-size: 0.95rem; transition: background .2s, color .2s;
         }
-        .nav-links a:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+        .nav-links a:hover { background: #f3f4f6; color: var(--text); }
         .nav-links a.active { background: var(--accent-2); color: #fff; font-weight: 600; }
         .user-card {
             margin-top: auto; padding: 12px; border-radius: 10px;
-            background: rgba(255,255,255,0.05); font-size: 0.9rem;
+            background: var(--bg-panel-alt); border: 1px solid var(--border); font-size: 0.9rem;
         }
-        .user-card strong { display: block; font-size: 1rem; }
+        .user-card strong { display: block; font-size: 1rem; color: var(--text); }
 
-        .main { flex: 1; padding: 32px; display: flex; flex-direction: column; gap: 24px; }
+        .main { flex: 1; padding: 32px; display: flex; flex-direction: column; gap: 24px; margin-left: 240px; }
         .page-header {
             display: flex; justify-content: space-between; align-items: flex-start;
             flex-wrap: wrap; gap: 16px;
@@ -538,7 +539,7 @@ $flashes = consume_flashes();
         .page-header h1 { margin: 0; font-size: 2rem; }
         .page-header .sub { color: var(--muted); font-size: 0.95rem; }
         .chip {
-            padding: 10px 14px; border-radius: 999px; background: rgba(255,255,255,0.06); font-size: 0.9rem;
+            padding: 10px 14px; border-radius: 999px; background: var(--bg-panel); border: 1px solid var(--border); font-size: 0.9rem; color: var(--muted);
         }
 
         /* CONTENT PANEL WRAPPER FOR USERS PAGE */
@@ -554,42 +555,47 @@ $flashes = consume_flashes();
         h2 { margin: 0 0 8px 0; font-size: 1.25rem; }
 
         .flash { padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
-        .flash-success { background: #0f2f24; color: #6cf3b6; }
-        .flash-error { background: #3a1212; color: #ff9c9c; }
-        .flash-info { background: #1e2e46; color: #9ec5ff; }
-        .flash-warning { background: #3a3112; color: #ffd27c; }
+        .flash-success { background: rgba(16, 185, 129, 0.1); color: #059669; }
+        .flash-error { background: rgba(239, 68, 68, 0.1); color: #dc2626; }
+        .flash-info { background: rgba(31, 111, 235, 0.1); color: #1d4ed8; }
+        .flash-warning { background: rgba(245, 158, 11, 0.1); color: #d97706; }
 
         .table-scroll { overflow-x: auto; margin-top: 16px; }
         table { width: 100%; border-collapse: collapse; margin-top: 8px; }
         th, td { padding: 10px 12px; text-align: left; }
         th {
-            background: #262a3e; font-weight: 600; text-transform: uppercase;
-            font-size: 12px; letter-spacing: .05em;
+            background: #f9fafb; font-weight: 600; text-transform: uppercase;
+            font-size: 12px; letter-spacing: .05em; color: var(--muted);
         }
-        tr:nth-child(even) { background: #202538; }
-        tr:nth-child(odd)  { background: #1b1f30; }
+        tr:nth-child(even) { background: #f9fafb; }
+        tr:nth-child(odd)  { background: #ffffff; }
+        tbody tr { border-bottom: 1px solid var(--border); }
 
-        .status-badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; }
-        .status-active   { background: #00b37a; color: #00180f; }
-        .status-inactive { background: #ff4b4b1a; color: #ff8b8b; border: 1px solid #ff4b4b55; }
+        .status-badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+        .status-active   { background: rgba(16, 185, 129, 0.15); color: #059669; }
+        .status-inactive { background: rgba(239, 68, 68, 0.1); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); }
 
         .actions { display: flex; gap: 6px; flex-wrap: wrap; }
         .btn { padding: 6px 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;
-               background: #2f3650; color: #eaeaea; transition: background .2s; }
-        .btn:hover { background: #3d4665; }
-        .btn-danger { background: #ff4b4b; color: #000; }
-        .btn-danger:hover { background: #ff6565; }
-        .btn-success { background: #00ff88; color: #001f0d; }
+               background: #e5e7eb; color: #374151; transition: background .2s; }
+        .btn:hover { background: #d1d5db; }
+        .btn-danger { background: #ef4444; color: #fff; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-success { background: #10b981; color: #fff; }
+        .btn-success:hover { background: #059669; }
 
-        .form-card { margin-top: 24px; background: #181c2b; padding: 24px; border-radius: 12px; }
+        .form-card { margin-top: 24px; background: #ffffff; padding: 24px; border-radius: 12px; border: 1px solid var(--border); }
         .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
-        label { display: block; font-size: 14px; margin-bottom: 6px; color: #9aa1c0; }
+        label { display: block; font-size: 14px; margin-bottom: 6px; color: var(--muted); }
         input[type="text"], input[type="email"], input[type="number"], input[type="password"], select {
-            width: 100%; padding: 10px; border-radius: 8px; border: 0; background: #262a3e; color: #fff;
+            width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: #ffffff; color: var(--text);
+        }
+        input[type="text"]:focus, input[type="email"]:focus, input[type="number"]:focus, input[type="password"]:focus, select:focus {
+            outline: none; border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.15);
         }
         .form-actions { margin-top: 18px; display: flex; gap: 10px; align-items: center; }
         .inline-form { display: inline; }
-        .error-list { margin: 0 0 16px 0; padding-left: 20px; color: #ff9c9c; }
+        .error-list { margin: 0 0 16px 0; padding-left: 20px; color: #dc2626; }
         .error-list li { margin-bottom: 4px; }
         .customer-fields { display: contents; }
         .customer-fields.hidden { display: none; }
@@ -599,7 +605,9 @@ $flashes = consume_flashes();
             .layout { flex-direction: column; }
             .sidebar {
                 width: auto; flex-direction: row; align-items: center; justify-content: space-between; gap: 16px;
+                position: static; overflow-y: visible;
             }
+            .main { margin-left: 0; }
             .nav-links { flex-direction: row; flex-wrap: wrap; gap: 10px; }
             .user-card { margin-top: 0; }
         }

@@ -1,10 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW COLUMNS FROM order_items;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE audit_logs\\G\")",
+      "Bash(dir:*)",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW COLUMNS FROM orders;\")",
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\":*)",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SELECT id, invoice_id, method, amount_usd, amount_lbp, received_at, received_by_user_id FROM payments WHERE invoice_id IN (8, 9) ORDER BY invoice_id, received_at;\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"DELETE FROM payments WHERE id IN (6, 7, 8, 9);\")"
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"UPDATE orders SET order_type = ''van_stock_sale'' WHERE id IN (SELECT DISTINCT order_id FROM invoices WHERE invoice_number LIKE ''INV-%'');\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW COLUMNS FROM customers;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"ALTER TABLE customers ADD COLUMN customer_tier VARCHAR(20) DEFAULT ''medium'' AFTER shop_type, ADD COLUMN tags TEXT NULL AFTER customer_tier, ADD COLUMN notes TEXT NULL AFTER tags, ADD COLUMN last_contact_date DATE NULL AFTER notes;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW COLUMNS FROM products;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"ALTER TABLE products ADD COLUMN cost_price_usd DECIMAL(12,2) NULL AFTER wholesale_price_usd;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"CREATE TABLE IF NOT EXISTS sales_quotas ( id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, sales_rep_id BIGINT UNSIGNED NOT NULL, year INT NOT NULL, month INT NOT NULL, quota_usd DECIMAL(14,2) NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY unique_rep_period (sales_rep_id, year, month), KEY idx_period (year, month) );\")"
     ],
     "deny": [],
     "ask": []

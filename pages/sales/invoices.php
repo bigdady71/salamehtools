@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../includes/db.php';
 require_once __DIR__ . '/../../includes/sales_portal.php';
 require_once __DIR__ . '/../../includes/admin_page.php';
 require_once __DIR__ . '/../../includes/flash.php';
+require_once __DIR__ . '/../../includes/audit.php';
 
 // Sales rep authentication
 require_login();
@@ -138,6 +139,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ':user_id' => $repId,
                     ':received_at' => $receivedAt
                 ]);
+                $paymentId = (int)$pdo->lastInsertId();
+
+                // Audit log: payment recorded
+                audit_log($pdo, $repId, 'payment_recorded', 'payments', $paymentId, [
+                    'invoice_number' => $invoice['invoice_number'],
+                    'invoice_id' => $invoiceId,
+                    'amount_usd' => $amountUsd,
+                    'amount_lbp' => $amountLbp,
+                    'method' => $method,
+                    'received_at' => $receivedAt
+                ]);
 
                 // Auto-update invoice status to paid if fully paid
                 // Invoice is paid if EITHER USD is fully paid OR LBP is fully paid (they represent the same debt)
@@ -192,6 +204,135 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: ' . $_SERVER['REQUEST_URI']);
         exit;
     }
+}
+
+// Handle CSV export
+$action = $_GET['action'] ?? '';
+if ($action === 'export') {
+    $search = trim($_GET['search'] ?? '');
+    $statusFilter = $_GET['status'] ?? '';
+    $customerFilter = (int)($_GET['customer'] ?? 0);
+    $dateFrom = $_GET['date_from'] ?? '';
+    $dateTo = $_GET['date_to'] ?? '';
+
+    $where = ['c.assigned_sales_rep_id = :rep_id'];
+    $params = [':rep_id' => $repId];
+
+    if ($search !== '') {
+        $where[] = "(i.invoice_number LIKE :search OR o.order_number LIKE :search OR c.name LIKE :search OR c.phone LIKE :search)";
+        $params[':search'] = '%' . $search . '%';
+    }
+
+    if ($statusFilter !== '' && isset($statusLabels[$statusFilter])) {
+        $where[] = "i.status = :status";
+        $params[':status'] = $statusFilter;
+    }
+
+    if ($customerFilter > 0) {
+        $where[] = "c.id = :customer_id";
+        $params[':customer_id'] = $customerFilter;
+    }
+
+    if ($dateFrom !== '') {
+        $fromDate = DateTime::createFromFormat('Y-m-d', $dateFrom);
+        if ($fromDate && $fromDate->format('Y-m-d') === $dateFrom) {
+            $where[] = "DATE(i.issued_at) >= :date_from";
+            $params[':date_from'] = $dateFrom;
+        }
+    }
+
+    if ($dateTo !== '') {
+        $toDate = DateTime::createFromFormat('Y-m-d', $dateTo);
+        if ($toDate && $toDate->format('Y-m-d') === $dateTo) {
+            $where[] = "DATE(i.issued_at) <= :date_to";
+            $params[':date_to'] = $dateTo;
+        }
+    }
+
+    $whereClause = implode(' AND ', $where);
+
+    // Export query
+    $exportStmt = $pdo->prepare("
+        SELECT
+            i.invoice_number,
+            o.order_number,
+            c.name as customer_name,
+            c.phone as customer_phone,
+            c.location as customer_location,
+            i.status,
+            i.total_usd,
+            i.total_lbp,
+            COALESCE(SUM(p.amount_usd), 0) AS paid_usd,
+            COALESCE(SUM(p.amount_lbp), 0) AS paid_lbp,
+            (i.total_usd - COALESCE(SUM(p.amount_usd), 0)) AS balance_usd,
+            (i.total_lbp - COALESCE(SUM(p.amount_lbp), 0)) AS balance_lbp,
+            i.issued_at,
+            i.due_date,
+            i.created_at
+        FROM invoices i
+        INNER JOIN orders o ON o.id = i.order_id
+        INNER JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN payments p ON p.invoice_id = i.id
+        WHERE {$whereClause}
+        GROUP BY i.id
+        ORDER BY i.issued_at DESC, i.id DESC
+    ");
+
+    foreach ($params as $key => $value) {
+        $exportStmt->bindValue($key, $value);
+    }
+    $exportStmt->execute();
+    $exportData = $exportStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Generate CSV
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename=my_invoices_' . date('Y-m-d_His') . '.csv');
+
+    $output = fopen('php://output', 'w');
+    fwrite($output, "\xEF\xBB\xBF"); // UTF-8 BOM
+
+    // Headers
+    fputcsv($output, [
+        'Invoice Number',
+        'Order Number',
+        'Customer Name',
+        'Customer Phone',
+        'Customer Location',
+        'Status',
+        'Total (USD)',
+        'Total (LBP)',
+        'Paid (USD)',
+        'Paid (LBP)',
+        'Balance (USD)',
+        'Balance (LBP)',
+        'Issued Date',
+        'Due Date',
+        'Created Date'
+    ]);
+
+    // Data rows
+    foreach ($exportData as $row) {
+        fputcsv($output, [
+            $row['invoice_number'],
+            $row['order_number'],
+            $row['customer_name'],
+            $row['customer_phone'] ?? '',
+            $row['customer_location'] ?? '',
+            ucfirst($row['status']),
+            number_format((float)$row['total_usd'], 2),
+            number_format((float)$row['total_lbp'], 0),
+            number_format((float)$row['paid_usd'], 2),
+            number_format((float)$row['paid_lbp'], 0),
+            number_format((float)$row['balance_usd'], 2),
+            number_format((float)$row['balance_lbp'], 0),
+            $row['issued_at'] ? date('Y-m-d', strtotime($row['issued_at'])) : '',
+            $row['due_date'] ? date('Y-m-d', strtotime($row['due_date'])) : '',
+            $row['created_at'] ? date('Y-m-d H:i:s', strtotime($row['created_at'])) : ''
+        ]);
+    }
+
+    fclose($output);
+    exit;
 }
 
 // Filtering and pagination
@@ -716,6 +857,26 @@ admin_render_flashes($flashes);
         <div class="filter-actions">
             <button type="submit" class="btn btn-primary">Apply Filters</button>
             <a href="invoices.php" class="btn">Clear</a>
+            <?php
+            // Build export URL with current filters
+            $exportUrl = '?action=export';
+            if ($search !== '') {
+                $exportUrl .= '&search=' . urlencode($search);
+            }
+            if ($statusFilter !== '') {
+                $exportUrl .= '&status=' . urlencode($statusFilter);
+            }
+            if ($customerFilter > 0) {
+                $exportUrl .= '&customer=' . $customerFilter;
+            }
+            if ($dateFrom !== '') {
+                $exportUrl .= '&date_from=' . urlencode($dateFrom);
+            }
+            if ($dateTo !== '') {
+                $exportUrl .= '&date_to=' . urlencode($dateTo);
+            }
+            ?>
+            <a href="<?= htmlspecialchars($exportUrl, ENT_QUOTES, 'UTF-8') ?>" class="btn" style="background: #10b981; color: white; border-color: #10b981;">📊 Export CSV</a>
         </div>
     </form>
 </div>

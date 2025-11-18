@@ -35,7 +35,7 @@ function sales_portal_nav_links(): array
             'href' => $prefix . 'dashboard.php',
         ],
         'users' => [
-            'label' => 'Users',
+            'label' => 'Customers',
             'href' => $prefix . 'users.php',
         ],
         'products' => [
@@ -46,20 +46,32 @@ function sales_portal_nav_links(): array
             'label' => 'Van Stock',
             'href' => $prefix . 'van_stock.php',
         ],
+        'warehouse_stock' => [
+            'label' => 'Warehouse Stock',
+            'href' => $prefix . 'warehouse_stock.php',
+        ],
+        'orders' => [
+            'label' => 'My Orders',
+            'href' => $prefix . 'orders.php',
+        ],
         'orders_van' => [
-            'label' => 'Van Stock Sales Order',
+            'label' => 'New Van Sale',
             'href' => $prefix . 'orders/van_stock_sales.php',
         ],
         'orders_request' => [
-            'label' => 'Company Order Request',
+            'label' => 'New Company Order',
             'href' => $prefix . 'orders/company_order_request.php',
         ],
         'invoices' => [
             'label' => 'Invoices',
             'href' => $prefix . 'invoices.php',
         ],
+        'receivables' => [
+            'label' => 'AR/Collections',
+            'href' => $prefix . 'receivables.php',
+        ],
         'analytics' => [
-            'label' => 'Analytics & Statistics',
+            'label' => 'Analytics',
             'href' => $prefix . 'analytics.php',
         ],
     ];
@@ -78,6 +90,10 @@ function sales_portal_render_layout_start(array $options = []): void
     $active = (string)($options['active'] ?? '');
     $user = $options['user'] ?? null;
     $extraHead = (string)($options['extra_head'] ?? '');
+
+    // Determine if we're in a subdirectory for logout path
+    $scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
+    $inSubdir = strpos($scriptPath, '/pages/sales/orders/') !== false;
 
     $navItems = sales_portal_nav_links();
     if (isset($options['nav_links']) && is_array($options['nav_links']) && $options['nav_links']) {
@@ -168,6 +184,10 @@ function sales_portal_render_layout_start(array $options = []): void
     } else {
         echo '<span>Signed in</span>';
     }
+
+    // Logout button
+    $logoutPath = $inSubdir ? '../../logout.php' : '../logout.php';
+    echo '<a href="', htmlspecialchars($logoutPath, ENT_QUOTES, 'UTF-8'), '" style="display: inline-block; margin-top: 12px; padding: 8px 12px; background: rgba(239, 68, 68, 0.15); color: #fca5a5; border-radius: 8px; text-align: center; font-weight: 600; font-size: 0.85rem; border: 1px solid rgba(239, 68, 68, 0.3); text-decoration: none; transition: all 0.2s;" onmouseover="this.style.background=\'rgba(239, 68, 68, 0.25)\'; this.style.color=\'#ffffff\';" onmouseout="this.style.background=\'rgba(239, 68, 68, 0.15)\'; this.style.color=\'#fca5a5\';">🚪 Logout</a>';
 
     echo '</div></aside><main class="main">';
     echo '<header class="page-header"><div><h1>', $escHeading, '</h1>';

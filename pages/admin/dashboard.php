@@ -259,18 +259,18 @@ $now = new DateTimeImmutable('now');
     <title><?= htmlspecialchars($title) ?></title>
     <style>
         :root {
-            --bg: #0c1022;
-            --bg-panel: #141834;
-            --bg-panel-alt: #1b2042;
-            --text: #f4f6ff;
-            --muted: #9aa3c7;
-            --accent: #00ff88;
-            --accent-2: #4a7dff;
-            --danger: #ff5c7a;
-            --warning: #ffd166;
-            --success: #6ee7b7;
-            --neutral: #3b3f5c;
-            --border: rgba(255,255,255,0.08);
+            --bg: #f3f4f6;
+            --bg-panel: #ffffff;
+            --bg-panel-alt: #f9fafc;
+            --text: #111827;
+            --muted: #6b7280;
+            --accent: #1f6feb;
+            --accent-2: #0ea5e9;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --success: #10b981;
+            --neutral: #9ca3af;
+            --border: #e5e7eb;
         }
         * { box-sizing: border-box; }
         body {
@@ -288,16 +288,23 @@ $now = new DateTimeImmutable('now');
         }
         .sidebar {
             width: 240px;
-            background: #080a1a;
+            background: #ffffff;
+            border-right: 1px solid var(--border);
             padding: 24px 18px;
             display: flex;
             flex-direction: column;
             gap: 24px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            overflow-y: auto;
         }
         .brand {
             font-size: 1.6rem;
             font-weight: 700;
             letter-spacing: .04em;
+            color: var(--accent);
         }
         .nav-links {
             display: flex;
@@ -312,11 +319,11 @@ $now = new DateTimeImmutable('now');
             transition: background .2s, color .2s;
         }
         .nav-links a:hover {
-            background: rgba(255,255,255,0.05);
+            background: #f3f4f6;
             color: var(--text);
         }
         .nav-links a.active {
-            background: var(--accent-2);
+            background: var(--accent);
             color: #fff;
             font-weight: 600;
         }
@@ -324,12 +331,14 @@ $now = new DateTimeImmutable('now');
             margin-top: auto;
             padding: 12px;
             border-radius: 10px;
-            background: rgba(255,255,255,0.05);
+            background: var(--bg-panel-alt);
+            border: 1px solid var(--border);
             font-size: 0.9rem;
         }
         .user-card strong {
             display: block;
             font-size: 1rem;
+            color: var(--text);
         }
         .main {
             flex: 1;
@@ -337,6 +346,7 @@ $now = new DateTimeImmutable('now');
             display: flex;
             flex-direction: column;
             gap: 32px;
+            margin-left: 240px;
         }
         .page-header {
             display: flex;
@@ -356,8 +366,10 @@ $now = new DateTimeImmutable('now');
         .chip {
             padding: 10px 14px;
             border-radius: 999px;
-            background: rgba(255,255,255,0.06);
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
             font-size: 0.9rem;
+            color: var(--muted);
         }
         .grid {
             display: grid;
@@ -460,12 +472,12 @@ $now = new DateTimeImmutable('now');
             font-weight: 600;
             letter-spacing: .02em;
         }
-        .badge-info { background: rgba(74, 125, 255, 0.15); color: #b9c9ff; }
-        .badge-primary { background: rgba(74, 125, 255, 0.25); color: #d3dcff; }
-        .badge-success { background: rgba(110, 231, 183, 0.18); color: #6ee7b7; }
-        .badge-danger { background: rgba(255, 92, 122, 0.18); color: #ff8ca5; }
-        .badge-warn { background: rgba(255, 209, 102, 0.18); color: #ffe4a6; }
-        .badge-neutral { background: rgba(255,255,255,0.08); color: var(--text); }
+        .badge-info { background: rgba(31, 111, 235, 0.1); color: #1f6feb; }
+        .badge-primary { background: rgba(31, 111, 235, 0.15); color: #1d4ed8; }
+        .badge-success { background: rgba(16, 185, 129, 0.15); color: #059669; }
+        .badge-danger { background: rgba(239, 68, 68, 0.15); color: #dc2626; }
+        .badge-warn { background: rgba(245, 158, 11, 0.15); color: #d97706; }
+        .badge-neutral { background: rgba(156, 163, 175, 0.15); color: #4b5563; }
         .alert {
             border-radius: 12px;
             padding: 14px 18px;
@@ -473,12 +485,14 @@ $now = new DateTimeImmutable('now');
             font-size: 0.9rem;
         }
         .alert.error {
-            background: rgba(255, 92, 122, 0.1);
-            border-color: rgba(255, 92, 122, 0.4);
+            background: rgba(239, 68, 68, 0.08);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #b91c1c;
         }
         .alert.notice {
-            background: rgba(74, 125, 255, 0.1);
-            border-color: rgba(74, 125, 255, 0.4);
+            background: rgba(31, 111, 235, 0.08);
+            border-color: rgba(31, 111, 235, 0.3);
+            color: #1d4ed8;
         }
         .alert ul {
             margin: 6px 0 0;
@@ -499,6 +513,11 @@ $now = new DateTimeImmutable('now');
                 align-items: center;
                 justify-content: space-between;
                 gap: 16px;
+                position: static;
+                overflow-y: visible;
+            }
+            .main {
+                margin-left: 0;
             }
             .nav-links {
                 flex-direction: row;

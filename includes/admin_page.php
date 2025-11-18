@@ -66,7 +66,7 @@ function admin_render_layout_start(array $options = []): void
     echo 'background:var(--bg);color:var(--text);display:flex;min-height:100vh;}a{color:var(--accent);text-decoration:none;}';
     echo 'a:hover{text-decoration:underline;}';
     echo '.layout{display:flex;flex:1;}.sidebar{width:248px;background:#ffffff;border-right:1px solid var(--border);padding:28px 20px;display:flex;';
-    echo 'flex-direction:column;gap:32px;}';
+    echo 'flex-direction:column;gap:32px;position:fixed;top:0;left:0;bottom:0;overflow-y:auto;}';
     echo '.brand{font-size:1.6rem;font-weight:700;letter-spacing:.04em;color:var(--accent);}';
     echo '.nav-links{display:flex;flex-direction:column;gap:8px;}';
     echo '.nav-links a{padding:10px 12px;border-radius:10px;font-size:0.95rem;color:var(--muted);transition:background .2s,color .2s,box-shadow .2s;}';
@@ -74,7 +74,7 @@ function admin_render_layout_start(array $options = []): void
     echo '.nav-links a.active{background:var(--accent);color:#fff;font-weight:600;box-shadow:0 0 0 3px rgba(31,111,235,0.2);}';
     echo '.user-card{margin-top:auto;padding:16px;border-radius:12px;border:1px solid var(--border);background:var(--bg-panel-alt);font-size:0.9rem;color:var(--muted);}';
     echo '.user-card strong{display:block;font-size:1rem;color:var(--text);}';
-    echo '.main{flex:1;padding:36px;display:flex;flex-direction:column;gap:24px;}';
+    echo '.main{flex:1;padding:36px;display:flex;flex-direction:column;gap:24px;margin-left:248px;}';
     echo '.page-header{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:18px;}';
     echo '.page-header h1{margin:0;font-size:2rem;}';
     echo '.page-header p{margin:4px 0 0;color:var(--muted);font-size:0.95rem;}';
@@ -89,10 +89,10 @@ function admin_render_layout_start(array $options = []): void
     echo '.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}';
     echo '.btn-primary:hover{box-shadow:0 0 0 4px rgba(31,111,235,0.18);}';
     echo '@media (max-width:900px){.layout{flex-direction:column;}.sidebar{width:auto;flex-direction:row;';
-    echo 'align-items:center;justify-content:space-between;padding:18px 22px;border-right:none;border-bottom:1px solid var(--border);}';
+    echo 'align-items:center;justify-content:space-between;padding:18px 22px;border-right:none;border-bottom:1px solid var(--border);position:static;overflow-y:visible;}';
     echo '.nav-links{flex-direction:row;flex-wrap:wrap;gap:6px;}.nav-links a{padding:8px 10px;}';
     echo '.user-card{margin-top:0;}';
-    echo '.main{padding:24px;}}';
+    echo '.main{padding:24px;margin-left:0;}}';
     echo '@media (max-width:640px){.sidebar{flex-direction:column;align-items:flex-start;gap:16px;}';
     echo '.nav-links{width:100%;}.nav-links a{width:100%;}}';
     echo '</style></head><body class="theme-light"><div class="layout"><aside class="sidebar">';
@@ -119,6 +119,9 @@ function admin_render_layout_start(array $options = []): void
     } else {
         echo '<span>Signed in</span>';
     }
+
+    // Logout button
+    echo '<a href="../logout.php" style="display: inline-block; margin-top: 12px; padding: 8px 12px; background: rgba(239, 68, 68, 0.1); color: #dc2626; border-radius: 8px; text-align: center; font-weight: 600; font-size: 0.85rem; border: 1px solid rgba(239, 68, 68, 0.2); text-decoration: none; transition: all 0.2s;" onmouseover="this.style.background=\'rgba(239, 68, 68, 0.2)\'; this.style.borderColor=\'rgba(239, 68, 68, 0.3)\';" onmouseout="this.style.background=\'rgba(239, 68, 68, 0.1)\'; this.style.borderColor=\'rgba(239, 68, 68, 0.2)\';">🚪 Logout</a>';
 
     echo '</div></aside><main class="main">';
     echo '<header class="page-header"><div><h1>', $escHeading, '</h1>';

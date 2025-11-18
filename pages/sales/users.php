@@ -12,6 +12,157 @@ $pdo = db();
 $action = (string)($_POST['action'] ?? $_GET['action'] ?? '');
 $flashes = [];
 
+// Get customer detail (AJAX endpoint)
+if ($action === 'get_customer_detail') {
+    header('Content-Type: application/json');
+    $customerId = (int)($_GET['id'] ?? 0);
+
+    if ($customerId <= 0) {
+        echo json_encode(['error' => 'Invalid customer ID']);
+        exit;
+    }
+
+    // Verify customer belongs to this sales rep
+    $customerStmt = $pdo->prepare("
+        SELECT id, name, phone, location, shop_type, customer_tier, created_at
+        FROM customers
+        WHERE id = :id AND assigned_sales_rep_id = :rep_id
+    ");
+    $customerStmt->execute([':id' => $customerId, ':rep_id' => $repId]);
+    $customer = $customerStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$customer) {
+        echo json_encode(['error' => 'Customer not found or access denied']);
+        exit;
+    }
+
+    // Get customer stats
+    $statsStmt = $pdo->prepare("
+        SELECT
+            COUNT(DISTINCT o.id) as order_count,
+            COALESCE(SUM(o.total_usd), 0) as total_revenue,
+            MAX(o.created_at) as last_order_date,
+            SUM(CASE WHEN i.status != 'paid' THEN (i.total_usd - COALESCE(p.paid_usd, 0)) ELSE 0 END) as outstanding
+        FROM orders o
+        LEFT JOIN invoices i ON i.order_id = o.id
+        LEFT JOIN (
+            SELECT invoice_id, SUM(amount_usd) as paid_usd
+            FROM payments
+            GROUP BY invoice_id
+        ) p ON p.invoice_id = i.id
+        WHERE o.customer_id = :customer_id
+    ");
+    $statsStmt->execute([':customer_id' => $customerId]);
+    $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
+
+    // Get recent orders (last 10)
+    $ordersStmt = $pdo->prepare("
+        SELECT
+            o.id,
+            o.order_number,
+            o.status,
+            o.total_usd,
+            o.created_at,
+            (i.total_usd - COALESCE(p.paid_usd, 0)) as outstanding
+        FROM orders o
+        LEFT JOIN invoices i ON i.order_id = o.id
+        LEFT JOIN (
+            SELECT invoice_id, SUM(amount_usd) as paid_usd
+            FROM payments
+            GROUP BY invoice_id
+        ) p ON p.invoice_id = i.id
+        WHERE o.customer_id = :customer_id
+        ORDER BY o.created_at DESC
+        LIMIT 10
+    ");
+    $ordersStmt->execute([':customer_id' => $customerId]);
+    $orders = $ordersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode([
+        'customer' => $customer,
+        'stats' => $stats,
+        'orders' => $orders
+    ]);
+    exit;
+}
+
+// Export to CSV
+if ($action === 'export') {
+    $searchFilter = trim((string)($_GET['search'] ?? ''));
+    $statusFilter = (string)($_GET['status'] ?? 'all');
+    $cityFilter = trim((string)($_GET['city'] ?? ''));
+
+    $whereClauses = ["c.assigned_sales_rep_id = :rep_id"];
+    $params = [':rep_id' => $repId];
+
+    if ($searchFilter !== '') {
+        $whereClauses[] = "(c.name LIKE :search OR c.phone LIKE :search OR c.location LIKE :search)";
+        $params[':search'] = '%' . $searchFilter . '%';
+    }
+
+    if ($statusFilter === 'active') {
+        $whereClauses[] = "c.is_active = 1";
+    } elseif ($statusFilter === 'inactive') {
+        $whereClauses[] = "c.is_active = 0";
+    }
+
+    if ($cityFilter !== '') {
+        $whereClauses[] = "c.location = :city";
+        $params[':city'] = $cityFilter;
+    }
+
+    $whereSQL = implode(' AND ', $whereClauses);
+
+    $exportQuery = "
+        SELECT
+            c.id,
+            c.name,
+            c.phone,
+            c.location,
+            c.shop_type,
+            COUNT(DISTINCT o.id) as order_count,
+            COALESCE(SUM(o.total_usd), 0) as total_revenue_usd,
+            CASE WHEN c.is_active = 1 THEN 'Active' ELSE 'Inactive' END as status,
+            c.created_at
+        FROM customers c
+        LEFT JOIN orders o ON o.customer_id = c.id
+        WHERE {$whereSQL}
+        GROUP BY c.id
+        ORDER BY c.name ASC
+    ";
+
+    $exportStmt = $pdo->prepare($exportQuery);
+    $exportStmt->execute($params);
+    $customers = $exportStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename=my_customers_' . date('Y-m-d_His') . '.csv');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
+    $output = fopen('php://output', 'w');
+    fwrite($output, "\xEF\xBB\xBF"); // UTF-8 BOM
+
+    fputcsv($output, ['ID', 'Customer Name', 'Phone', 'Location', 'Shop Type', 'Orders', 'Revenue (USD)', 'Status', 'Created Date']);
+
+    foreach ($customers as $customer) {
+        fputcsv($output, [
+            $customer['id'],
+            $customer['name'],
+            $customer['phone'] ?? '',
+            $customer['location'] ?? '',
+            $customer['shop_type'] ?? '',
+            $customer['order_count'],
+            number_format((float)$customer['total_revenue_usd'], 2),
+            $customer['status'],
+            $customer['created_at'] ? date('Y-m-d H:i:s', strtotime($customer['created_at'])) : ''
+        ]);
+    }
+
+    fclose($output);
+    exit;
+}
+
 // API endpoint for fetching customer data for edit modal
 if ($action === 'get_customer' && isset($_GET['id'])) {
     $customerId = (int)($_GET['id'] ?? 0);
@@ -49,12 +200,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_customer') {
             $errors[] = 'Customer name is required.';
         }
 
-        // Check for duplicate phone
+        // Check for duplicate phone within this rep's customers only (prevent enumeration)
         if ($phone !== '') {
-            $checkStmt = $pdo->prepare("SELECT COUNT(*) FROM customers WHERE phone = :phone");
-            $checkStmt->execute([':phone' => $phone]);
+            $checkStmt = $pdo->prepare("SELECT COUNT(*) FROM customers WHERE phone = :phone AND assigned_sales_rep_id = :rep_id");
+            $checkStmt->execute([':phone' => $phone, ':rep_id' => $repId]);
             if ((int)$checkStmt->fetchColumn() > 0) {
-                $errors[] = 'A customer with this phone number already exists.';
+                $errors[] = 'You already have a customer with this phone number.';
             }
         }
 
@@ -139,12 +290,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'update_customer') {
                 $errors[] = 'Customer name is required.';
             }
 
-            // Check for duplicate phone (excluding current customer)
+            // Check for duplicate phone within this rep's customers only (excluding current customer, prevent enumeration)
             if ($phone !== '') {
-                $checkStmt = $pdo->prepare("SELECT COUNT(*) FROM customers WHERE phone = :phone AND id != :id");
-                $checkStmt->execute([':phone' => $phone, ':id' => $customerId]);
+                $checkStmt = $pdo->prepare("SELECT COUNT(*) FROM customers WHERE phone = :phone AND id != :id AND assigned_sales_rep_id = :rep_id");
+                $checkStmt->execute([':phone' => $phone, ':id' => $customerId, ':rep_id' => $repId]);
                 if ((int)$checkStmt->fetchColumn() > 0) {
-                    $errors[] = 'Another customer with this phone number already exists.';
+                    $errors[] = 'You already have another customer with this phone number.';
                 }
             }
 
@@ -287,7 +438,7 @@ $countStmt->execute($params);
 $totalCustomers = (int)$countStmt->fetchColumn();
 $totalPages = (int)ceil($totalCustomers / $perPage);
 
-// Fetch customers with order statistics
+// Fetch customers with order statistics and segmentation
 $customersStmt = $pdo->prepare("
     SELECT
         c.id,
@@ -295,14 +446,27 @@ $customersStmt = $pdo->prepare("
         c.phone,
         c.location,
         c.shop_type,
+        c.customer_tier,
+        c.tags,
+        c.notes,
         c.is_active,
+        c.created_at,
         COUNT(DISTINCT o.id) as order_count,
         COALESCE(SUM(o.total_usd), 0) as total_revenue_usd,
-        COALESCE(c.account_balance_lbp, 0) as account_balance_lbp
+        COALESCE(c.account_balance_lbp, 0) as account_balance_lbp,
+        MAX(o.created_at) as last_order_date,
+        DATEDIFF(NOW(), MAX(o.created_at)) as days_since_last_order,
+        SUM(CASE WHEN i.status != 'paid' THEN (i.total_usd - COALESCE(p.paid_usd, 0)) ELSE 0 END) as outstanding_usd
     FROM customers c
     LEFT JOIN orders o ON o.customer_id = c.id
+    LEFT JOIN invoices i ON i.order_id = o.id
+    LEFT JOIN (
+        SELECT invoice_id, SUM(amount_usd) as paid_usd
+        FROM payments
+        GROUP BY invoice_id
+    ) p ON p.invoice_id = i.id
     WHERE {$whereClause}
-    GROUP BY c.id, c.name, c.phone, c.location, c.shop_type, c.is_active, c.account_balance_lbp
+    GROUP BY c.id, c.name, c.phone, c.location, c.shop_type, c.customer_tier, c.tags, c.notes, c.is_active, c.account_balance_lbp, c.created_at
     ORDER BY c.created_at DESC
     LIMIT :limit OFFSET :offset
 ");
@@ -727,6 +891,18 @@ echo '<button class="btn-filter" onclick="applyFilters()">Apply Filters</button>
 if ($search !== '' || $statusFilter !== '' || $cityFilter !== '') {
     echo '<button class="btn-clear btn-filter" onclick="clearFilters()">Clear</button>';
 }
+// Export button with current filters
+$exportUrl = '?action=export';
+if ($search !== '') {
+    $exportUrl .= '&search=' . urlencode($search);
+}
+if ($statusFilter !== '') {
+    $exportUrl .= '&status=' . urlencode($statusFilter);
+}
+if ($cityFilter !== '') {
+    $exportUrl .= '&city=' . urlencode($cityFilter);
+}
+echo '<a href="', htmlspecialchars($exportUrl, ENT_QUOTES, 'UTF-8'), '" class="btn-filter" style="text-decoration: none; display: inline-block;">📊 Export CSV</a>';
 echo '<button class="btn-create" onclick="openCreateModal()">+ Create Customer</button>';
 echo '</div>';
 echo '</div>';
@@ -744,11 +920,13 @@ if (!$customers) {
     echo '<table>';
     echo '<thead><tr>';
     echo '<th>Customer</th>';
+    echo '<th>Tier</th>';
     echo '<th>Phone / Shop Type</th>';
     echo '<th>Location</th>';
     echo '<th>Orders</th>';
-    echo '<th>Revenue (USD)</th>';
-    echo '<th>Balance (LBP)</th>';
+    echo '<th>Last Order</th>';
+    echo '<th>Revenue</th>';
+    echo '<th>Outstanding</th>';
     echo '<th>Status</th>';
     echo '<th>Actions</th>';
     echo '</tr></thead>';
@@ -760,27 +938,75 @@ if (!$customers) {
         $phone = $customer['phone'] ? htmlspecialchars($customer['phone'], ENT_QUOTES, 'UTF-8') : '-';
         $location = $customer['location'] ? htmlspecialchars($customer['location'], ENT_QUOTES, 'UTF-8') : '-';
         $shopType = $customer['shop_type'] ? htmlspecialchars($customer['shop_type'], ENT_QUOTES, 'UTF-8') : '-';
+        $tier = $customer['customer_tier'] ?? 'medium';
         $isActive = (bool)$customer['is_active'];
         $orderCount = (int)$customer['order_count'];
         $revenue = (float)$customer['total_revenue_usd'];
         $balance = (float)$customer['account_balance_lbp'];
+        $outstanding = (float)($customer['outstanding_usd'] ?? 0);
+        $daysSinceLastOrder = $customer['days_since_last_order'];
+        $lastOrderDate = $customer['last_order_date'];
+
+        // Determine segment
+        $segment = 'active';
+        if ($orderCount === 0) {
+            $segment = 'new';
+        } elseif ($daysSinceLastOrder !== null && $daysSinceLastOrder > 90) {
+            $segment = 'dormant';
+        } elseif ($outstanding > 500) {
+            $segment = 'at-risk';
+        }
+
+        // Tier badges
+        $tierColors = [
+            'vip' => 'background: rgba(168, 85, 247, 0.15); color: #7c3aed;',
+            'high' => 'background: rgba(34, 197, 94, 0.15); color: #15803d;',
+            'medium' => 'background: rgba(59, 130, 246, 0.15); color: #1d4ed8;',
+            'low' => 'background: rgba(156, 163, 175, 0.15); color: #4b5563;'
+        ];
 
         echo '<tr>';
-        echo '<td><strong>', $name, '</strong></td>';
+        echo '<td><strong>', $name, '</strong>';
+        // Segment badge
+        if ($segment === 'new') {
+            echo '<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:4px;font-size:0.75rem;background:rgba(59,130,246,0.15);color:#1d4ed8;">NEW</span>';
+        } elseif ($segment === 'dormant') {
+            echo '<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:4px;font-size:0.75rem;background:rgba(239,68,68,0.15);color:#991b1b;">DORMANT</span>';
+        } elseif ($segment === 'at-risk') {
+            echo '<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:4px;font-size:0.75rem;background:rgba(251,191,36,0.15);color:#b45309;">AT RISK</span>';
+        }
+        echo '</td>';
+        echo '<td><span style="display:inline-block;padding:4px 8px;border-radius:6px;font-size:0.85rem;font-weight:600;', $tierColors[$tier], '">', strtoupper($tier), '</span></td>';
         echo '<td>';
         echo '<div>', $phone, '</div>';
         echo '<div style="font-size:0.85rem;color:var(--muted);">', $shopType, '</div>';
         echo '</td>';
         echo '<td>', $location, '</td>';
         echo '<td>', number_format($orderCount), '</td>';
+        echo '<td>';
+        if ($lastOrderDate) {
+            $daysAgo = (int)$daysSinceLastOrder;
+            if ($daysAgo === 0) {
+                echo '<span style="color:#059669;font-weight:600;">Today</span>';
+            } elseif ($daysAgo === 1) {
+                echo '<span>Yesterday</span>';
+            } elseif ($daysAgo <= 7) {
+                echo '<span style="color:#059669;">', $daysAgo, ' days ago</span>';
+            } elseif ($daysAgo <= 30) {
+                echo '<span style="color:#ca8a04;">', $daysAgo, ' days ago</span>';
+            } else {
+                echo '<span style="color:#dc2626;">', $daysAgo, ' days ago</span>';
+            }
+        } else {
+            echo '<span style="color:#9ca3af;">Never</span>';
+        }
+        echo '</td>';
         echo '<td>$', number_format($revenue, 2), '</td>';
         echo '<td>';
-        if ($balance > 0) {
-            echo '<span style="color:#dc2626;font-weight:600;">', number_format($balance, 0), ' LBP</span>';
-        } else if ($balance < 0) {
-            echo '<span style="color:#059669;">', number_format($balance, 0), ' LBP</span>';
+        if ($outstanding > 0.01) {
+            echo '<span style="color:#dc2626;font-weight:600;">$', number_format($outstanding, 2), '</span>';
         } else {
-            echo '<span style="color:#6b7280;">0 LBP</span>';
+            echo '<span style="color:#6b7280;">$0.00</span>';
         }
         echo '</td>';
         echo '<td>';
@@ -791,13 +1017,8 @@ if (!$customers) {
         }
         echo '</td>';
         echo '<td><div class="customer-actions">';
+        echo '<button class="btn-sm" onclick="openCustomerDetail(', $id, ')" style="background:#0ea5e9;color:white;border-color:#0ea5e9;">View</button>';
         echo '<button class="btn-sm" onclick="openEditModal(', $id, ')">Edit</button>';
-        echo '<form method="POST" style="display:inline;">';
-        echo '<input type="hidden" name="csrf_token" value="', htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'), '">';
-        echo '<input type="hidden" name="action" value="toggle_status">';
-        echo '<input type="hidden" name="customer_id" value="', $id, '">';
-        echo '<button type="submit" class="btn-sm">', $isActive ? 'Deactivate' : 'Activate', '</button>';
-        echo '</form>';
         echo '</div></td>';
         echo '</tr>';
     }
@@ -955,6 +1176,19 @@ echo '</form>';
 echo '</div>';
 echo '</div>';
 
+// Customer Detail Modal
+echo '<div id="customerDetailModal" class="modal">';
+echo '<div class="modal-content" style="max-width: 900px;">';
+echo '<div class="modal-header">';
+echo '<h2 id="detail-customer-name">Customer Details</h2>';
+echo '<button class="modal-close" onclick="closeCustomerDetail()">&times;</button>';
+echo '</div>';
+echo '<div id="customerDetailContent" style="max-height: 600px; overflow-y: auto;">';
+echo '<div style="text-align: center; padding: 40px; color: var(--muted);">Loading...</div>';
+echo '</div>';
+echo '</div>';
+echo '</div>';
+
 echo '<script>';
 echo 'function applyFilters() {';
 echo '  const search = document.getElementById("filter-search").value;';
@@ -992,6 +1226,60 @@ echo '    });';
 echo '}';
 echo 'function closeEditModal() {';
 echo '  document.getElementById("editModal").classList.remove("active");';
+echo '}';
+echo 'function openCustomerDetail(customerId) {';
+echo '  document.getElementById("customerDetailModal").classList.add("active");';
+echo '  document.getElementById("customerDetailContent").innerHTML = "<div style=\"text-align: center; padding: 40px; color: var(--muted);\">Loading...</div>";';
+echo '  fetch("?action=get_customer_detail&id=" + customerId)';
+echo '    .then(r => r.json())';
+echo '    .then(data => {';
+echo '      if (data.error) {';
+echo '        document.getElementById("customerDetailContent").innerHTML = "<div style=\"text-align: center; padding: 40px; color: #dc2626;\">Error: " + data.error + "</div>";';
+echo '        return;';
+echo '      }';
+echo '      document.getElementById("detail-customer-name").textContent = data.customer.name;';
+echo '      let html = "<div style=\"display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px;\">";';
+echo '      html += "<div><h3 style=\"margin: 0 0 16px 0; font-size: 1.1rem; border-bottom: 2px solid var(--accent); padding-bottom: 8px;\">Customer Info</h3>";';
+echo '      html += "<div style=\"display: flex; flex-direction: column; gap: 12px;\">";';
+echo '      html += "<div><strong>Phone:</strong> " + (data.customer.phone || "-") + "</div>";';
+echo '      html += "<div><strong>Location:</strong> " + (data.customer.location || "-") + "</div>";';
+echo '      html += "<div><strong>Shop Type:</strong> " + (data.customer.shop_type || "-") + "</div>";';
+echo '      html += "<div><strong>Customer Since:</strong> " + new Date(data.customer.created_at).toLocaleDateString() + "</div>";';
+echo '      html += "</div></div>";';
+echo '      html += "<div><h3 style=\"margin: 0 0 16px 0; font-size: 1.1rem; border-bottom: 2px solid var(--accent); padding-bottom: 8px;\">Summary</h3>";';
+echo '      html += "<div style=\"display: flex; flex-direction: column; gap: 12px;\">";';
+echo '      html += "<div><strong>Total Orders:</strong> " + data.stats.order_count + "</div>";';
+echo '      html += "<div><strong>Total Revenue:</strong> $" + parseFloat(data.stats.total_revenue).toFixed(2) + "</div>";';
+echo '      html += "<div><strong>Outstanding:</strong> <span style=\"color: " + (data.stats.outstanding > 0 ? "#dc2626" : "#059669") + ";\">$" + parseFloat(data.stats.outstanding).toFixed(2) + "</span></div>";';
+echo '      html += "<div><strong>Last Order:</strong> " + (data.stats.last_order_date ? new Date(data.stats.last_order_date).toLocaleDateString() : "Never") + "</div>";';
+echo '      html += "</div></div>";';
+echo '      html += "</div>";';
+echo '      html += "<h3 style=\"margin: 24px 0 16px 0; font-size: 1.1rem; border-bottom: 2px solid var(--accent); padding-bottom: 8px;\">Recent Orders</h3>";';
+echo '      if (data.orders.length === 0) {';
+echo '        html += "<div style=\"text-align: center; padding: 24px; color: var(--muted);\">No orders yet</div>";';
+echo '      } else {';
+echo '        html += "<table style=\"width: 100%; border-collapse: collapse;\"><thead><tr style=\"background: var(--bg); text-align: left;\">";';
+echo '        html += "<th style=\"padding: 10px;\">Order #</th><th>Date</th><th>Status</th><th>Total</th><th>Outstanding</th></tr></thead><tbody>";';
+echo '        data.orders.forEach(order => {';
+echo '          const outstanding = parseFloat(order.outstanding || 0);';
+echo '          html += "<tr style=\"border-bottom: 1px solid var(--border);\">";';
+echo '          html += "<td style=\"padding: 10px;\"><strong>" + order.order_number + "</strong></td>";';
+echo '          html += "<td>" + new Date(order.created_at).toLocaleDateString() + "</td>";';
+echo '          html += "<td><span style=\"padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; background: rgba(59, 130, 246, 0.15); color: #1d4ed8;\">" + order.status + "</span></td>";';
+echo '          html += "<td>$" + parseFloat(order.total_usd).toFixed(2) + "</td>";';
+echo '          html += "<td><span style=\"color: " + (outstanding > 0 ? "#dc2626" : "#059669") + ";\">$" + outstanding.toFixed(2) + "</span></td>";';
+echo '          html += "</tr>";';
+echo '        });';
+echo '        html += "</tbody></table>";';
+echo '      }';
+echo '      document.getElementById("customerDetailContent").innerHTML = html;';
+echo '    })';
+echo '    .catch(err => {';
+echo '      document.getElementById("customerDetailContent").innerHTML = "<div style=\"text-align: center; padding: 40px; color: #dc2626;\">Error loading customer details</div>";';
+echo '    });';
+echo '}';
+echo 'function closeCustomerDetail() {';
+echo '  document.getElementById("customerDetailModal").classList.remove("active");';
 echo '}';
 echo 'document.getElementById("filter-search").addEventListener("keypress", function(e) {';
 echo '  if (e.key === "Enter") applyFilters();';
