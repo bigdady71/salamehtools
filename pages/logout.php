@@ -16,5 +16,5 @@ if (isset($_COOKIE[session_name()])) {
 session_destroy();
 
 // Redirect to login page
-header('Location: /pages/login.php');
+header('Location: /salamehtools/pages/login.php');
 exit;

@@ -22,6 +22,10 @@ $search = trim($_GET['search'] ?? '');
 $category = $_GET['category'] ?? '';
 $stockFilter = $_GET['stock'] ?? '';
 $activeFilter = $_GET['active'] ?? '';
+$priceMin = $_GET['price_min'] ?? '';
+$priceMax = $_GET['price_max'] ?? '';
+$sortBy = $_GET['sort_by'] ?? 'sku';
+$sortOrder = $_GET['sort_order'] ?? 'asc';
 
 // Build WHERE conditions
 $where = ['1=1'];
@@ -50,7 +54,23 @@ if ($activeFilter !== '') {
     $params[':active'] = (int)$activeFilter;
 }
 
+if ($priceMin !== '') {
+    $where[] = "p.sale_price_usd >= :price_min";
+    $params[':price_min'] = (float)$priceMin;
+}
+
+if ($priceMax !== '') {
+    $where[] = "p.sale_price_usd <= :price_max";
+    $params[':price_max'] = (float)$priceMax;
+}
+
 $whereClause = implode(' AND ', $where);
+
+// Build ORDER BY clause
+$allowedSortFields = ['sku', 'item_name', 'sale_price_usd', 'wholesale_price_usd', 'quantity_on_hand'];
+$sortField = in_array($sortBy, $allowedSortFields) ? $sortBy : 'sku';
+$sortDirection = strtoupper($sortOrder) === 'DESC' ? 'DESC' : 'ASC';
+$orderClause = "p.{$sortField} {$sortDirection}";
 
 // Get total count
 $countStmt = $pdo->prepare("SELECT COUNT(*) FROM products p WHERE {$whereClause}");

@@ -100,9 +100,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'adjust_stock') {
                             ':product_id' => $productId,
                         ]);
                     } else {
+                        // Insert new stock record - created_at will be set automatically
                         $insertStmt = $pdo->prepare("
-                            INSERT INTO s_stock (salesperson_id, product_id, qty_on_hand, updated_at)
-                            VALUES (:rep_id, :product_id, :qty, NOW())
+                            INSERT INTO s_stock (salesperson_id, product_id, qty_on_hand, created_at, updated_at)
+                            VALUES (:rep_id, :product_id, :qty, NOW(), NOW())
                         ");
                         $insertStmt->execute([
                             ':rep_id' => $repId,
@@ -140,6 +141,7 @@ if ($action === 'export') {
     $search = trim((string)($_GET['search'] ?? ''));
     $categoryFilter = (string)($_GET['category'] ?? '');
     $alertFilter = (string)($_GET['alert'] ?? '');
+    $ageFilter = (string)($_GET['age'] ?? '');
 
     // Build WHERE clause
     $where = ['s.salesperson_id = :rep_id'];
@@ -161,6 +163,15 @@ if ($action === 'export') {
         $where[] = 's.qty_on_hand = 0';
     }
 
+    // Age filtering
+    if ($ageFilter === '30plus') {
+        $where[] = 'DATEDIFF(NOW(), s.created_at) > 30';
+    } elseif ($ageFilter === '60plus') {
+        $where[] = 'DATEDIFF(NOW(), s.created_at) > 60';
+    } elseif ($ageFilter === '90plus') {
+        $where[] = 'DATEDIFF(NOW(), s.created_at) > 90';
+    }
+
     $whereClause = implode(' AND ', $where);
 
     // Export query
@@ -176,11 +187,13 @@ if ($action === 'export') {
             s.qty_on_hand,
             (s.qty_on_hand * p.sale_price_usd) as stock_value_usd,
             (s.qty_on_hand * p.sale_price_usd * 9000) as stock_value_lbp,
-            s.updated_at
+            s.created_at as date_added,
+            DATEDIFF(NOW(), s.created_at) as days_in_stock,
+            s.updated_at as last_updated
         FROM s_stock s
         INNER JOIN products p ON p.id = s.product_id
         WHERE {$whereClause}
-        ORDER BY p.item_name ASC
+        ORDER BY s.created_at DESC
     ");
     $exportStmt->execute($params);
     $exportData = $exportStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -204,6 +217,8 @@ if ($action === 'export') {
         'Qty on Hand',
         'Stock Value (USD)',
         'Stock Value (LBP)',
+        'Date Added',
+        'Days in Stock',
         'Last Updated'
     ]);
 
@@ -220,7 +235,9 @@ if ($action === 'export') {
             number_format((float)$row['qty_on_hand'], 1),
             number_format((float)$row['stock_value_usd'], 2),
             number_format((float)$row['stock_value_lbp'], 0),
-            $row['updated_at'] ? date('Y-m-d H:i:s', strtotime($row['updated_at'])) : ''
+            $row['date_added'] ? date('Y-m-d H:i:s', strtotime($row['date_added'])) : '',
+            $row['days_in_stock'] ?? '0',
+            $row['last_updated'] ? date('Y-m-d H:i:s', strtotime($row['last_updated'])) : ''
         ]);
     }
 
@@ -232,19 +249,22 @@ if ($action === 'export') {
 $search = trim((string)($_GET['search'] ?? ''));
 $categoryFilter = (string)($_GET['category'] ?? '');
 $alertFilter = (string)($_GET['alert'] ?? '');
+$ageFilter = (string)($_GET['age'] ?? '');
 
 // Pagination
 $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 20;
 $offset = ($page - 1) * $perPage;
 
-// Statistics
+// Statistics including age metrics
 $statsStmt = $pdo->prepare("
     SELECT
         COUNT(DISTINCT s.product_id) as total_products,
         COALESCE(SUM(s.qty_on_hand), 0) as total_units,
         COALESCE(SUM(s.qty_on_hand * p.sale_price_usd), 0) as total_value_usd,
-        COUNT(CASE WHEN s.qty_on_hand <= 5 THEN 1 END) as low_stock_items
+        COUNT(CASE WHEN s.qty_on_hand <= 5 THEN 1 END) as low_stock_items,
+        COUNT(CASE WHEN DATEDIFF(NOW(), s.created_at) > 60 THEN 1 END) as old_stock_items,
+        COALESCE(AVG(DATEDIFF(NOW(), s.created_at)), 0) as avg_days_in_stock
     FROM s_stock s
     INNER JOIN products p ON p.id = s.product_id
     WHERE s.salesperson_id = :rep_id AND s.qty_on_hand > 0
@@ -272,6 +292,15 @@ if ($alertFilter === 'low') {
     $where[] = 's.qty_on_hand = 0';
 }
 
+// Age filtering
+if ($ageFilter === '30plus') {
+    $where[] = 'DATEDIFF(NOW(), s.created_at) > 30';
+} elseif ($ageFilter === '60plus') {
+    $where[] = 'DATEDIFF(NOW(), s.created_at) > 60';
+} elseif ($ageFilter === '90plus') {
+    $where[] = 'DATEDIFF(NOW(), s.created_at) > 90';
+}
+
 $whereClause = implode(' AND ', $where);
 
 // Get total count for pagination
@@ -285,12 +314,14 @@ $countStmt->execute($params);
 $totalItems = (int)$countStmt->fetchColumn();
 $totalPages = (int)ceil($totalItems / $perPage);
 
-// Fetch van stock
+// Fetch van stock with age calculation
 $stockStmt = $pdo->prepare("
     SELECT
         s.product_id,
         s.qty_on_hand,
+        s.created_at,
         s.updated_at,
+        DATEDIFF(NOW(), s.created_at) as days_in_stock,
         p.sku,
         p.item_name,
         p.topcat as category,
@@ -299,7 +330,7 @@ $stockStmt = $pdo->prepare("
     FROM s_stock s
     INNER JOIN products p ON p.id = s.product_id
     WHERE {$whereClause}
-    ORDER BY s.updated_at DESC
+    ORDER BY s.created_at DESC
     LIMIT :limit OFFSET :offset
 ");
 
@@ -354,7 +385,7 @@ $csrfToken = csrf_token();
 sales_portal_render_layout_start([
     'title' => 'Van Stock',
     'heading' => 'Van Stock Inventory',
-    'subtitle' => 'Manage your van inventory and track stock movements',
+    'subtitle' => 'Manage your van inventory and track stock movements with aging insights',
     'active' => 'van_stock',
     'user' => $user,
     'extra_head' => '<style>
@@ -385,6 +416,14 @@ sales_portal_render_layout_start([
         }
         .stat-warning {
             color: #f59e0b;
+        }
+        .stat-danger {
+            color: #dc2626;
+        }
+        .stat-meta {
+            font-size: 0.75rem;
+            color: var(--muted);
+            margin-top: 6px;
         }
         .filter-bar {
             background: var(--bg-panel);
@@ -421,6 +460,7 @@ sales_portal_render_layout_start([
             display: flex;
             gap: 10px;
             align-items: flex-end;
+            flex-wrap: wrap;
         }
         .btn-filter,
         .btn-adjust {
@@ -483,6 +523,7 @@ sales_portal_render_layout_start([
         .stock-table td {
             padding: 14px 16px;
             border-bottom: 1px solid var(--border);
+            font-size: 0.9rem;
         }
         .stock-table tr:last-child td {
             border-bottom: none;
@@ -506,6 +547,31 @@ sales_portal_render_layout_start([
             color: #92400e;
         }
         .badge-danger {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .age-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .age-fresh {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .age-moderate {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .age-old {
+            background: #fed7aa;
+            color: #9a3412;
+        }
+        .age-stale {
             background: #fee2e2;
             color: #991b1b;
         }
@@ -708,6 +774,29 @@ sales_portal_render_layout_start([
             margin: 8px 0 0 20px;
             padding: 0;
         }
+        .info-banner {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.1) 0%, rgba(6, 182, 212, 0.1) 100%);
+            border: 1px solid rgba(14, 165, 233, 0.3);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .info-banner-icon {
+            font-size: 1.5rem;
+        }
+        .info-banner-text {
+            flex: 1;
+            font-size: 0.9rem;
+            color: var(--text);
+        }
+        .info-banner-text strong {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
         @media (max-width: 1024px) {
             .content-grid {
                 grid-template-columns: 1fr;
@@ -744,6 +833,17 @@ if ($flashes) {
     echo '</div>';
 }
 
+// Info banner for aging feature
+if ((int)$stats['old_stock_items'] > 0) {
+    echo '<div class="info-banner">';
+    echo '<div class="info-banner-icon">⏰</div>';
+    echo '<div class="info-banner-text">';
+    echo '<strong>Old Stock Alert</strong>';
+    echo 'You have <strong>', (int)$stats['old_stock_items'], ' items</strong> that have been in your van for more than 60 days. Consider reviewing these items for potential sales or returns.';
+    echo '</div>';
+    echo '</div>';
+}
+
 // Statistics cards
 echo '<div class="stats-grid">';
 echo '<div class="stat-card">';
@@ -761,6 +861,15 @@ echo '</div>';
 echo '<div class="stat-card">';
 echo '<div class="stat-label">Low Stock Items</div>';
 echo '<div class="stat-value stat-warning">', number_format((int)$stats['low_stock_items']), '</div>';
+echo '</div>';
+echo '<div class="stat-card">';
+echo '<div class="stat-label">Items Over 60 Days</div>';
+echo '<div class="stat-value stat-danger">', number_format((int)$stats['old_stock_items']), '</div>';
+echo '</div>';
+echo '<div class="stat-card">';
+echo '<div class="stat-label">Avg Days in Stock</div>';
+echo '<div class="stat-value">', number_format((float)$stats['avg_days_in_stock'], 0), '</div>';
+echo '<div class="stat-meta">Average age of all items</div>';
 echo '</div>';
 echo '</div>';
 
@@ -788,9 +897,18 @@ echo '<option value="low"', $alertFilter === 'low' ? ' selected' : '', '>Low Sto
 echo '<option value="out"', $alertFilter === 'out' ? ' selected' : '', '>Out of Stock</option>';
 echo '</select>';
 echo '</div>';
+echo '<div class="filter-group">';
+echo '<label>Age Filter</label>';
+echo '<select id="filter-age">';
+echo '<option value="">All Ages</option>';
+echo '<option value="30plus"', $ageFilter === '30plus' ? ' selected' : '', '>Over 30 Days</option>';
+echo '<option value="60plus"', $ageFilter === '60plus' ? ' selected' : '', '>Over 60 Days</option>';
+echo '<option value="90plus"', $ageFilter === '90plus' ? ' selected' : '', '>Over 90 Days</option>';
+echo '</select>';
+echo '</div>';
 echo '<div class="filter-actions">';
 echo '<button class="btn-filter" onclick="applyFilters()">Apply Filters</button>';
-if ($search !== '' || $categoryFilter !== '' || $alertFilter !== '') {
+if ($search !== '' || $categoryFilter !== '' || $alertFilter !== '' || $ageFilter !== '') {
     echo '<button class="btn-clear btn-filter" onclick="clearFilters()">Clear</button>';
 }
 // Export button with current filters
@@ -803,6 +921,9 @@ if ($categoryFilter !== '') {
 }
 if ($alertFilter !== '') {
     $exportUrl .= '&alert=' . urlencode($alertFilter);
+}
+if ($ageFilter !== '') {
+    $exportUrl .= '&age=' . urlencode($ageFilter);
 }
 echo '<a href="', htmlspecialchars($exportUrl, ENT_QUOTES, 'UTF-8'), '" class="btn-filter" style="text-decoration: none; display: inline-block;">📊 Export CSV</a>';
 echo '<button class="btn-adjust" onclick="openAdjustModal()">⚡ Adjust Stock</button>';
@@ -830,6 +951,7 @@ if (!$stockItems) {
     echo '<th>Quantity</th>';
     echo '<th>Unit Price</th>';
     echo '<th>Total Value</th>';
+    echo '<th>Age</th>';
     echo '<th>Status</th>';
     echo '</tr></thead>';
     echo '<tbody>';
@@ -842,14 +964,30 @@ if (!$stockItems) {
         $qty = (float)$item['qty_on_hand'];
         $priceUSD = (float)$item['sale_price_usd'];
         $valueUSD = (float)$item['value_usd'];
+        $daysInStock = (int)($item['days_in_stock'] ?? 0);
+        $createdAt = $item['created_at'] ? date('M j, Y', strtotime($item['created_at'])) : '-';
+
+        // Determine age badge
+        $ageClass = 'age-fresh';
+        $ageLabel = "{$daysInStock}d";
+        if ($daysInStock > 90) {
+            $ageClass = 'age-stale';
+            $ageLabel = "{$daysInStock}d ⚠️";
+        } elseif ($daysInStock > 60) {
+            $ageClass = 'age-old';
+            $ageLabel = "{$daysInStock}d ⚠";
+        } elseif ($daysInStock > 30) {
+            $ageClass = 'age-moderate';
+        }
 
         echo '<tr>';
-        echo '<td><strong>', $itemName, '</strong></td>';
+        echo '<td><strong>', $itemName, '</strong><br><small style="color:var(--muted);">Added: ', $createdAt, '</small></td>';
         echo '<td>', $sku, '</td>';
         echo '<td>', $category, '</td>';
         echo '<td><strong>', number_format($qty, 1), '</strong></td>';
         echo '<td>$', number_format($priceUSD, 2), '</td>';
         echo '<td>$', number_format($valueUSD, 2), '</td>';
+        echo '<td><span class="age-badge ', $ageClass, '">', $ageLabel, '</span></td>';
         echo '<td>';
         if ($qty <= 0) {
             echo '<span class="badge badge-danger">Out of Stock</span>';
@@ -918,6 +1056,9 @@ if ($totalPages > 1) {
         if ($alertFilter) {
             $prevUrl .= '&alert=' . urlencode($alertFilter);
         }
+        if ($ageFilter) {
+            $prevUrl .= '&age=' . urlencode($ageFilter);
+        }
         echo '<a href="', htmlspecialchars($prevUrl, ENT_QUOTES, 'UTF-8'), '">Previous</a>';
     }
 
@@ -934,6 +1075,9 @@ if ($totalPages > 1) {
         }
         if ($alertFilter) {
             $pageUrl .= '&alert=' . urlencode($alertFilter);
+        }
+        if ($ageFilter) {
+            $pageUrl .= '&age=' . urlencode($ageFilter);
         }
 
         if ($i === $page) {
@@ -953,6 +1097,9 @@ if ($totalPages > 1) {
         }
         if ($alertFilter) {
             $nextUrl .= '&alert=' . urlencode($alertFilter);
+        }
+        if ($ageFilter) {
+            $nextUrl .= '&age=' . urlencode($ageFilter);
         }
         echo '<a href="', htmlspecialchars($nextUrl, ENT_QUOTES, 'UTF-8'), '">Next</a>';
     }
@@ -1015,10 +1162,12 @@ echo 'function applyFilters() {';
 echo '  const search = document.getElementById("filter-search").value;';
 echo '  const category = document.getElementById("filter-category").value;';
 echo '  const alert = document.getElementById("filter-alert").value;';
+echo '  const age = document.getElementById("filter-age").value;';
 echo '  let url = "?page=1";';
 echo '  if (search) url += "&search=" + encodeURIComponent(search);';
 echo '  if (category) url += "&category=" + encodeURIComponent(category);';
 echo '  if (alert) url += "&alert=" + encodeURIComponent(alert);';
+echo '  if (age) url += "&age=" + encodeURIComponent(age);';
 echo '  window.location.href = url;';
 echo '}';
 echo 'function clearFilters() {';

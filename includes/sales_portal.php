@@ -35,8 +35,12 @@ function sales_portal_nav_links(): array
             'href' => $prefix . 'dashboard.php',
         ],
         'users' => [
-            'label' => 'Customers',
+            'label' => 'My Customers',
             'href' => $prefix . 'users.php',
+        ],
+        'add_customer' => [
+            'label' => '+ Add Customer',
+            'href' => $prefix . 'add_customer.php',
         ],
         'products' => [
             'label' => 'Products',
@@ -121,7 +125,7 @@ function sales_portal_render_layout_start(array $options = []): void
     echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
     echo '<title>', $escTitle, '</title>';
     echo $extraHead;
-    echo '<link rel="stylesheet" href="/css/app.css?v=1">';
+    echo '<link rel="stylesheet" href="/css/app.css?v=2">';
     echo '<style>';
     echo ':root{--bg:#f3f4f6;--bg-panel:#ffffff;--bg-panel-alt:#f9fafc;--text:#111827;--muted:#6b7280;';
     echo '--accent:#0ea5e9;--accent-2:#06b6d4;--border:#e5e7eb;--sales-gradient:linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);}';
@@ -129,7 +133,7 @@ function sales_portal_render_layout_start(array $options = []): void
     echo 'background:var(--bg);color:var(--text);display:flex;min-height:100vh;}a{color:var(--accent);text-decoration:none;}';
     echo 'a:hover{text-decoration:underline;}';
     echo '.layout{display:flex;flex:1;}.sidebar{width:260px;background:var(--sales-gradient);border-right:none;padding:28px 20px;display:flex;';
-    echo 'flex-direction:column;gap:32px;box-shadow:4px 0 12px rgba(0,0,0,0.08);}';
+    echo 'flex-direction:column;gap:32px;box-shadow:4px 0 12px rgba(0,0,0,0.08);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;}';
     echo '.brand{font-size:1.7rem;font-weight:800;letter-spacing:.04em;color:#ffffff;text-shadow:0 2px 4px rgba(0,0,0,0.1);}';
     echo '.brand small{display:block;font-size:0.75rem;font-weight:400;opacity:0.9;margin-top:4px;letter-spacing:0.1em;}';
     echo '.nav-links{display:flex;flex-direction:column;gap:6px;}';
@@ -139,7 +143,7 @@ function sales_portal_render_layout_start(array $options = []): void
     echo '.user-card{margin-top:auto;padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.1);';
     echo 'font-size:0.9rem;color:rgba(255,255,255,0.85);backdrop-filter:blur(10px);}';
     echo '.user-card strong{display:block;font-size:1rem;color:#ffffff;font-weight:600;}';
-    echo '.main{flex:1;padding:36px;display:flex;flex-direction:column;gap:24px;}';
+    echo '.main{flex:1;padding:36px;display:flex;flex-direction:column;gap:24px;margin-left:260px;}';
     echo '.page-header{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:18px;}';
     echo '.page-header h1{margin:0;font-size:2rem;}';
     echo '.page-header p{margin:4px 0 0;color:var(--muted);font-size:0.95rem;}';
@@ -154,10 +158,10 @@ function sales_portal_render_layout_start(array $options = []): void
     echo '.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}';
     echo '.btn-primary:hover{box-shadow:0 0 0 4px rgba(14,165,233,0.18);}';
     echo '@media (max-width:900px){.layout{flex-direction:column;}.sidebar{width:auto;flex-direction:row;';
-    echo 'align-items:center;justify-content:space-between;padding:18px 22px;border-right:none;border-bottom:1px solid rgba(255,255,255,0.2);}';
+    echo 'align-items:center;justify-content:space-between;padding:18px 22px;border-right:none;border-bottom:1px solid rgba(255,255,255,0.2);position:static;overflow-y:visible;}';
     echo '.nav-links{flex-direction:row;flex-wrap:wrap;gap:6px;}.nav-links a{padding:8px 10px;}';
     echo '.user-card{margin-top:0;}';
-    echo '.main{padding:24px;}}';
+    echo '.main{padding:24px;margin-left:0;}}';
     echo '@media (max-width:640px){.sidebar{flex-direction:column;align-items:flex-start;gap:16px;}';
     echo '.nav-links{width:100%;}.nav-links a{width:100%;}}';
     echo '</style></head><body class="theme-light"><div class="layout"><aside class="sidebar">';

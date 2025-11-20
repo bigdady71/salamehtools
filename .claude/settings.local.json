@@ -10,7 +10,14 @@
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"ALTER TABLE customers ADD COLUMN customer_tier VARCHAR(20) DEFAULT ''medium'' AFTER shop_type, ADD COLUMN tags TEXT NULL AFTER customer_tier, ADD COLUMN notes TEXT NULL AFTER tags, ADD COLUMN last_contact_date DATE NULL AFTER notes;\")",
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW COLUMNS FROM products;\")",
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"ALTER TABLE products ADD COLUMN cost_price_usd DECIMAL(12,2) NULL AFTER wholesale_price_usd;\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"CREATE TABLE IF NOT EXISTS sales_quotas ( id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, sales_rep_id BIGINT UNSIGNED NOT NULL, year INT NOT NULL, month INT NOT NULL, quota_usd DECIMAL(14,2) NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY unique_rep_period (sales_rep_id, year, month), KEY idx_period (year, month) );\")"
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"CREATE TABLE IF NOT EXISTS sales_quotas ( id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, sales_rep_id BIGINT UNSIGNED NOT NULL, year INT NOT NULL, month INT NOT NULL, quota_usd DECIMAL(14,2) NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY unique_rep_period (sales_rep_id, year, month), KEY idx_period (year, month) );\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW COLUMNS FROM invoices;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"ALTER TABLE invoices ADD COLUMN due_date DATE NULL AFTER issued_at;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE van_stock_items\\G\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE s_stock\\G\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE s_stock_movements\\G\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"ALTER TABLE s_stock ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER qty_on_hand;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW COLUMNS FROM s_stock;\")"
     ],
     "deny": [],
     "ask": []
