@@ -360,7 +360,13 @@ $statsStmt = $pdo->prepare($statsSql);
 $statsStmt->execute([':rep_id' => $repId]);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
-sales_portal_render_layout_start(['title' => $title]);
+sales_portal_render_layout_start([
+    'title' => $title,
+    'heading' => 'My Orders',
+    'subtitle' => 'View and manage orders for your customers',
+    'user' => $user,
+    'active' => 'orders'
+]);
 ?>
 
 <div class="page-header">

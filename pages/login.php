@@ -37,6 +37,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'viewer':
           $dest = 'customer/dashboard.php';
           break;
+        case '':
+          // Empty role = customer login
+          $dest = 'customer/dashboard.php';
+          break;
         default:
           $dest = 'customer/dashboard.php';
       }

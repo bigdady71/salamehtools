@@ -1,0 +1,394 @@
+<?php
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/customer_portal.php';
+
+$customer = customer_portal_bootstrap();
+$customerId = (int)$customer['id'];
+
+// Fetch account summary
+$balanceStmt = $pdo->prepare("
+    SELECT
+        account_balance_lbp,
+        customer_tier
+    FROM customers
+    WHERE id = ?
+");
+$balanceStmt->execute([$customerId]);
+$accountInfo = $balanceStmt->fetch(PDO::FETCH_ASSOC);
+$balance = (float)($accountInfo['account_balance_lbp'] ?? 0);
+$tier = $accountInfo['customer_tier'] ?? 'medium';
+
+// Fetch recent orders (last 5)
+$ordersStmt = $pdo->prepare("
+    SELECT
+        o.id,
+        o.order_date,
+        o.order_type,
+        o.status,
+        o.total_amount_usd,
+        o.total_amount_lbp,
+        COUNT(DISTINCT oi.id) as item_count
+    FROM orders o
+    LEFT JOIN order_items oi ON oi.order_id = o.id
+    WHERE o.customer_id = ?
+    GROUP BY o.id
+    ORDER BY o.order_date DESC
+    LIMIT 5
+");
+$ordersStmt->execute([$customerId]);
+$recentOrders = $ordersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch outstanding invoices
+$invoicesStmt = $pdo->prepare("
+    SELECT
+        i.id,
+        i.invoice_number,
+        i.issued_at,
+        i.due_date,
+        i.total_amount_usd,
+        i.total_amount_lbp,
+        i.paid_amount_usd,
+        i.paid_amount_lbp,
+        i.status,
+        DATEDIFF(NOW(), i.due_date) as days_overdue
+    FROM invoices i
+    INNER JOIN orders o ON o.id = i.order_id
+    WHERE o.customer_id = ? AND i.status != 'paid'
+    ORDER BY i.due_date ASC
+    LIMIT 5
+");
+$invoicesStmt->execute([$customerId]);
+$outstandingInvoices = $invoicesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Calculate total outstanding
+$totalOutstanding = 0;
+foreach ($outstandingInvoices as $inv) {
+    $totalOutstanding += (float)$inv['total_amount_usd'] - (float)$inv['paid_amount_usd'];
+}
+
+// Fetch order statistics
+$statsStmt = $pdo->prepare("
+    SELECT
+        COUNT(DISTINCT o.id) as total_orders,
+        COALESCE(SUM(o.total_amount_usd), 0) as total_spent_usd,
+        COUNT(DISTINCT CASE WHEN o.status = 'pending' THEN o.id END) as pending_orders,
+        COUNT(DISTINCT CASE WHEN o.status = 'delivered' THEN o.id END) as delivered_orders
+    FROM orders o
+    WHERE o.customer_id = ?
+");
+$statsStmt->execute([$customerId]);
+$stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
+$stats['total_orders'] = (int)$stats['total_orders'];
+$stats['total_spent_usd'] = (float)$stats['total_spent_usd'];
+$stats['pending_orders'] = (int)$stats['pending_orders'];
+$stats['delivered_orders'] = (int)$stats['delivered_orders'];
+
+// Fetch cart item count
+$cartStmt = $pdo->prepare("SELECT COUNT(*) as count FROM customer_cart WHERE customer_id = ?");
+$cartStmt->execute([$customerId]);
+$cartCount = (int)$cartStmt->fetchColumn();
+
+$title = 'Dashboard - Customer Portal';
+
+customer_portal_render_layout_start([
+    'title' => $title,
+    'heading' => 'Welcome back, ' . $customer['name'],
+    'subtitle' => 'Here\'s an overview of your account',
+    'customer' => $customer,
+    'active' => 'dashboard',
+    'actions' => [
+        ['label' => '🛍️ Browse Products', 'href' => 'products.php', 'variant' => 'primary'],
+        ['label' => '🛒 View Cart (' . $cartCount . ')', 'href' => 'cart.php'],
+        ['label' => '📦 My Orders', 'href' => 'orders.php'],
+    ]
+]);
+
+?>
+
+<style>
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px;
+    margin-bottom: 32px;
+}
+.stat-card {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #ffffff;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 10px 30px rgba(16, 185, 129, 0.2);
+}
+.stat-card h3 {
+    margin: 0 0 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    opacity: 0.9;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.stat-card .value {
+    font-size: 2rem;
+    font-weight: 800;
+    margin: 0;
+}
+.stat-card.secondary {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+.stat-card.warning {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+.stat-card.neutral {
+    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+}
+.content-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+@media (max-width: 900px) {
+    .content-grid {
+        grid-template-columns: 1fr;
+    }
+}
+.table-responsive {
+    overflow-x: auto;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+table th {
+    text-align: left;
+    padding: 12px;
+    border-bottom: 2px solid var(--border);
+    font-weight: 600;
+    color: var(--text);
+}
+table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+}
+table tr:hover {
+    background: var(--bg-panel-alt);
+}
+.badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.badge-pending {
+    background: #fef3c7;
+    color: #92400e;
+}
+.badge-approved {
+    background: #dbeafe;
+    color: #1e40af;
+}
+.badge-processing {
+    background: #e0e7ff;
+    color: #3730a3;
+}
+.badge-shipped {
+    background: #d1fae5;
+    color: #065f46;
+}
+.badge-delivered {
+    background: #d1fae5;
+    color: #065f46;
+}
+.badge-cancelled {
+    background: #fee2e2;
+    color: #991b1b;
+}
+.badge-partial {
+    background: #fef3c7;
+    color: #92400e;
+}
+.badge-unpaid {
+    background: #fee2e2;
+    color: #991b1b;
+}
+.badge-overdue {
+    background: #991b1b;
+    color: #ffffff;
+}
+.empty-state {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--muted);
+}
+.empty-state h3 {
+    font-size: 1.2rem;
+    margin: 0 0 12px;
+    color: var(--text);
+}
+.empty-state p {
+    margin: 0 0 24px;
+}
+</style>
+
+<!-- Statistics Cards -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <h3>Total Orders</h3>
+        <p class="value"><?= number_format($stats['total_orders']) ?></p>
+    </div>
+    <div class="stat-card secondary">
+        <h3>Total Spent</h3>
+        <p class="value">$<?= number_format($stats['total_spent_usd'], 2) ?></p>
+    </div>
+    <div class="stat-card warning">
+        <h3>Outstanding Balance</h3>
+        <p class="value">$<?= number_format($totalOutstanding, 2) ?></p>
+    </div>
+    <div class="stat-card neutral">
+        <h3>Account Tier</h3>
+        <p class="value"><?= ucfirst(htmlspecialchars($tier, ENT_QUOTES, 'UTF-8')) ?></p>
+    </div>
+</div>
+
+<!-- Recent Orders and Outstanding Invoices -->
+<div class="content-grid">
+    <!-- Recent Orders -->
+    <div class="card">
+        <h2>Recent Orders</h2>
+        <?php if (count($recentOrders) > 0): ?>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Order #</th>
+                            <th>Date</th>
+                            <th>Items</th>
+                            <th>Status</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recentOrders as $order): ?>
+                            <?php
+                            $orderId = (int)$order['id'];
+                            $orderDate = date('M d, Y', strtotime($order['order_date']));
+                            $itemCount = (int)$order['item_count'];
+                            $status = htmlspecialchars($order['status'], ENT_QUOTES, 'UTF-8');
+                            $total = (float)$order['total_amount_usd'];
+                            $badgeClass = 'badge-' . strtolower($status);
+                            ?>
+                            <tr>
+                                <td><a href="order_details.php?id=<?= $orderId ?>">#<?= $orderId ?></a></td>
+                                <td><?= $orderDate ?></td>
+                                <td><?= $itemCount ?> item<?= $itemCount !== 1 ? 's' : '' ?></td>
+                                <td><span class="badge <?= $badgeClass ?>"><?= $status ?></span></td>
+                                <td>$<?= number_format($total, 2) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 16px; text-align: right;">
+                <a href="orders.php" style="color: var(--accent); font-weight: 600;">View All Orders →</a>
+            </div>
+        <?php else: ?>
+            <div class="empty-state">
+                <h3>No Orders Yet</h3>
+                <p>Start shopping to see your orders here.</p>
+                <a href="products.php" class="btn btn-primary">Browse Products</a>
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <!-- Outstanding Invoices -->
+    <div class="card">
+        <h2>Outstanding Invoices</h2>
+        <?php if (count($outstandingInvoices) > 0): ?>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Invoice #</th>
+                            <th>Due Date</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($outstandingInvoices as $invoice): ?>
+                            <?php
+                            $invoiceId = (int)$invoice['id'];
+                            $invoiceNum = htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8');
+                            $dueDate = $invoice['due_date'] ? date('M d, Y', strtotime($invoice['due_date'])) : 'N/A';
+                            $total = (float)$invoice['total_amount_usd'];
+                            $paid = (float)$invoice['paid_amount_usd'];
+                            $remaining = $total - $paid;
+                            $status = htmlspecialchars($invoice['status'], ENT_QUOTES, 'UTF-8');
+                            $daysOverdue = (int)($invoice['days_overdue'] ?? 0);
+                            $badgeClass = $daysOverdue > 0 ? 'badge-overdue' : 'badge-' . strtolower($status);
+                            $statusLabel = $daysOverdue > 0 ? 'Overdue (' . $daysOverdue . 'd)' : $status;
+                            ?>
+                            <tr>
+                                <td><a href="invoice_details.php?id=<?= $invoiceId ?>"><?= $invoiceNum ?></a></td>
+                                <td><?= $dueDate ?></td>
+                                <td>$<?= number_format($remaining, 2) ?></td>
+                                <td><span class="badge <?= $badgeClass ?>"><?= $statusLabel ?></span></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 16px; text-align: right;">
+                <a href="invoices.php" style="color: var(--accent); font-weight: 600;">View All Invoices →</a>
+            </div>
+        <?php else: ?>
+            <div class="empty-state">
+                <h3>No Outstanding Invoices</h3>
+                <p>You're all caught up!</p>
+            </div>
+        <?php endif; ?>
+    </div>
+</div>
+
+<!-- Sales Rep Information -->
+<?php if ($customer['sales_rep_name']): ?>
+<div class="card">
+    <h2>Your Sales Representative</h2>
+    <div style="display: flex; align-items: center; gap: 24px; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 200px;">
+            <p style="margin: 0 0 8px; font-weight: 600; font-size: 1.1rem; color: var(--text);">
+                <?= htmlspecialchars($customer['sales_rep_name'], ENT_QUOTES, 'UTF-8') ?>
+            </p>
+            <?php if ($customer['sales_rep_email']): ?>
+                <p style="margin: 0 0 4px;">
+                    📧 <a href="mailto:<?= htmlspecialchars($customer['sales_rep_email'], ENT_QUOTES, 'UTF-8') ?>">
+                        <?= htmlspecialchars($customer['sales_rep_email'], ENT_QUOTES, 'UTF-8') ?>
+                    </a>
+                </p>
+            <?php endif; ?>
+            <?php if ($customer['sales_rep_phone']): ?>
+                <p style="margin: 0;">
+                    📞 <a href="tel:<?= htmlspecialchars($customer['sales_rep_phone'], ENT_QUOTES, 'UTF-8') ?>">
+                        <?= htmlspecialchars($customer['sales_rep_phone'], ENT_QUOTES, 'UTF-8') ?>
+                    </a>
+                </p>
+            <?php endif; ?>
+        </div>
+        <div>
+            <a href="contact.php" class="btn btn-primary">Send Message</a>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php
+
+customer_portal_render_layout_end();

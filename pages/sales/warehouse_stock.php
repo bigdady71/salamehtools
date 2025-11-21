@@ -120,7 +120,13 @@ $statsQuery = "
 $statsStmt = $pdo->query($statsQuery);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
-sales_portal_render_layout_start(['title' => $title]);
+sales_portal_render_layout_start([
+    'title' => $title,
+    'heading' => 'Warehouse Stock Availability',
+    'subtitle' => 'View warehouse inventory for company order planning (Read-only)',
+    'user' => $user,
+    'active' => 'warehouse_stock'
+]);
 ?>
 
 <div class="page-header">

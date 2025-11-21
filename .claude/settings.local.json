@@ -17,7 +17,11 @@
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE s_stock\\G\")",
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW CREATE TABLE s_stock_movements\\G\")",
       "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"ALTER TABLE s_stock ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER qty_on_hand;\")",
-      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW COLUMNS FROM s_stock;\")"
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW COLUMNS FROM s_stock;\")",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"SHOW TABLES LIKE ''ar_followups'';\")",
+      "Bash(\"c:\\xampp\\htdocs\\salamehtools\\SALES_PORTAL_COMPLETE.md\")",
+      "Bash(echo:*)",
+      "Bash(\"C:\\xampp\\mysql\\bin\\mysql.exe\" -u root salamaehtools -e \"ALTER TABLE customers ADD COLUMN password_hash VARCHAR(255) NULL AFTER phone, ADD COLUMN last_login_at TIMESTAMP NULL AFTER updated_at, ADD COLUMN login_enabled TINYINT(1) DEFAULT 0 AFTER is_active;\")"
     ],
     "deny": [],
     "ask": []
