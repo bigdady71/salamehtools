@@ -8,6 +8,9 @@ require_once __DIR__ . '/../../includes/customer_portal.php';
 $customer = customer_portal_bootstrap();
 $customerId = (int)$customer['id'];
 
+// Get database connection
+$pdo = db();
+
 $orderId = (int)($_GET['id'] ?? 0);
 $placed = isset($_GET['placed']) && $_GET['placed'] === '1';
 
@@ -20,11 +23,11 @@ if ($orderId === 0) {
 $orderStmt = $pdo->prepare("
     SELECT
         o.id,
-        o.order_date,
+        o.created_at,
         o.order_type,
         o.status,
-        o.total_amount_usd,
-        o.total_amount_lbp,
+        o.total_usd,
+        o.total_lbp,
         o.notes,
         o.created_at,
         o.updated_at
@@ -67,7 +70,7 @@ $invoiceStmt = $pdo->prepare("
         i.issued_at,
         i.due_date,
         i.status,
-        i.total_amount_usd,
+        i.total_usd as total_amount_usd,
         i.paid_amount_usd
     FROM invoices i
     WHERE i.order_id = ?

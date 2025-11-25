@@ -8,6 +8,9 @@ require_once __DIR__ . '/../../includes/customer_portal.php';
 $customer = customer_portal_bootstrap();
 $customerId = (int)$customer['id'];
 
+// Get database connection
+$pdo = db();
+
 $success = null;
 $error = null;
 

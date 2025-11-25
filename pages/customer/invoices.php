@@ -8,6 +8,9 @@ require_once __DIR__ . '/../../includes/customer_portal.php';
 $customer = customer_portal_bootstrap();
 $customerId = (int)$customer['id'];
 
+// Get database connection
+$pdo = db();
+
 // Get filters
 $status = trim($_GET['status'] ?? '');
 $search = trim($_GET['search'] ?? '');
@@ -40,15 +43,17 @@ $invoicesQuery = "
         i.issued_at,
         i.due_date,
         i.status,
-        i.total_amount_usd,
-        i.total_amount_lbp,
-        i.paid_amount_usd,
-        i.paid_amount_lbp,
+        i.total_usd as total_amount_usd,
+        i.total_lbp as total_amount_lbp,
+        COALESCE(SUM(p.amount_usd), 0) as paid_amount_usd,
+        COALESCE(SUM(p.amount_lbp), 0) as paid_amount_lbp,
         DATEDIFF(NOW(), i.due_date) as days_overdue,
-        o.order_date
+        o.created_at
     FROM invoices i
     INNER JOIN orders o ON o.id = i.order_id
+    LEFT JOIN payments p ON p.invoice_id = i.id
     WHERE {$whereClause}
+    GROUP BY i.id
     ORDER BY i.issued_at DESC, i.id DESC
     LIMIT 50
 ";
@@ -60,14 +65,19 @@ $invoices = $invoicesStmt->fetchAll(PDO::FETCH_ASSOC);
 // Get invoice statistics
 $statsStmt = $pdo->prepare("
     SELECT
-        COUNT(*) as total_invoices,
-        COUNT(CASE WHEN i.status = 'unpaid' THEN 1 END) as unpaid_count,
-        COUNT(CASE WHEN i.status = 'partial' THEN 1 END) as partial_count,
-        COUNT(CASE WHEN i.status = 'paid' THEN 1 END) as paid_count,
-        COALESCE(SUM(CASE WHEN i.status != 'paid' THEN (i.total_amount_usd - i.paid_amount_usd) END), 0) as total_outstanding,
-        COALESCE(SUM(i.total_amount_usd), 0) as total_invoiced
+        COUNT(DISTINCT i.id) as total_invoices,
+        COUNT(DISTINCT CASE WHEN i.status = 'issued' THEN i.id END) as unpaid_count,
+        COUNT(DISTINCT CASE WHEN i.status = 'draft' THEN i.id END) as partial_count,
+        COUNT(DISTINCT CASE WHEN i.status = 'paid' THEN i.id END) as paid_count,
+        COALESCE(SUM(CASE WHEN i.status != 'paid' THEN (i.total_usd - COALESCE(p.paid, 0)) END), 0) as total_outstanding,
+        COALESCE(SUM(i.total_usd), 0) as total_invoiced
     FROM invoices i
     INNER JOIN orders o ON o.id = i.order_id
+    LEFT JOIN (
+        SELECT invoice_id, SUM(amount_usd) as paid
+        FROM payments
+        GROUP BY invoice_id
+    ) p ON p.invoice_id = i.id
     WHERE o.customer_id = ?
 ");
 $statsStmt->execute([$customerId]);

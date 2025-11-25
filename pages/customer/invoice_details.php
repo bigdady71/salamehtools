@@ -8,6 +8,9 @@ require_once __DIR__ . '/../../includes/customer_portal.php';
 $customer = customer_portal_bootstrap();
 $customerId = (int)$customer['id'];
 
+// Get database connection
+$pdo = db();
+
 $invoiceId = (int)($_GET['id'] ?? 0);
 
 if ($invoiceId === 0) {
@@ -24,17 +27,19 @@ $invoiceStmt = $pdo->prepare("
         i.issued_at,
         i.due_date,
         i.status,
-        i.total_amount_usd,
-        i.total_amount_lbp,
-        i.paid_amount_usd,
-        i.paid_amount_lbp,
+        i.total_usd as total_amount_usd,
+        i.total_lbp as total_amount_lbp,
+        COALESCE(SUM(p.amount_usd), 0) as paid_amount_usd,
+        COALESCE(SUM(p.amount_lbp), 0) as paid_amount_lbp,
         DATEDIFF(NOW(), i.due_date) as days_overdue,
         o.customer_id,
-        o.order_date,
+        o.created_at,
         o.order_type
     FROM invoices i
     INNER JOIN orders o ON o.id = i.order_id
+    LEFT JOIN payments p ON p.invoice_id = i.id
     WHERE i.id = ? AND o.customer_id = ?
+    GROUP BY i.id
     LIMIT 1
 ");
 $invoiceStmt->execute([$invoiceId, $customerId]);

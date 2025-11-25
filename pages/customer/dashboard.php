@@ -8,6 +8,9 @@ require_once __DIR__ . '/../../includes/customer_portal.php';
 $customer = customer_portal_bootstrap();
 $customerId = (int)$customer['id'];
 
+// Get database connection
+$pdo = db();
+    
 // Fetch account summary
 $balanceStmt = $pdo->prepare("
     SELECT
@@ -25,17 +28,17 @@ $tier = $accountInfo['customer_tier'] ?? 'medium';
 $ordersStmt = $pdo->prepare("
     SELECT
         o.id,
-        o.order_date,
+        o.created_at as order_date,
         o.order_type,
         o.status,
-        o.total_amount_usd,
-        o.total_amount_lbp,
+        o.total_usd as total_amount_usd,
+        o.total_lbp as total_amount_lbp,
         COUNT(DISTINCT oi.id) as item_count
     FROM orders o
     LEFT JOIN order_items oi ON oi.order_id = o.id
     WHERE o.customer_id = ?
     GROUP BY o.id
-    ORDER BY o.order_date DESC
+    ORDER BY o.created_at DESC
     LIMIT 5
 ");
 $ordersStmt->execute([$customerId]);
@@ -48,15 +51,17 @@ $invoicesStmt = $pdo->prepare("
         i.invoice_number,
         i.issued_at,
         i.due_date,
-        i.total_amount_usd,
-        i.total_amount_lbp,
-        i.paid_amount_usd,
-        i.paid_amount_lbp,
+        i.total_usd as total_amount_usd,
+        i.total_lbp as total_amount_lbp,
+        COALESCE(SUM(p.amount_usd), 0) as paid_amount_usd,
+        COALESCE(SUM(p.amount_lbp), 0) as paid_amount_lbp,
         i.status,
         DATEDIFF(NOW(), i.due_date) as days_overdue
     FROM invoices i
     INNER JOIN orders o ON o.id = i.order_id
+    LEFT JOIN payments p ON p.invoice_id = i.id
     WHERE o.customer_id = ? AND i.status != 'paid'
+    GROUP BY i.id
     ORDER BY i.due_date ASC
     LIMIT 5
 ");
@@ -73,7 +78,7 @@ foreach ($outstandingInvoices as $inv) {
 $statsStmt = $pdo->prepare("
     SELECT
         COUNT(DISTINCT o.id) as total_orders,
-        COALESCE(SUM(o.total_amount_usd), 0) as total_spent_usd,
+        COALESCE(SUM(o.total_usd), 0) as total_spent_usd,
         COUNT(DISTINCT CASE WHEN o.status = 'pending' THEN o.id END) as pending_orders,
         COUNT(DISTINCT CASE WHEN o.status = 'delivered' THEN o.id END) as delivered_orders
     FROM orders o

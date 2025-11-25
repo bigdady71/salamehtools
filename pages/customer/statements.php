@@ -8,6 +8,9 @@ require_once __DIR__ . '/../../includes/customer_portal.php';
 $customer = customer_portal_bootstrap();
 $customerId = (int)$customer['id'];
 
+// Get database connection
+$pdo = db();
+
 // Get date range filter
 $period = trim($_GET['period'] ?? '30');
 $startDate = match($period) {
@@ -26,7 +29,7 @@ $transactionsQuery = "
         i.id as transaction_id,
         i.invoice_number as reference,
         i.issued_at as transaction_date,
-        i.total_amount_usd as debit,
+        i.total_usd as debit,
         0 as credit,
         i.status
     FROM invoices i

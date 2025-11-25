@@ -8,6 +8,9 @@ require_once __DIR__ . '/../../includes/customer_portal.php';
 $customer = customer_portal_bootstrap();
 $customerId = (int)$customer['id'];
 
+// Get database connection
+$pdo = db();
+
 // Get filters
 $status = trim($_GET['status'] ?? '');
 $search = trim($_GET['search'] ?? '');
@@ -35,11 +38,11 @@ $whereClause = implode(' AND ', $where);
 $ordersQuery = "
     SELECT
         o.id,
-        o.order_date,
+        o.created_at as order_date,
         o.order_type,
         o.status,
-        o.total_amount_usd,
-        o.total_amount_lbp,
+        o.total_usd as total_amount_usd,
+        o.total_lbp as total_amount_lbp,
         o.notes,
         COUNT(DISTINCT oi.id) as item_count,
         GROUP_CONCAT(DISTINCT p.item_name SEPARATOR ', ') as product_names
@@ -48,7 +51,7 @@ $ordersQuery = "
     LEFT JOIN products p ON p.id = oi.product_id
     WHERE {$whereClause}
     GROUP BY o.id
-    ORDER BY o.order_date DESC, o.id DESC
+    ORDER BY o.created_at DESC, o.id DESC
     LIMIT 50
 ";
 

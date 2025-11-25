@@ -8,6 +8,9 @@ require_once __DIR__ . '/../../includes/customer_portal.php';
 $customer = customer_portal_bootstrap();
 $customerId = (int)$customer['id'];
 
+// Get database connection
+$pdo = db();
+
 $success = null;
 $error = null;
 
@@ -200,16 +203,41 @@ customer_portal_render_layout_start([
 .product-card {
     background: var(--bg-panel);
     border-radius: 16px;
-    padding: 24px;
+    padding: 0;
     border: 1px solid var(--border);
     box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
     transition: all 0.3s;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 .product-card:hover {
     transform: translateY(-4px);
     box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12);
+}
+.product-image {
+    width: 100%;
+    height: 220px;
+    object-fit: cover;
+    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    border-bottom: 1px solid var(--border);
+}
+.product-image-placeholder {
+    width: 100%;
+    height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    border-bottom: 1px solid var(--border);
+    font-size: 3rem;
+    color: #9ca3af;
+}
+.product-content {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
 }
 .product-header {
     margin-bottom: 16px;
@@ -377,6 +405,15 @@ customer_portal_render_layout_start([
             $minQty = (float)$product['min_quantity'];
             $description = htmlspecialchars($product['description'] ?? 'No description available.', ENT_QUOTES, 'UTF-8');
 
+            // Product image path (based on SKU)
+            $imagePath = '/images/products/' . urlencode($product['sku'] ?? 'default') . '.jpg';
+            $imageExists = file_exists(__DIR__ . '/../..' . $imagePath);
+            if (!$imageExists) {
+                // Try PNG
+                $imagePath = '/images/products/' . urlencode($product['sku'] ?? 'default') . '.png';
+                $imageExists = file_exists(__DIR__ . '/../..' . $imagePath);
+            }
+
             // Stock status
             if ($qtyOnHand <= 0) {
                 $stockClass = 'stock-out';
@@ -393,6 +430,14 @@ customer_portal_render_layout_start([
             }
             ?>
             <div class="product-card">
+                <?php if ($imageExists): ?>
+                    <img src="<?= $imagePath ?>" alt="<?= $itemName ?>" class="product-image" loading="lazy">
+                <?php else: ?>
+                    <div class="product-image-placeholder">
+                        📦
+                    </div>
+                <?php endif; ?>
+                <div class="product-content">
                 <div class="product-header">
                     <h3><?= $itemName ?></h3>
                     <div class="sku">SKU: <?= $sku ?></div>
@@ -428,6 +473,7 @@ customer_portal_render_layout_start([
                         Out of Stock
                     </button>
                 <?php endif; ?>
+                </div>
             </div>
         <?php endforeach; ?>
     </div>

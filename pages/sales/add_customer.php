@@ -29,6 +29,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $phone = trim((string)($_POST['phone'] ?? ''));
         $location = trim((string)($_POST['location'] ?? ''));
         $shopType = trim((string)($_POST['shop_type'] ?? ''));
+        $email = trim((string)($_POST['email'] ?? ''));
+        $enablePortal = isset($_POST['enable_portal']) && $_POST['enable_portal'] === '1';
 
         $errors = [];
 
@@ -48,15 +50,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             }
         }
 
+        if ($enablePortal) {
+            if ($email === '') {
+                $errors[] = 'Email is required to enable portal access.';
+            } else {
+                // Check for duplicate email in users table
+                $checkEmailStmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE email = ?");
+                $checkEmailStmt->execute([$email]);
+                if ((int)$checkEmailStmt->fetchColumn() > 0) {
+                    $errors[] = 'A user with this email already exists.';
+                }
+            }
+        }
+
         if (!empty($errors)) {
             flash('error', 'Please fix the following errors: ' . implode(' ', $errors));
         } else {
             try {
                 $pdo->beginTransaction();
 
+                $userId = null;
+                $tempPassword = null;
+
+                // Create user account if portal access is enabled
+                if ($enablePortal) {
+                    // Generate temporary password (phone number for now - easy to remember)
+                    $tempPassword = $phone;
+
+                    $userInsertStmt = $pdo->prepare("
+                        INSERT INTO users (name, email, phone, password_hash, role, is_active, created_at)
+                        VALUES (?, ?, ?, ?, '', 1, NOW())
+                    ");
+
+                    $userInsertStmt->execute([
+                        $name,
+                        $email,
+                        $phone,
+                        $tempPassword // Plain text for now as requested
+                    ]);
+
+                    $userId = (int)$pdo->lastInsertId();
+                }
+
                 $insertStmt = $pdo->prepare("
-                    INSERT INTO customers (name, phone, location, shop_type, assigned_sales_rep_id, is_active, created_at)
-                    VALUES (?, ?, ?, ?, ?, 1, NOW())
+                    INSERT INTO customers (name, phone, location, shop_type, assigned_sales_rep_id, user_id, login_enabled, is_active, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW())
                 ");
 
                 $insertStmt->execute([
@@ -64,12 +102,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $phone,
                     $location !== '' ? $location : null,
                     $shopType !== '' ? $shopType : null,
-                    $repId // Automatically assign to current sales rep
+                    $repId, // Automatically assign to current sales rep
+                    $userId,
+                    $enablePortal ? 1 : 0
                 ]);
 
                 $pdo->commit();
 
-                flash('success', "Customer \"{$name}\" has been successfully created and assigned to you.");
+                if ($enablePortal && $tempPassword) {
+                    flash('success', "Customer \"{$name}\" has been successfully created with portal access!<br>
+                        <strong>Login URL:</strong> <a href='/salamehtools/pages/login.php' target='_blank'>Customer Login</a><br>
+                        <strong>Username:</strong> {$phone} (or {$email})<br>
+                        <strong>Temporary Password:</strong> {$tempPassword}<br>
+                        <em>Please share these credentials with the customer.</em>");
+                } else {
+                    flash('success', "Customer \"{$name}\" has been successfully created and assigned to you.");
+                }
+
                 header('Location: users.php');
                 exit;
             } catch (Exception $e) {
@@ -306,7 +355,21 @@ sales_portal_render_layout_start([
                     required
                     value="<?= htmlspecialchars($_POST['phone'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
                 >
-                <div class="form-help">Primary contact number</div>
+                <div class="form-help">Primary contact number (used as default password)</div>
+            </div>
+
+            <!-- Email -->
+            <div class="form-group">
+                <label class="form-label" for="email" id="email-label">Email Address</label>
+                <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    class="form-input"
+                    placeholder="customer@example.com"
+                    value="<?= htmlspecialchars($_POST['email'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                >
+                <div class="form-help">Required if enabling portal access</div>
             </div>
 
             <!-- Shop Type -->
@@ -334,7 +397,43 @@ sales_portal_render_layout_start([
                 ><?= htmlspecialchars($_POST['location'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
                 <div class="form-help">Complete address for delivery and visits</div>
             </div>
+
+            <!-- Enable Portal Access -->
+            <div class="form-group full-width">
+                <div style="background: rgba(16, 185, 129, 0.05); border: 2px solid rgba(16, 185, 129, 0.2); border-radius: 10px; padding: 20px;">
+                    <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; font-weight: 600; font-size: 1rem;">
+                        <input
+                            type="checkbox"
+                            name="enable_portal"
+                            id="enable_portal"
+                            value="1"
+                            style="width: 20px; height: 20px; cursor: pointer;"
+                            <?= isset($_POST['enable_portal']) && $_POST['enable_portal'] === '1' ? 'checked' : '' ?>
+                        >
+                        <span style="color: #065f46;">🌐 Enable Customer Portal Access</span>
+                    </label>
+                    <div style="margin-left: 32px; margin-top: 8px; font-size: 0.9rem; color: #047857;">
+                        Allow this customer to access the online portal to view orders, invoices, make payments, and browse products.
+                        <br><strong>Note:</strong> Email is required for portal access. Temporary password will be their phone number.
+                    </div>
+                </div>
+            </div>
         </div>
+
+        <script>
+        // Make email required when portal access is enabled
+        document.getElementById('enable_portal').addEventListener('change', function() {
+            const emailInput = document.getElementById('email');
+            const emailLabel = document.getElementById('email-label');
+            if (this.checked) {
+                emailInput.required = true;
+                emailLabel.classList.add('required');
+            } else {
+                emailInput.required = false;
+                emailLabel.classList.remove('required');
+            }
+        });
+        </script>
 
         <div class="form-actions">
             <a href="users.php" class="btn btn-secondary">

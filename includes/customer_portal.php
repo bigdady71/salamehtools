@@ -22,14 +22,14 @@ function customer_portal_bootstrap(): array
     // Check if user is logged in and has viewer role or empty role (customer)
     if (!isset($_SESSION['user']) || !isset($_SESSION['user']['role'])) {
         // Redirect to main login
-        header('Location: /pages/login.php');
+        header('Location: /salamehtools/pages/login.php');
         exit;
     }
 
     $userRole = $_SESSION['user']['role'];
     if ($userRole !== 'viewer' && $userRole !== '') {
         // Not a customer - redirect to appropriate dashboard
-        header('Location: /pages/login.php');
+        header('Location: /salamehtools/pages/login.php');
         exit;
     }
 
@@ -47,7 +47,7 @@ function customer_portal_bootstrap(): array
     if (!$customerRow) {
         // No customer record found for this user
         session_destroy();
-        header('Location: /pages/login.php?error=no_customer_record');
+        header('Location: /salamehtools/pages/login.php?error=no_customer_record');
         exit;
     }
 
@@ -79,7 +79,7 @@ function customer_portal_bootstrap(): array
     if (!$customer) {
         // Customer not found or disabled - logout
         session_destroy();
-        header('Location: /pages/login.php?error=account_disabled');
+        header('Location: /salamehtools/pages/login.php?error=account_disabled');
         exit;
     }
 
