@@ -45,6 +45,7 @@ if (count($cartItems) === 0) {
 // Calculate totals and check stock
 $subtotal = 0;
 $hasStockIssues = false;
+$stockIssueItems = [];
 foreach ($cartItems as $item) {
     $qty = (float)$item['quantity'];
     $price = (float)$item['sale_price_usd'];
@@ -54,13 +55,26 @@ foreach ($cartItems as $item) {
 
     if ($qty > $qtyOnHand) {
         $hasStockIssues = true;
+        $stockIssueItems[] = [
+            'name' => $item['item_name'],
+            'requested' => $qty,
+            'available' => $qtyOnHand,
+            'unit' => $item['unit']
+        ];
     }
 }
 
 // Handle order submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'place_order') {
     if ($hasStockIssues) {
-        $error = 'Some items in your cart have insufficient stock. Please adjust quantities.';
+        $errorDetails = '<strong>Stock issues detected:</strong><ul style="margin: 8px 0 0 0; padding-left: 20px;">';
+        foreach ($stockIssueItems as $issue) {
+            $errorDetails .= '<li>' . htmlspecialchars($issue['name'], ENT_QUOTES, 'UTF-8') .
+                           ' - Requested: ' . number_format($issue['requested'], 2) . ' ' . htmlspecialchars($issue['unit'], ENT_QUOTES, 'UTF-8') .
+                           ', Available: ' . number_format($issue['available'], 2) . ' ' . htmlspecialchars($issue['unit'], ENT_QUOTES, 'UTF-8') . '</li>';
+        }
+        $errorDetails .= '</ul><a href="cart.php" style="color: inherit; text-decoration: underline;">Go back to cart to adjust quantities</a>';
+        $error = $errorDetails;
     } else {
         $notes = trim($_POST['notes'] ?? '');
 
@@ -71,14 +85,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $insertOrderStmt = $pdo->prepare("
                 INSERT INTO orders (
                     customer_id,
-                    order_date,
                     order_type,
                     status,
-                    total_amount_usd,
-                    total_amount_lbp,
+                    total_usd,
+                    total_lbp,
                     notes,
                     created_at
-                ) VALUES (?, NOW(), 'customer_order', 'pending', ?, 0, ?, NOW())
+                ) VALUES (?, 'customer_order', 'pending', ?, 0, ?, NOW())
             ");
             $insertOrderStmt->execute([$customerId, $subtotal, $notes]);
             $orderId = (int)$pdo->lastInsertId();
@@ -123,7 +136,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         } catch (Exception $e) {
             $pdo->rollBack();
-            $error = 'Failed to place order. Please try again or contact your sales representative.';
+            // Log error for debugging (in production, use proper logging)
+            error_log("Order placement failed for customer {$customerId}: " . $e->getMessage());
+            $error = 'Failed to place order. Please try again or contact your sales representative. Error: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
         }
     }
 }

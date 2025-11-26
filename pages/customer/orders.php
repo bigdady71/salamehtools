@@ -14,6 +14,9 @@ $pdo = db();
 // Get filters
 $status = trim($_GET['status'] ?? '');
 $search = trim($_GET['search'] ?? '');
+$page = max(1, (int)($_GET['page'] ?? 1));
+$perPage = 20;
+$offset = ($page - 1) * $perPage;
 
 // Build query
 $where = ['o.customer_id = ?'];
@@ -34,6 +37,13 @@ if ($search !== '') {
 
 $whereClause = implode(' AND ', $where);
 
+// Get total count for pagination
+$countQuery = "SELECT COUNT(DISTINCT o.id) FROM orders o WHERE {$whereClause}";
+$countStmt = $pdo->prepare($countQuery);
+$countStmt->execute($params);
+$totalOrders = (int)$countStmt->fetchColumn();
+$totalPages = ceil($totalOrders / $perPage);
+
 // Fetch orders
 $ordersQuery = "
     SELECT
@@ -52,7 +62,7 @@ $ordersQuery = "
     WHERE {$whereClause}
     GROUP BY o.id
     ORDER BY o.created_at DESC, o.id DESC
-    LIMIT 50
+    LIMIT {$perPage} OFFSET {$offset}
 ";
 
 $ordersStmt = $pdo->prepare($ordersQuery);
@@ -383,6 +393,25 @@ customer_portal_render_layout_start([
                 </tbody>
             </table>
         </div>
+
+        <!-- Pagination -->
+        <?php if ($totalPages > 1): ?>
+            <div style="display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 32px; flex-wrap: wrap;">
+                <?php if ($page > 1): ?>
+                    <a href="?<?= http_build_query(array_merge($_GET, ['page' => 1])) ?>" class="btn">« First</a>
+                    <a href="?<?= http_build_query(array_merge($_GET, ['page' => $page - 1])) ?>" class="btn">‹ Previous</a>
+                <?php endif; ?>
+
+                <span style="padding: 8px 16px; color: var(--muted); font-weight: 600;">
+                    Page <?= $page ?> of <?= $totalPages ?> (<?= $totalOrders ?> total)
+                </span>
+
+                <?php if ($page < $totalPages): ?>
+                    <a href="?<?= http_build_query(array_merge($_GET, ['page' => $page + 1])) ?>" class="btn">Next ›</a>
+                    <a href="?<?= http_build_query(array_merge($_GET, ['page' => $totalPages])) ?>" class="btn">Last »</a>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
     <?php else: ?>
         <div class="empty-state">
             <h3>📦 No Orders Found</h3>

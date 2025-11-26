@@ -42,7 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Clear form
             $_POST = [];
         } catch (Exception $e) {
-            $error = 'Failed to send message. Please try again or contact your sales rep directly.';
+            error_log("Message send failed for customer {$customerId}: " . $e->getMessage());
+            $error = 'Failed to send message. Please try again or contact your sales rep directly. Error: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
         }
     }
 }

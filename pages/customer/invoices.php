@@ -14,6 +14,9 @@ $pdo = db();
 // Get filters
 $status = trim($_GET['status'] ?? '');
 $search = trim($_GET['search'] ?? '');
+$page = max(1, (int)($_GET['page'] ?? 1));
+$perPage = 20;
+$offset = ($page - 1) * $perPage;
 
 // Build query
 $where = ['o.customer_id = ?'];
@@ -33,6 +36,13 @@ if ($search !== '') {
 }
 
 $whereClause = implode(' AND ', $where);
+
+// Get total count for pagination
+$countQuery = "SELECT COUNT(DISTINCT i.id) FROM invoices i INNER JOIN orders o ON o.id = i.order_id WHERE {$whereClause}";
+$countStmt = $pdo->prepare($countQuery);
+$countStmt->execute($params);
+$totalInvoices = (int)$countStmt->fetchColumn();
+$totalPages = ceil($totalInvoices / $perPage);
 
 // Fetch invoices
 $invoicesQuery = "
@@ -55,7 +65,7 @@ $invoicesQuery = "
     WHERE {$whereClause}
     GROUP BY i.id
     ORDER BY i.issued_at DESC, i.id DESC
-    LIMIT 50
+    LIMIT {$perPage} OFFSET {$offset}
 ";
 
 $invoicesStmt = $pdo->prepare($invoicesQuery);
@@ -294,8 +304,8 @@ customer_portal_render_layout_start([
                 <label for="status">Invoice Status</label>
                 <select id="status" name="status">
                     <option value="all" <?= $status === 'all' || $status === '' ? 'selected' : '' ?>>All Statuses</option>
-                    <option value="unpaid" <?= $status === 'unpaid' ? 'selected' : '' ?>>Unpaid</option>
-                    <option value="partial" <?= $status === 'partial' ? 'selected' : '' ?>>Partially Paid</option>
+                    <option value="draft" <?= $status === 'draft' ? 'selected' : '' ?>>Draft</option>
+                    <option value="issued" <?= $status === 'issued' ? 'selected' : '' ?>>Issued (Unpaid)</option>
                     <option value="paid" <?= $status === 'paid' ? 'selected' : '' ?>>Paid</option>
                 </select>
             </div>
@@ -379,6 +389,25 @@ customer_portal_render_layout_start([
                 </tbody>
             </table>
         </div>
+
+        <!-- Pagination -->
+        <?php if ($totalPages > 1): ?>
+            <div style="display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 32px; flex-wrap: wrap;">
+                <?php if ($page > 1): ?>
+                    <a href="?<?= http_build_query(array_merge($_GET, ['page' => 1])) ?>" class="btn">« First</a>
+                    <a href="?<?= http_build_query(array_merge($_GET, ['page' => $page - 1])) ?>" class="btn">‹ Previous</a>
+                <?php endif; ?>
+
+                <span style="padding: 8px 16px; color: var(--muted); font-weight: 600;">
+                    Page <?= $page ?> of <?= $totalPages ?> (<?= $totalInvoices ?> total)
+                </span>
+
+                <?php if ($page < $totalPages): ?>
+                    <a href="?<?= http_build_query(array_merge($_GET, ['page' => $page + 1])) ?>" class="btn">Next ›</a>
+                    <a href="?<?= http_build_query(array_merge($_GET, ['page' => $totalPages])) ?>" class="btn">Last »</a>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
     <?php else: ?>
         <div class="empty-state">
             <h3>📄 No Invoices Found</h3>

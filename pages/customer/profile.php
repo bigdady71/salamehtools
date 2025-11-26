@@ -27,8 +27,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $error = 'All password fields are required.';
         } elseif ($newPassword !== $confirmPassword) {
             $error = 'New passwords do not match.';
-        } elseif (strlen($newPassword) < 6) {
-            $error = 'New password must be at least 6 characters long.';
+        } elseif (strlen($newPassword) < 8) {
+            $error = 'New password must be at least 8 characters long.';
+        } elseif (!preg_match('/[A-Z]/', $newPassword)) {
+            $error = 'Password must contain at least one uppercase letter.';
+        } elseif (!preg_match('/[a-z]/', $newPassword)) {
+            $error = 'Password must contain at least one lowercase letter.';
+        } elseif (!preg_match('/[0-9]/', $newPassword)) {
+            $error = 'Password must contain at least one number.';
         } else {
             // Verify current password
             $stmt = $pdo->prepare("SELECT password_hash FROM customers WHERE id = ?");
@@ -288,9 +294,12 @@ customer_portal_render_layout_start([
                 id="new_password"
                 name="new_password"
                 required
-                minlength="6"
-                placeholder="Enter new password (min 6 characters)"
+                minlength="8"
+                placeholder="Enter new password"
             >
+            <div style="font-size: 0.85rem; color: var(--muted); margin-top: 6px;">
+                Must be at least 8 characters with uppercase, lowercase, and numbers
+            </div>
         </div>
 
         <div class="form-group">

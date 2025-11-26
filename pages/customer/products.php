@@ -58,9 +58,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 $search = trim($_GET['search'] ?? '');
 $category = trim($_GET['category'] ?? '');
 $inStock = isset($_GET['in_stock']) && $_GET['in_stock'] === '1';
+$page = max(1, (int)($_GET['page'] ?? 1));
+$perPage = 40;
+$offset = ($page - 1) * $perPage;
 
 // Build query
-$where = ['p.is_active = 1'];
+$where = ['p.is_active = 1', 'p.sale_price_usd > 0', 'p.quantity_on_hand > 0'];
 $params = [];
 
 if ($search !== '') {
@@ -82,6 +85,13 @@ if ($inStock) {
 
 $whereClause = implode(' AND ', $where);
 
+// Get total count for pagination
+$countQuery = "SELECT COUNT(*) FROM products p WHERE {$whereClause}";
+$countStmt = $pdo->prepare($countQuery);
+$countStmt->execute($params);
+$totalProducts = (int)$countStmt->fetchColumn();
+$totalPages = ceil($totalProducts / $perPage);
+
 // Get products
 $productsQuery = "
     SELECT
@@ -100,7 +110,7 @@ $productsQuery = "
     FROM products p
     WHERE {$whereClause}
     ORDER BY p.item_name ASC
-    LIMIT 100
+    LIMIT {$perPage} OFFSET {$offset}
 ";
 
 $productsStmt = $pdo->prepare($productsQuery);
@@ -456,9 +466,9 @@ customer_portal_render_layout_start([
                             type="number"
                             name="quantity"
                             class="qty-input"
-                            value="<?= number_format($minQty, 2, '.', '') ?>"
-                            min="<?= number_format($minQty, 2, '.', '') ?>"
-                            step="<?= $minQty < 1 ? '0.01' : '1' ?>"
+                            value="<?= max(1, (int)ceil($minQty)) ?>"
+                            min="<?= max(1, (int)ceil($minQty)) ?>"
+                            step="1"
                             required
                         >
                         <button type="submit" class="btn btn-primary" style="flex: 1;">
@@ -477,6 +487,70 @@ customer_portal_render_layout_start([
             </div>
         <?php endforeach; ?>
     </div>
+
+    <!-- Pagination -->
+    <?php if ($totalPages > 1): ?>
+        <div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 32px; flex-wrap: wrap;">
+            <?php if ($page > 1): ?>
+                <a href="?<?= http_build_query(array_merge($_GET, ['page' => $page - 1])) ?>" class="btn" style="padding: 10px 16px;">‹ Previous</a>
+            <?php else: ?>
+                <span class="btn" style="padding: 10px 16px; opacity: 0.4; cursor: not-allowed;">‹ Previous</span>
+            <?php endif; ?>
+
+            <?php
+            // Calculate page range to show
+            $range = 2; // Show 2 pages on each side of current page
+            $start = max(1, $page - $range);
+            $end = min($totalPages, $page + $range);
+
+            // Show first page if not in range
+            if ($start > 1) {
+                $queryParams = array_merge($_GET, ['page' => 1]);
+                ?>
+                <a href="?<?= http_build_query($queryParams) ?>" class="btn" style="padding: 10px 14px;">1</a>
+                <?php if ($start > 2): ?>
+                    <span style="padding: 10px 8px; color: var(--muted);">...</span>
+                <?php endif;
+            }
+
+            // Show page numbers in range
+            for ($i = $start; $i <= $end; $i++) {
+                $queryParams = array_merge($_GET, ['page' => $i]);
+                if ($i == $page) {
+                    ?>
+                    <span class="btn" style="padding: 10px 14px; background: var(--accent); color: white; font-weight: 700;"><?= $i ?></span>
+                    <?php
+                } else {
+                    ?>
+                    <a href="?<?= http_build_query($queryParams) ?>" class="btn" style="padding: 10px 14px;"><?= $i ?></a>
+                    <?php
+                }
+            }
+
+            // Show last page if not in range
+            if ($end < $totalPages) {
+                if ($end < $totalPages - 1) {
+                    ?>
+                    <span style="padding: 10px 8px; color: var(--muted);">...</span>
+                    <?php
+                }
+                $queryParams = array_merge($_GET, ['page' => $totalPages]);
+                ?>
+                <a href="?<?= http_build_query($queryParams) ?>" class="btn" style="padding: 10px 14px;"><?= $totalPages ?></a>
+                <?php
+            }
+            ?>
+
+            <?php if ($page < $totalPages): ?>
+                <a href="?<?= http_build_query(array_merge($_GET, ['page' => $page + 1])) ?>" class="btn" style="padding: 10px 16px;">Next ›</a>
+            <?php else: ?>
+                <span class="btn" style="padding: 10px 16px; opacity: 0.4; cursor: not-allowed;">Next ›</span>
+            <?php endif; ?>
+        </div>
+        <div style="text-align: center; margin-top: 12px; color: var(--muted); font-size: 0.9rem;">
+            Showing page <?= $page ?> of <?= $totalPages ?> (<?= $totalProducts ?> total products)
+        </div>
+    <?php endif; ?>
 <?php else: ?>
     <div class="card">
         <div class="empty-state">
