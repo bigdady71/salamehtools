@@ -24,6 +24,23 @@ $accountInfo = $balanceStmt->fetch(PDO::FETCH_ASSOC);
 $balance = (float)($accountInfo['account_balance_lbp'] ?? 0);
 $tier = $accountInfo['customer_tier'] ?? 'medium';
 
+// Calculate rewards progress (every $1000 USD = 1 gift)
+$rewardThreshold = 1000; // USD
+$totalSpentStmt = $pdo->prepare("
+    SELECT COALESCE(SUM(o.total_usd), 0) as total_spent
+    FROM orders o
+    WHERE o.customer_id = ? AND o.status IN ('approved', 'processing', 'shipped', 'delivered')
+");
+$totalSpentStmt->execute([$customerId]);
+$totalSpent = (float)$totalSpentStmt->fetchColumn();
+
+// Calculate current progress
+$currentCycle = floor($totalSpent / $rewardThreshold);
+$progressInCycle = $totalSpent - ($currentCycle * $rewardThreshold);
+$progressPercentage = min(100, ($progressInCycle / $rewardThreshold) * 100);
+$remainingToNextGift = $rewardThreshold - $progressInCycle;
+$nextGiftAt = ($currentCycle + 1) * $rewardThreshold;
+
 // Fetch recent orders (last 5)
 $ordersStmt = $pdo->prepare("
     SELECT
@@ -241,6 +258,167 @@ table tr:hover {
 .empty-state p {
     margin: 0 0 24px;
 }
+
+/* Rewards Progress Bar Styles */
+.rewards-card {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 32px;
+    color: white;
+    box-shadow: 0 20px 40px rgba(16, 185, 129, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+.rewards-card::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -10%;
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+    border-radius: 50%;
+}
+.rewards-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    position: relative;
+    z-index: 1;
+}
+.rewards-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.rewards-title .emoji {
+    font-size: 2rem;
+    animation: bounce 2s infinite;
+}
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+.rewards-stats {
+    text-align: right;
+    font-size: 0.9rem;
+    opacity: 0.95;
+}
+.rewards-stats strong {
+    display: block;
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+.progress-container {
+    position: relative;
+    margin-bottom: 20px;
+    z-index: 1;
+}
+.progress-bar-bg {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50px;
+    height: 40px;
+    position: relative;
+    overflow: visible;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+.progress-bar-fill {
+    background: linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%);
+    height: 100%;
+    border-radius: 50px;
+    position: relative;
+    transition: width 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 8px;
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+    animation: pulse 2s infinite;
+}
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4); }
+    50% { box-shadow: 0 4px 20px rgba(245, 158, 11, 0.6); }
+}
+.progress-percentage {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.gift-icon {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 2.5rem;
+    transition: all 0.3s;
+    animation: wiggle 1.5s infinite;
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
+}
+@keyframes wiggle {
+    0%, 100% { transform: translateY(-50%) rotate(-5deg); }
+    50% { transform: translateY(-50%) rotate(5deg); }
+}
+.gift-icon.reached {
+    animation: celebrate 0.6s;
+}
+@keyframes celebrate {
+    0%, 100% { transform: translateY(-50%) scale(1); }
+    50% { transform: translateY(-50%) scale(1.3) rotate(20deg); }
+}
+.milestone-marker {
+    position: absolute;
+    top: -8px;
+    width: 2px;
+    height: 56px;
+    background: rgba(255, 255, 255, 0.3);
+}
+.milestone-label {
+    position: absolute;
+    top: -32px;
+    font-size: 0.7rem;
+    white-space: nowrap;
+    transform: translateX(-50%);
+    opacity: 0.8;
+}
+.rewards-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.95rem;
+    position: relative;
+    z-index: 1;
+}
+.rewards-info-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.rewards-info-left strong {
+    font-size: 1.3rem;
+    color: #fbbf24;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+.rewards-cta {
+    background: rgba(255, 255, 255, 0.95);
+    color: #059669;
+    padding: 12px 24px;
+    border-radius: 12px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: all 0.3s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.rewards-cta:hover {
+    background: white;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+}
 </style>
 
 <!-- Statistics Cards -->
@@ -260,6 +438,53 @@ table tr:hover {
     <div class="stat-card neutral">
         <h3>Account Tier</h3>
         <p class="value"><?= ucfirst(htmlspecialchars($tier, ENT_QUOTES, 'UTF-8')) ?></p>
+    </div>
+</div>
+
+<!-- Rewards Progress Card -->
+<div class="rewards-card">
+    <div class="rewards-header">
+        <h2 class="rewards-title">
+            <span class="emoji">🎁</span>
+            Rewards Progress
+        </h2>
+        <div class="rewards-stats">
+            <strong><?= $currentCycle ?></strong>
+            <?= $currentCycle === 1 ? 'Gift Earned' : 'Gifts Earned' ?>
+        </div>
+    </div>
+
+    <div class="progress-container">
+        <div class="progress-bar-bg">
+            <div class="progress-bar-fill" style="width: <?= $progressPercentage ?>%;">
+                <?php if ($progressPercentage > 15): ?>
+                    <span class="progress-percentage"><?= number_format($progressPercentage, 0) ?>%</span>
+                <?php endif; ?>
+            </div>
+
+            <!-- Gift icon at the end -->
+            <div class="gift-icon <?= $progressPercentage >= 100 ? 'reached' : '' ?>" style="left: calc(100% - 20px);">
+                🎁
+            </div>
+        </div>
+    </div>
+
+    <div class="rewards-info">
+        <div class="rewards-info-left">
+            <div>
+                You've spent <strong>$<?= number_format($totalSpent, 2) ?></strong> so far
+            </div>
+            <div style="opacity: 0.9;">
+                <?php if ($remainingToNextGift > 0): ?>
+                    Just <strong style="color: #fbbf24;">$<?= number_format($remainingToNextGift, 2) ?></strong> more to unlock your next gift!
+                <?php else: ?>
+                    🎉 You've reached a new milestone! Keep shopping to earn more!
+                <?php endif; ?>
+            </div>
+        </div>
+        <a href="products.php" class="rewards-cta">
+            🛍️ Shop Now
+        </a>
     </div>
 </div>
 
