@@ -80,10 +80,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Check if status transition is allowed
                 $allowedTransitions = [
-                    'on_hold' => ['cancelled'],
-                    'approved' => ['in_transit', 'cancelled'],
-                    'preparing' => ['in_transit', 'cancelled'],
-                    'ready' => ['in_transit', 'cancelled'],
+                    'pending' => ['on_hold', 'approved', 'preparing', 'in_transit', 'delivered', 'cancelled'],
+                    'on_hold' => ['approved', 'preparing', 'in_transit', 'delivered', 'cancelled'],
+                    'approved' => ['preparing', 'ready', 'in_transit', 'delivered', 'cancelled'],
+                    'preparing' => ['ready', 'in_transit', 'delivered', 'cancelled'],
+                    'ready' => ['in_transit', 'delivered', 'cancelled'],
                     'in_transit' => ['delivered', 'returned', 'cancelled'],
                     'delivered' => [],
                     'cancelled' => [],
@@ -110,7 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     flash('success', sprintf(
                         'Order %s status updated to: %s',
-                        $order['order_number'],
+                        $order['order_number'] ?? 'Order #' . $order['id'],
                         $statusLabels[$newStatus]
                     ));
                 } else {
@@ -181,6 +182,7 @@ if ($action === 'export') {
     // Export query
     $exportStmt = $pdo->prepare("
         SELECT
+            o.id,
             o.order_number,
             o.order_type,
             c.name as customer_name,
@@ -229,7 +231,7 @@ if ($action === 'export') {
     // Data rows
     foreach ($exportData as $row) {
         fputcsv($output, [
-            $row['order_number'],
+            $row['order_number'] ?? 'Order #' . $row['id'],
             ucfirst(str_replace('_', ' ', $row['order_type'])),
             $row['customer_name'],
             $row['customer_phone'] ?? '',
@@ -487,7 +489,7 @@ sales_portal_render_layout_start([
         <tbody>
             <?php foreach ($orders as $order): ?>
             <tr>
-                <td><strong><?= htmlspecialchars($order['order_number'], ENT_QUOTES, 'UTF-8') ?></strong></td>
+                <td><strong><?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?></strong></td>
                 <td><?= $order['order_type'] === 'van_stock_sale' ? '🚚 Van Sale' : '🏢 Company' ?></td>
                 <td>
                     <div style="font-weight: 500;"><?= htmlspecialchars($order['customer_name'], ENT_QUOTES, 'UTF-8') ?></div>
@@ -510,7 +512,7 @@ sales_portal_render_layout_start([
                     $canUpdateStatus = !in_array($order['status'], ['delivered', 'cancelled', 'returned'], true);
                     ?>
                     <?php if ($canUpdateStatus): ?>
-                        <button onclick="openStatusModal(<?= $order['id'] ?>, '<?= htmlspecialchars($order['order_number'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['status'], ENT_QUOTES, 'UTF-8') ?>')" class="btn btn-sm">Update Status</button>
+                        <button onclick="openStatusModal(<?= $order['id'] ?>, '<?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['status'], ENT_QUOTES, 'UTF-8') ?>')" class="btn btn-sm">Update Status</button>
                     <?php else: ?>
                         <span style="color: #9ca3af; font-size: 0.85rem;">Completed</span>
                     <?php endif; ?>
@@ -574,6 +576,10 @@ sales_portal_render_layout_start([
                 <label style="display: block; font-weight: 500; margin-bottom: 8px;">New Status</label>
                 <select name="status" id="modal_new_status" class="form-control" required style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px;">
                     <option value="">Select status...</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="approved">Approved</option>
+                    <option value="preparing">Preparing</option>
+                    <option value="ready">Ready for Pickup</option>
                     <option value="in_transit">In Transit</option>
                     <option value="delivered">Delivered</option>
                     <option value="cancelled">Cancelled</option>

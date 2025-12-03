@@ -49,7 +49,7 @@ $itemsStmt = $pdo->prepare("
         oi.id,
         oi.quantity,
         oi.unit_price_usd,
-        oi.subtotal_usd,
+        oi.discount_percent,
         p.id as product_id,
         p.sku,
         p.item_name,
@@ -62,6 +62,15 @@ $itemsStmt = $pdo->prepare("
 $itemsStmt->execute([$orderId]);
 $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Calculate subtotal for each item
+foreach ($items as &$item) {
+    $item['subtotal_usd'] = (float)$item['quantity'] * (float)$item['unit_price_usd'];
+    if ((float)$item['discount_percent'] > 0) {
+        $item['subtotal_usd'] *= (1 - (float)$item['discount_percent'] / 100);
+    }
+}
+unset($item);
+
 // Fetch invoice if exists
 $invoiceStmt = $pdo->prepare("
     SELECT
@@ -70,8 +79,7 @@ $invoiceStmt = $pdo->prepare("
         i.issued_at,
         i.due_date,
         i.status,
-        i.total_usd as total_amount_usd,
-        i.paid_amount_usd
+        i.total_usd as total_amount_usd
     FROM invoices i
     WHERE i.order_id = ?
     LIMIT 1
@@ -255,7 +263,7 @@ $orderTypeDisplay = match($orderType) {
                 <div>
                     <h2 style="margin: 0 0 8px;">Order #<?= $orderId ?></h2>
                     <p style="margin: 0; color: var(--muted); font-size: 0.9rem;">
-                        Placed on <?= date('F d, Y \a\t g:i A', strtotime($order['order_date'])) ?>
+                        Placed on <?= date('F d, Y \a\t g:i A', strtotime($order['created_at'])) ?>
                     </p>
                 </div>
                 <span class="badge <?= $statusClass ?>">
@@ -376,11 +384,11 @@ $orderTypeDisplay = match($orderType) {
                 </div>
                 <div class="info-row">
                     <span class="label">Subtotal</span>
-                    <span class="value">$<?= number_format((float)$order['total_amount_usd'], 2) ?></span>
+                    <span class="value">$<?= number_format((float)$order['total_usd'], 2) ?></span>
                 </div>
                 <div class="info-row total-row">
                     <span>Total</span>
-                    <span>$<?= number_format((float)$order['total_amount_usd'], 2) ?></span>
+                    <span>$<?= number_format((float)$order['total_usd'], 2) ?></span>
                 </div>
             </div>
         </div>
@@ -409,10 +417,6 @@ $orderTypeDisplay = match($orderType) {
                     <div class="info-row">
                         <span class="label">Amount</span>
                         <span class="value">$<?= number_format((float)$invoice['total_amount_usd'], 2) ?></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="label">Paid</span>
-                        <span class="value">$<?= number_format((float)$invoice['paid_amount_usd'], 2) ?></span>
                     </div>
                     <?php if ($invoice['due_date']): ?>
                         <div class="info-row">

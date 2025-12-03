@@ -1,0 +1,22 @@
+# Salameh Tools - B2B Wholesale Portal
+# www.salamehtools.com
+
+User-agent: *
+Allow: /
+Allow: /pages/customer/products.php
+Allow: /pages/login.php
+Allow: /images/
+
+# Disallow private/admin areas
+Disallow: /pages/admin/
+Disallow: /pages/sales/
+Disallow: /pages/accounting/
+Disallow: /includes/
+Disallow: /config/
+Disallow: /vendor/
+
+# Sitemap
+Sitemap: https://salamehtools.com/sitemap.xml
+
+# Crawl-delay for polite crawlers
+Crawl-delay: 1

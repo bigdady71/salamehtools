@@ -19,6 +19,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $productId = (int)($_POST['product_id'] ?? 0);
     $quantity = (float)($_POST['quantity'] ?? 1);
 
+    error_log("Add to cart request - Customer: {$customerId}, Product: {$productId}, Quantity: {$quantity}");
+
     if ($productId > 0 && $quantity > 0) {
         // Check if product exists and is active
         $productStmt = $pdo->prepare("SELECT id, item_name, min_quantity FROM products WHERE id = ? AND is_active = 1");
@@ -27,8 +29,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         if ($product) {
             $minQuantity = (float)$product['min_quantity'];
+            error_log("Product found: " . $product['item_name'] . ", Min qty: {$minQuantity}");
+
             if ($quantity < $minQuantity) {
                 $error = 'Minimum quantity for this product is ' . number_format($minQuantity, 2);
+                error_log("Quantity too low: {$quantity} < {$minQuantity}");
             } else {
                 // Check if already in cart
                 $cartCheckStmt = $pdo->prepare("SELECT id, quantity FROM customer_cart WHERE customer_id = ? AND product_id = ?");
@@ -41,16 +46,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $updateStmt = $pdo->prepare("UPDATE customer_cart SET quantity = ?, updated_at = NOW() WHERE id = ?");
                     $updateStmt->execute([$newQuantity, $existingCart['id']]);
                     $success = 'Updated quantity in cart!';
+                    error_log("Cart updated - New quantity: {$newQuantity}");
                 } else {
                     // Insert new cart item
                     $insertStmt = $pdo->prepare("INSERT INTO customer_cart (customer_id, product_id, quantity) VALUES (?, ?, ?)");
-                    $insertStmt->execute([$customerId, $productId, $quantity]);
+                    $result = $insertStmt->execute([$customerId, $productId, $quantity]);
                     $success = 'Added to cart successfully!';
+                    error_log("Cart insert result: " . ($result ? 'SUCCESS' : 'FAILED') . " - ID: " . $pdo->lastInsertId());
                 }
             }
         } else {
             $error = 'Product not found or unavailable.';
+            error_log("Product not found or inactive: {$productId}");
         }
+    } else {
+        error_log("Invalid product ID or quantity");
     }
 }
 
@@ -145,6 +155,76 @@ customer_portal_render_layout_start([
 ]);
 
 ?>
+
+<!-- Breadcrumb Structured Data -->
+<script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+        {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://salamehtools.com"
+        },
+        {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "B2B Portal",
+            "item": "https://salamehtools.com/pages/customer/dashboard.php"
+        },
+        {
+            "@type": "ListItem",
+            "position": 3,
+            "name": "Product Catalog",
+            "item": "https://salamehtools.com/pages/customer/products.php"
+        }
+    ]
+}
+</script>
+
+<!-- Product Catalog Structured Data -->
+<script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    "name": "Salameh Tools - Wholesale Hardware Product Catalog",
+    "description": "Browse our complete B2B wholesale catalog of hardware, tools, and industrial supplies. Exclusive trade prices for businesses.",
+    "numberOfItems": <?= $totalProducts ?>,
+    "itemListElement": [
+        <?php
+        $itemPosition = 1;
+        foreach ($products as $idx => $prod) {
+            $productName = addslashes($prod['item_name']);
+            $productSku = addslashes($prod['sku'] ?? 'N/A');
+            $productPrice = number_format((float)$prod['sale_price_usd'], 2, '.', '');
+            $productUrl = 'https://salamehtools.com/pages/customer/products.php?search=' . urlencode($prod['sku']);
+
+            echo '{';
+            echo '"@type": "ListItem",';
+            echo '"position": ' . $itemPosition . ',';
+            echo '"item": {';
+            echo '"@type": "Product",';
+            echo '"name": "' . $productName . '",';
+            echo '"sku": "' . $productSku . '",';
+            echo '"offers": {';
+            echo '"@type": "Offer",';
+            echo '"url": "' . $productUrl . '",';
+            echo '"priceCurrency": "USD",';
+            echo '"price": "' . $productPrice . '"';
+            echo '}';
+            echo '}';
+            echo '}';
+
+            if ($idx < count($products) - 1) echo ',';
+
+            $itemPosition++;
+        }
+        ?>
+    ]
+}
+</script>
 
 <style>
 .filters-card {
@@ -459,7 +539,7 @@ customer_portal_render_layout_start([
                     <?= $stockText ?>
                 </div>
                 <?php if ($canOrder): ?>
-                    <form method="post" action="products.php<?= $search || $category || $inStock ? '?' . http_build_query($_GET) : '' ?>" class="add-to-cart-form">
+                    <form method="post" action="products.php<?= $search || $category || $inStock ? '?' . http_build_query($_GET) : '' ?>" class="add-to-cart-form" data-product-id="<?= $productId ?>">
                         <input type="hidden" name="action" value="add_to_cart">
                         <input type="hidden" name="product_id" value="<?= $productId ?>">
                         <input
@@ -471,8 +551,9 @@ customer_portal_render_layout_start([
                             step="1"
                             required
                         >
-                        <button type="submit" class="btn btn-primary" style="flex: 1;">
-                            Add to Cart
+                        <button type="submit" class="btn btn-primary add-to-cart-btn" style="flex: 1;">
+                            <span class="btn-text">Add to Cart</span>
+                            <span class="btn-loading" style="display: none;">Adding...</span>
                         </button>
                     </form>
                     <div style="margin-top: 8px; font-size: 0.8rem; color: var(--muted);">
@@ -484,6 +565,33 @@ customer_portal_render_layout_start([
                     </button>
                 <?php endif; ?>
                 </div>
+
+                <!-- Structured Data for Product -->
+                <script type="application/ld+json">
+                {
+                    "@context": "https://schema.org/",
+                    "@type": "Product",
+                    "name": "<?= addslashes($itemName) ?>",
+                    "sku": "<?= addslashes($sku) ?>",
+                    "description": "<?= addslashes(strip_tags($description)) ?>",
+                    "category": "<?= addslashes($category) ?>",
+                    "offers": {
+                        "@type": "Offer",
+                        "url": "https://salamehtools.com/pages/customer/products.php?search=<?= urlencode($product['sku']) ?>",
+                        "priceCurrency": "USD",
+                        "price": "<?= number_format($price, 2, '.', '') ?>",
+                        "availability": "<?= $canOrder ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock' ?>",
+                        "seller": {
+                            "@type": "Organization",
+                            "name": "Salameh Tools"
+                        }
+                    },
+                    "brand": {
+                        "@type": "Brand",
+                        "name": "Salameh Tools"
+                    }
+                }
+                </script>
             </div>
         <?php endforeach; ?>
     </div>
@@ -560,6 +668,91 @@ customer_portal_render_layout_start([
         </div>
     </div>
 <?php endif; ?>
+
+<style>
+.flying-item {
+    position: fixed;
+    z-index: 9999;
+    pointer-events: none;
+    font-size: 2rem;
+    animation: flyToCart 0.8s ease-in-out forwards;
+}
+
+@keyframes flyToCart {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(1.3);
+        opacity: 0.8;
+    }
+    100% {
+        transform: scale(0.3);
+        opacity: 0;
+    }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Restore scroll position after page reload
+    const savedScrollPosition = sessionStorage.getItem('scrollPosition');
+    if (savedScrollPosition) {
+        window.scrollTo(0, parseInt(savedScrollPosition));
+        sessionStorage.removeItem('scrollPosition');
+    }
+
+    // Handle add to cart forms
+    const forms = document.querySelectorAll('.add-to-cart-form');
+
+    forms.forEach(form => {
+        form.addEventListener('submit', function(e) {
+            const button = form.querySelector('.add-to-cart-btn');
+            const btnText = button.querySelector('.btn-text');
+            const btnLoading = button.querySelector('.btn-loading');
+            const productCard = form.closest('.product-card');
+
+            // Save scroll position BEFORE form submission
+            sessionStorage.setItem('scrollPosition', window.scrollY);
+
+            // Get cart icon position (in navbar)
+            const cartLink = document.querySelector('a[href*="cart.php"]');
+            let cartRect = { top: 20, left: window.innerWidth - 100 };
+            if (cartLink) {
+                cartRect = cartLink.getBoundingClientRect();
+            }
+
+            // Get product card position
+            const cardRect = productCard.getBoundingClientRect();
+
+            // Create flying item animation
+            const flyingItem = document.createElement('div');
+            flyingItem.className = 'flying-item';
+            flyingItem.textContent = '🛒';
+            flyingItem.style.left = (cardRect.left + cardRect.width / 2) + 'px';
+            flyingItem.style.top = (cardRect.top + cardRect.height / 2) + 'px';
+            document.body.appendChild(flyingItem);
+
+            // Animate to cart
+            setTimeout(() => {
+                flyingItem.style.transition = 'all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                flyingItem.style.left = (cartRect.left + cartRect.width / 2) + 'px';
+                flyingItem.style.top = (cartRect.top + cartRect.height / 2) + 'px';
+                flyingItem.style.transform = 'scale(0.2)';
+                flyingItem.style.opacity = '0';
+            }, 50);
+
+            // Show loading state
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline';
+            button.disabled = true;
+
+            // Let form submit normally (animation will play during page load)
+        });
+    });
+});
+</script>
 
 <?php
 

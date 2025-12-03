@@ -29,7 +29,7 @@ $rewardThreshold = 1000; // USD
 $totalSpentStmt = $pdo->prepare("
     SELECT COALESCE(SUM(o.total_usd), 0) as total_spent
     FROM orders o
-    WHERE o.customer_id = ? AND o.status IN ('approved', 'processing', 'shipped', 'delivered')
+    WHERE o.customer_id = ? AND o.status NOT IN ('cancelled')
 ");
 $totalSpentStmt->execute([$customerId]);
 $totalSpent = (float)$totalSpentStmt->fetchColumn();
@@ -261,14 +261,15 @@ table tr:hover {
 
 /* Rewards Progress Bar Styles */
 .rewards-card {
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    background: linear-gradient(135deg, #DC2626 0%, #991B1B 100%);
     border-radius: 16px;
     padding: 32px;
     margin-bottom: 32px;
     color: white;
-    box-shadow: 0 20px 40px rgba(16, 185, 129, 0.3);
+    box-shadow: 0 20px 40px rgba(220, 38, 38, 0.4);
     position: relative;
     overflow: hidden;
+    border: 2px solid #B91C1C;
 }
 .rewards-card::before {
     content: '';
@@ -406,18 +407,20 @@ table tr:hover {
 }
 .rewards-cta {
     background: rgba(255, 255, 255, 0.95);
-    color: #059669;
+    color: #991B1B;
     padding: 12px 24px;
     border-radius: 12px;
     font-weight: 700;
     text-decoration: none;
     transition: all 0.3s;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    border: 2px solid transparent;
 }
 .rewards-cta:hover {
     background: white;
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+    border-color: #DC2626;
 }
 </style>
 

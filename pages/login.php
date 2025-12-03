@@ -23,6 +23,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'name' => $u['name'],
         'role' => $u['role']
       ];
+
+      // Update last login timestamp for customers
+      if (empty($u['role']) || $u['role'] === 'viewer') {
+        // Check if customers table has login tracking columns
+        $checkCustomerStmt = $pdo->prepare("SELECT id FROM customers WHERE user_id = ? LIMIT 1");
+        $checkCustomerStmt->execute([$u['id']]);
+        $customer = $checkCustomerStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($customer) {
+          // Update last login time (only if column exists)
+          try {
+            $updateLoginStmt = $pdo->prepare("UPDATE customers SET last_login_at = NOW() WHERE user_id = ?");
+            $updateLoginStmt->execute([$u['id']]);
+          } catch (PDOException $e) {
+            // Column doesn't exist yet, ignore silently
+            error_log("Last login update failed (column may not exist): " . $e->getMessage());
+          }
+        }
+      }
+
       // redirect by role
       switch ($u['role']) {
         case 'admin':

@@ -56,7 +56,7 @@ $itemsStmt = $pdo->prepare("
         oi.id,
         oi.quantity,
         oi.unit_price_usd,
-        oi.subtotal_usd,
+        oi.discount_percent,
         p.id as product_id,
         p.sku,
         p.item_name,
@@ -68,6 +68,15 @@ $itemsStmt = $pdo->prepare("
 ");
 $itemsStmt->execute([(int)$invoice['order_id']]);
 $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Calculate subtotal for each item
+foreach ($items as &$item) {
+    $item['subtotal_usd'] = (float)$item['quantity'] * (float)$item['unit_price_usd'];
+    if ((float)$item['discount_percent'] > 0) {
+        $item['subtotal_usd'] *= (1 - (float)$item['discount_percent'] / 100);
+    }
+}
+unset($item);
 
 // Fetch payment history
 $paymentsStmt = $pdo->prepare("

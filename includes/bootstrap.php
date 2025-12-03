@@ -24,7 +24,29 @@ require_once $autoloader;
 // Set timezone
 date_default_timezone_set('Asia/Beirut');
 
-// Start session if not already started
+// Configure session for long-term login (30 days)
 if (session_status() === PHP_SESSION_NONE) {
+    // Set session cookie to last 30 days (2592000 seconds)
+    ini_set('session.cookie_lifetime', '2592000');
+    ini_set('session.gc_maxlifetime', '2592000');
+
+    // Make session cookie accessible across entire site
+    session_set_cookie_params([
+        'lifetime' => 2592000,  // 30 days
+        'path' => '/',
+        'domain' => '',
+        'secure' => false,  // Set to true if using HTTPS
+        'httponly' => true,  // Prevent JavaScript access
+        'samesite' => 'Lax'  // CSRF protection
+    ]);
+
     session_start();
+
+    // Regenerate session ID periodically for security (once per day)
+    if (!isset($_SESSION['last_regeneration'])) {
+        $_SESSION['last_regeneration'] = time();
+    } elseif (time() - $_SESSION['last_regeneration'] > 86400) {
+        session_regenerate_id(true);
+        $_SESSION['last_regeneration'] = time();
+    }
 }

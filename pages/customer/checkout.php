@@ -104,23 +104,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     quantity,
                     unit_price_usd,
                     unit_price_lbp,
-                    subtotal_usd,
-                    subtotal_lbp
-                ) VALUES (?, ?, ?, ?, 0, ?, 0)
+                    discount_percent
+                ) VALUES (?, ?, ?, ?, 0, 0)
             ");
 
             foreach ($cartItems as $item) {
                 $productId = (int)$item['product_id'];
                 $quantity = (float)$item['quantity'];
                 $unitPrice = (float)$item['sale_price_usd'];
-                $itemSubtotal = $quantity * $unitPrice;
 
                 $insertItemStmt->execute([
                     $orderId,
                     $productId,
                     $quantity,
-                    $unitPrice,
-                    $itemSubtotal
+                    $unitPrice
                 ]);
             }
 

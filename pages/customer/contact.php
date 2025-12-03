@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+// Prevent caching to ensure fresh data
+header('Cache-Control: no-cache, no-store, must-revalidate');
+header('Pragma: no-cache');
+header('Expires: 0');
+
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/customer_portal.php';
 
@@ -11,6 +16,10 @@ $customerId = (int)$customer['id'];
 // Get database connection
 $pdo = db();
 $salesRepId = (int)($customer['assigned_sales_rep_id'] ?? 0);
+
+// Debug: Verify sales rep data is loaded (remove after testing)
+// error_log("Sales Rep Phone: " . ($customer['sales_rep_phone'] ?? 'NULL'));
+// error_log("Sales Rep Name: " . ($customer['sales_rep_name'] ?? 'NULL'));
 
 $success = null;
 $error = null;
@@ -299,20 +308,6 @@ customer_portal_render_layout_start([
                         </div>
                     </div>
 
-                    <?php if ($customer['sales_rep_email']): ?>
-                        <div class="contact-info">
-                            <div class="icon">📧</div>
-                            <div class="details">
-                                <p class="label">Email</p>
-                                <p class="value">
-                                    <a href="mailto:<?= htmlspecialchars($customer['sales_rep_email'], ENT_QUOTES, 'UTF-8') ?>" style="color: var(--accent);">
-                                        <?= htmlspecialchars($customer['sales_rep_email'], ENT_QUOTES, 'UTF-8') ?>
-                                    </a>
-                                </p>
-                            </div>
-                        </div>
-                    <?php endif; ?>
-
                     <?php if ($customer['sales_rep_phone']): ?>
                         <div class="contact-info">
                             <div class="icon">📞</div>
@@ -322,6 +317,16 @@ customer_portal_render_layout_start([
                                     <a href="tel:<?= htmlspecialchars($customer['sales_rep_phone'], ENT_QUOTES, 'UTF-8') ?>" style="color: var(--accent);">
                                         <?= htmlspecialchars($customer['sales_rep_phone'], ENT_QUOTES, 'UTF-8') ?>
                                     </a>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="contact-info" style="background: #dcfce7; border-color: #86efac;">
+                            <div class="icon" style="background: #22c55e; color: white;">💬</div>
+                            <div class="details">
+                                <p class="label">WhatsApp</p>
+                                <p class="value" style="color: #15803d;">
+                                    Chat with your sales rep
                                 </p>
                             </div>
                         </div>
@@ -339,14 +344,31 @@ customer_portal_render_layout_start([
             <h2>Quick Actions</h2>
             <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 12px;">
                 <?php if ($customer['sales_rep_phone']): ?>
+                    <?php
+                    // Format phone number for WhatsApp (remove spaces, dashes, parentheses)
+                    $whatsappPhone = preg_replace('/[^0-9+]/', '', $customer['sales_rep_phone']);
+                    // If doesn't start with +, assume Lebanon (+961)
+                    if (!str_starts_with($whatsappPhone, '+')) {
+                        $whatsappPhone = '+961' . ltrim($whatsappPhone, '0');
+                    }
+                    $whatsappMessage = urlencode("Hello, I'm " . $customer['name'] . " and I need assistance.");
+                    $whatsappLink = "https://wa.me/{$whatsappPhone}?text={$whatsappMessage}";
+                    ?>
+                    <a href="<?= $whatsappLink ?>" target="_blank" class="btn" style="width: 100%; text-align: center; background: #25D366; color: white; border-color: #25D366;">
+                        💬 Chat on WhatsApp
+                    </a>
                     <a href="tel:<?= htmlspecialchars($customer['sales_rep_phone'], ENT_QUOTES, 'UTF-8') ?>" class="btn btn-primary" style="width: 100%; text-align: center;">
                         📞 Call Now
                     </a>
-                <?php endif; ?>
-                <?php if ($customer['sales_rep_email']): ?>
+                <?php elseif ($customer['sales_rep_email']): ?>
+                    <!-- Email as fallback when phone not available -->
                     <a href="mailto:<?= htmlspecialchars($customer['sales_rep_email'], ENT_QUOTES, 'UTF-8') ?>" class="btn" style="width: 100%; text-align: center;">
                         📧 Send Email
                     </a>
+                <?php else: ?>
+                    <p style="color: var(--muted); text-align: center; padding: 20px 0;">
+                        No direct contact method available. Please use the message form above.
+                    </p>
                 <?php endif; ?>
             </div>
         </div>
