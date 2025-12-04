@@ -1,0 +1,217 @@
+/**
+ * Print Stylesheet for Warehouse Pick Lists
+ * Optimized for printing clean, readable pick lists
+ */
+
+@media print {
+    /* Hide everything by default */
+    body * {
+        visibility: hidden;
+    }
+
+    /* Show only printable content */
+    .printable,
+    .printable * {
+        visibility: visible;
+    }
+
+    /* Position printable content at top of page */
+    .printable {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+    }
+
+    /* Hide navigation, buttons, filters */
+    nav,
+    .nav,
+    .navbar,
+    .filters,
+    .btn,
+    button,
+    .no-print,
+    .search-filters,
+    form {
+        display: none !important;
+    }
+
+    /* Page setup */
+    @page {
+        size: A4;
+        margin: 1.5cm;
+    }
+
+    body {
+        font-family: Arial, sans-serif;
+        font-size: 12pt;
+        line-height: 1.4;
+        color: #000;
+        background: #fff;
+    }
+
+    /* Pick list header */
+    .pick-list-header {
+        border-bottom: 3px solid #000;
+        padding-bottom: 15px;
+        margin-bottom: 20px;
+    }
+
+    .pick-list-header h1 {
+        font-size: 24pt;
+        font-weight: bold;
+        margin: 0 0 10px 0;
+    }
+
+    .pick-list-header .order-info {
+        font-size: 11pt;
+        line-height: 1.6;
+    }
+
+    /* Pick list items table */
+    .pick-list-items {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 30px;
+    }
+
+    .pick-list-items thead {
+        background: #f0f0f0;
+        border-bottom: 2px solid #000;
+    }
+
+    .pick-list-items th {
+        text-align: left;
+        padding: 10px 8px;
+        font-weight: bold;
+        font-size: 11pt;
+    }
+
+    .pick-list-items td {
+        padding: 12px 8px;
+        border-bottom: 1px solid #ddd;
+        font-size: 11pt;
+    }
+
+    .pick-list-items tbody tr {
+        page-break-inside: avoid;
+    }
+
+    /* SKU column - make it prominent */
+    .pick-list-items .sku {
+        font-weight: bold;
+        font-size: 13pt;
+        font-family: 'Courier New', monospace;
+    }
+
+    /* Quantity column - large and bold */
+    .pick-list-items .quantity {
+        font-size: 16pt;
+        font-weight: bold;
+        text-align: center;
+    }
+
+    /* Checkbox column */
+    .pick-list-items .checkbox {
+        width: 40px;
+        text-align: center;
+    }
+
+    .pick-list-items .checkbox::before {
+        content: '☐';
+        font-size: 20pt;
+    }
+
+    /* Location highlight */
+    .pick-list-items .location {
+        background: #ffeb3b;
+        font-weight: bold;
+        padding: 4px 8px;
+        border-radius: 3px;
+    }
+
+    /* Stock warning */
+    .stock-warning {
+        color: #d32f2f;
+        font-weight: bold;
+    }
+
+    /* Pick list footer */
+    .pick-list-footer {
+        border-top: 2px solid #000;
+        padding-top: 20px;
+        margin-top: 30px;
+        page-break-inside: avoid;
+    }
+
+    .pick-list-footer .signature-line {
+        margin-top: 40px;
+        border-top: 1px solid #000;
+        width: 300px;
+        padding-top: 5px;
+    }
+
+    /* Page break for multiple orders */
+    .page-break {
+        page-break-after: always;
+    }
+
+    /* Summary section */
+    .pick-summary {
+        background: #f5f5f5;
+        padding: 15px;
+        margin-bottom: 20px;
+        border: 2px solid #000;
+        border-radius: 5px;
+    }
+
+    .pick-summary .total-items {
+        font-size: 14pt;
+        font-weight: bold;
+    }
+
+    /* Barcode area */
+    .barcode-area {
+        text-align: center;
+        margin: 20px 0;
+        padding: 10px;
+        border: 1px dashed #000;
+    }
+
+    /* Notes section */
+    .pick-notes {
+        margin-top: 20px;
+        padding: 15px;
+        border: 1px solid #ccc;
+        min-height: 80px;
+    }
+
+    .pick-notes::before {
+        content: 'NOTES:';
+        font-weight: bold;
+        display: block;
+        margin-bottom: 10px;
+    }
+}
+
+/* Print button styling (visible on screen only) */
+@media screen {
+    .print-button {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        padding: 12px 24px;
+        background: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        cursor: pointer;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    .print-button:hover {
+        background: #1d4ed8;
+    }
+}

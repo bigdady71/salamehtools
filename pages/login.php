@@ -54,6 +54,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'sales_rep':
           $dest = 'sales/dashboard.php';
           break;
+        case 'warehouse':
+          $dest = 'warehouse/dashboard.php';
+          break;
         case 'viewer':
           $dest = 'customer/dashboard.php';
           break;
