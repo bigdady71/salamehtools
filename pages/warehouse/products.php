@@ -25,11 +25,11 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     }
 
     if ($stockStatus === 'low') {
-        $where[] = "s.qty_on_hand <= p.reorder_point";
+        $where[] = "p.quantity_on_hand <= p.reorder_point AND p.quantity_on_hand > 0";
     } elseif ($stockStatus === 'out') {
-        $where[] = "s.qty_on_hand <= 0";
+        $where[] = "p.quantity_on_hand <= 0";
     } elseif ($stockStatus === 'in_stock') {
-        $where[] = "s.qty_on_hand > p.reorder_point";
+        $where[] = "p.quantity_on_hand > p.reorder_point";
     }
 
     if ($category !== '') {
@@ -47,10 +47,9 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
             p.topcat_name as 'Category',
             p.midcat_name as 'Subcategory',
             p.unit as 'Unit',
-            COALESCE(s.qty_on_hand, 0) as 'Qty in Stock',
+            COALESCE(p.quantity_on_hand, 0) as 'Qty in Stock',
             p.reorder_point as 'Reorder Point'
         FROM products p
-        LEFT JOIN s_stock s ON s.product_id = p.id AND s.salesperson_id = 0
         WHERE {$whereClause}
         ORDER BY p.item_name ASC
     ");
@@ -76,11 +75,11 @@ if ($search !== '') {
 }
 
 if ($stockStatus === 'low') {
-    $where[] = "s.qty_on_hand <= p.reorder_point";
+    $where[] = "p.quantity_on_hand <= p.reorder_point AND p.quantity_on_hand > 0";
 } elseif ($stockStatus === 'out') {
-    $where[] = "s.qty_on_hand <= 0";
+    $where[] = "p.quantity_on_hand <= 0";
 } elseif ($stockStatus === 'in_stock') {
-    $where[] = "s.qty_on_hand > p.reorder_point";
+    $where[] = "p.quantity_on_hand > p.reorder_point";
 }
 
 if ($category !== '') {
@@ -90,7 +89,7 @@ if ($category !== '') {
 
 $whereClause = implode(' AND ', $where);
 
-// Get products with stock information (warehouse stock only - salesperson_id = 0)
+// Get products with stock information (warehouse stock only - uses products.quantity_on_hand)
 $stmt = $pdo->prepare("
     SELECT
         p.id,
@@ -103,10 +102,9 @@ $stmt = $pdo->prepare("
         p.image_url,
         p.reorder_point,
         p.min_quantity,
-        s.qty_on_hand,
-        s.updated_at as last_stock_update
+        p.quantity_on_hand as qty_on_hand,
+        p.updated_at as last_stock_update
     FROM products p
-    LEFT JOIN s_stock s ON s.product_id = p.id AND s.salesperson_id = 0
     WHERE {$whereClause}
     ORDER BY p.item_name ASC
 ");

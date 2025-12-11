@@ -42,7 +42,7 @@ $statusBadgeStyles = [
     'returned' => 'background: rgba(239, 68, 68, 0.15); color: #991b1b;',
 ];
 
-// Handle POST requests (status update)
+// Handle POST requests (status update or OTP verification)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf((string)($_POST['_csrf'] ?? ''))) {
         flash('error', 'Invalid CSRF token. Please try again.');
@@ -51,6 +51,93 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $action = $_POST['action'] ?? '';
+
+    // Handle OTP verification from sales rep side
+    if ($action === 'verify_otp_salesrep') {
+        $orderId = (int)($_POST['order_id'] ?? 0);
+        $warehouseOtpInput = trim($_POST['warehouse_otp'] ?? '');
+
+        if ($orderId > 0 && $warehouseOtpInput !== '') {
+            try {
+                $pdo->beginTransaction();
+
+                // Verify order belongs to this sales rep
+                $orderCheck = $pdo->prepare("
+                    SELECT o.id FROM orders o
+                    INNER JOIN customers c ON c.id = o.customer_id
+                    WHERE o.id = ? AND c.assigned_sales_rep_id = ?
+                ");
+                $orderCheck->execute([$orderId, $repId]);
+                if (!$orderCheck->fetch()) {
+                    flash('error', 'Order not found or access denied.');
+                    $pdo->rollBack();
+                    header('Location: ' . $_SERVER['REQUEST_URI']);
+                    exit;
+                }
+
+                // Get OTP record
+                $otpStmt = $pdo->prepare("
+                    SELECT * FROM order_transfer_otps
+                    WHERE order_id = ? AND expires_at > NOW()
+                ");
+                $otpStmt->execute([$orderId]);
+                $otpRecord = $otpStmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$otpRecord) {
+                    flash('error', 'OTP expired or not found.');
+                } elseif ($otpRecord['warehouse_otp'] !== $warehouseOtpInput) {
+                    flash('error', 'Invalid Warehouse OTP code!');
+                } else {
+                    // Mark sales rep as verified
+                    $updateStmt = $pdo->prepare("
+                        UPDATE order_transfer_otps
+                        SET sales_rep_verified_at = NOW(),
+                            sales_rep_verified_by = ?
+                        WHERE order_id = ?
+                    ");
+                    $updateStmt->execute([$repId, $orderId]);
+
+                    // Check if both parties have verified
+                    $checkStmt = $pdo->prepare("
+                        SELECT * FROM order_transfer_otps
+                        WHERE order_id = ?
+                        AND warehouse_verified_at IS NOT NULL
+                        AND sales_rep_verified_at IS NOT NULL
+                    ");
+                    $checkStmt->execute([$orderId]);
+                    $bothVerified = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($bothVerified) {
+                        // Both verified - transfer stock
+                        require_once __DIR__ . '/../../includes/stock_functions.php';
+                        $pdo->commit();
+                        $transferSuccess = transferStockToSalesRep($pdo, $orderId, $repId);
+
+                        if ($transferSuccess) {
+                            flash('success', 'OTP verified! Stock transferred to your van successfully.');
+                        } else {
+                            flash('error', 'OTP verified but stock transfer failed.');
+                        }
+                    } else {
+                        $pdo->commit();
+                        flash('success', 'Sales Rep OTP verified! Waiting for warehouse verification...');
+                    }
+                }
+
+                if ($pdo->inTransaction()) {
+                    $pdo->commit();
+                }
+            } catch (Exception $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                flash('error', 'Error: ' . $e->getMessage());
+            }
+        }
+
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
 
     // Update order status
     if ($action === 'update_status') {
@@ -508,14 +595,17 @@ sales_portal_render_layout_start([
                 <td><?= date('M d, Y', strtotime($order['created_at'])) ?></td>
                 <td><?= $order['delivery_date'] ? date('M d, Y', strtotime($order['delivery_date'])) : '—' ?></td>
                 <td class="text-center">
-                    <?php
-                    $canUpdateStatus = !in_array($order['status'], ['delivered', 'cancelled', 'returned'], true);
-                    ?>
-                    <?php if ($canUpdateStatus): ?>
-                        <button onclick="openStatusModal(<?= $order['id'] ?>, '<?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['status'], ENT_QUOTES, 'UTF-8') ?>')" class="btn btn-sm">Update Status</button>
-                    <?php else: ?>
-                        <span style="color: #9ca3af; font-size: 0.85rem;">Completed</span>
-                    <?php endif; ?>
+                    <div style="display: flex; gap: 8px; justify-content: center;">
+                        <button onclick="viewOrderDetails(<?= $order['id'] ?>)" class="btn btn-sm" style="background: #1f2937; border-color: #1f2937;">View</button>
+                        <?php
+                        $canUpdateStatus = !in_array($order['status'], ['delivered', 'cancelled', 'returned'], true);
+                        ?>
+                        <?php if ($canUpdateStatus): ?>
+                            <button onclick="openStatusModal(<?= $order['id'] ?>, '<?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['status'], ENT_QUOTES, 'UTF-8') ?>')" class="btn btn-sm">Update Status</button>
+                        <?php else: ?>
+                            <span style="color: #9ca3af; font-size: 0.85rem;">Completed</span>
+                        <?php endif; ?>
+                    </div>
                 </td>
             </tr>
             <?php endforeach; ?>
@@ -553,6 +643,23 @@ sales_portal_render_layout_start([
     </div>
 </div>
 <?php endif; ?>
+
+<!-- Order Details Modal -->
+<div id="orderDetailsModal" class="modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 1000; align-items: center; justify-content: center; overflow-y: auto; padding: 20px;">
+    <div class="modal-content" style="background: white; border-radius: 12px; padding: 32px; max-width: 900px; width: 95%; max-height: 90vh; overflow-y: auto; margin: auto;">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 2px solid #e5e7eb; padding-bottom: 16px;">
+            <h2 style="margin: 0; font-size: 1.75rem; font-weight: 700;">Order Details</h2>
+            <button onclick="closeOrderDetailsModal()" style="background: none; border: none; font-size: 2rem; cursor: pointer; color: #9ca3af; line-height: 1;">&times;</button>
+        </div>
+
+        <div id="orderDetailsContent" style="min-height: 200px;">
+            <div style="text-align: center; padding: 40px; color: #6b7280;">
+                <div style="font-size: 2rem; margin-bottom: 12px;">⏳</div>
+                Loading order details...
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Status Update Modal -->
 <div id="statusModal" class="modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 1000; align-items: center; justify-content: center;">
@@ -610,10 +717,133 @@ function closeStatusModal() {
     document.getElementById('statusModal').style.display = 'none';
 }
 
+function viewOrderDetails(orderId) {
+    const modal = document.getElementById('orderDetailsModal');
+    const content = document.getElementById('orderDetailsContent');
+
+    modal.style.display = 'flex';
+    content.innerHTML = '<div style="text-align: center; padding: 40px; color: #6b7280;"><div style="font-size: 2rem; margin-bottom: 12px;">⏳</div>Loading order details...</div>';
+
+    // Fetch order details via AJAX
+    fetch('ajax_order_details.php?order_id=' + orderId)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                content.innerHTML = '<div style="text-align: center; padding: 40px; color: #dc2626;"><div style="font-size: 2rem; margin-bottom: 12px;">⚠️</div>' + data.error + '</div>';
+                return;
+            }
+
+            // Build order details HTML
+            let html = '';
+
+            // Order Header Info
+            html += '<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 32px; padding: 20px; background: #f9fafb; border-radius: 8px;">';
+            html += '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Order Number</div><div style="font-size: 1.25rem; font-weight: 700;">' + data.order_number + '</div></div>';
+            html += '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Order Type</div><div style="font-weight: 600;">' + (data.order_type === 'van_stock_sale' ? '🚚 Van Sale' : '🏢 Company') + '</div></div>';
+            html += '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Status</div><div style="font-weight: 600;">' + data.status_label + '</div></div>';
+            html += '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Created</div><div>' + data.created_at + '</div></div>';
+            html += '</div>';
+
+            // Customer Info
+            html += '<div style="margin-bottom: 32px;"><h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; color: #111827;">Customer Information</h3>';
+            html += '<div style="padding: 20px; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">';
+            html += '<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">';
+            html += '<div><div style="font-size: 0.8rem; color: #6b7280; margin-bottom: 4px;">Name</div><div style="font-weight: 600;">' + data.customer_name + '</div></div>';
+            html += '<div><div style="font-size: 0.8rem; color: #6b7280; margin-bottom: 4px;">Phone</div><div style="font-weight: 600;">' + (data.customer_phone || '—') + '</div></div>';
+            if (data.customer_location) {
+                html += '<div style="grid-column: 1 / -1;"><div style="font-size: 0.8rem; color: #6b7280; margin-bottom: 4px;">Location</div><div>' + data.customer_location + '</div></div>';
+            }
+            html += '</div></div></div>';
+
+            // Order Items
+            html += '<div style="margin-bottom: 32px;"><h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; color: #111827;">Order Items</h3>';
+            html += '<div style="border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;"><table style="width: 100%; border-collapse: collapse;">';
+            html += '<thead><tr style="background: #f9fafb; border-bottom: 1px solid #e5e7eb;"><th style="padding: 12px; text-align: left; font-weight: 600; font-size: 0.85rem; color: #6b7280;">SKU</th><th style="padding: 12px; text-align: left; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Product</th><th style="padding: 12px; text-align: center; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Qty</th><th style="padding: 12px; text-align: right; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Unit Price</th><th style="padding: 12px; text-align: right; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Total</th></tr></thead>';
+            html += '<tbody>';
+
+            data.items.forEach((item, index) => {
+                html += '<tr style="border-bottom: 1px solid #e5e7eb;' + (index % 2 === 0 ? ' background: white;' : ' background: #fafafa;') + '">';
+                html += '<td style="padding: 12px; font-family: monospace; font-size: 0.9rem;">' + item.sku + '</td>';
+                html += '<td style="padding: 12px; font-weight: 500;">' + item.product_name + '</td>';
+                html += '<td style="padding: 12px; text-align: center; font-weight: 600;">' + item.quantity + '</td>';
+                html += '<td style="padding: 12px; text-align: right;">$' + parseFloat(item.unit_price_usd).toFixed(2) + '</td>';
+                html += '<td style="padding: 12px; text-align: right; font-weight: 600;">$' + (item.quantity * item.unit_price_usd).toFixed(2) + '</td>';
+                html += '</tr>';
+            });
+
+            html += '</tbody></table></div></div>';
+
+            // OTP Verification Section (if order is ready)
+            if (data.otp_data) {
+                html += '<div style="margin-bottom: 32px;"><h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; color: #111827;">🔐 Stock Transfer Verification</h3>';
+                html += '<div style="padding: 20px; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px;">';
+
+                if (data.otp_data.both_verified) {
+                    html += '<div style="text-align: center; padding: 16px; background: #22c55e; color: #fff; font-weight: 700; border-radius: 4px; font-size: 1.1rem;">';
+                    html += '✅ STOCK SUCCESSFULLY TRANSFERRED TO YOUR VAN';
+                    html += '</div>';
+                } else {
+                    // Sales Rep OTP Display
+                    html += '<div style="background: white; padding: 16px; border-radius: 4px; margin-bottom: 16px; border: 2px solid #000;">';
+                    html += '<div style="font-size: 0.85rem; font-weight: 600; color: #92400e; margin-bottom: 8px;">YOUR OTP (Show to Warehouse):</div>';
+                    html += '<div style="font-size: 2.5rem; font-weight: 700; letter-spacing: 10px; color: #000; text-align: center; font-family: monospace;">';
+                    html += data.otp_data.sales_rep_otp;
+                    html += '</div></div>';
+
+                    // Warehouse OTP Input Form
+                    html += '<form method="POST" action="" style="background: white; padding: 16px; border-radius: 4px; border: 2px solid #000;">';
+                    html += '<?= csrf_field() ?>';
+                    html += '<input type="hidden" name="action" value="verify_otp_salesrep">';
+                    html += '<input type="hidden" name="order_id" value="' + data.id + '">';
+                    html += '<div style="margin-bottom: 12px;"><label style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 8px;">Enter Warehouse OTP:</label>';
+                    html += '<input type="text" name="warehouse_otp" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required ';
+                    html += 'style="width: 100%; padding: 16px; font-size: 2rem; text-align: center; letter-spacing: 10px; font-family: monospace; border: 2px solid #000; font-weight: 700;"';
+                    html += (data.otp_data.sales_rep_verified ? ' disabled' : '') + '></div>';
+
+                    if (!data.otp_data.sales_rep_verified) {
+                        html += '<button type="submit" style="width: 100%; padding: 14px; background: #000; color: #fff; border: none; cursor: pointer; font-weight: 700; font-size: 1rem; border-radius: 4px;">';
+                        html += 'VERIFY & RECEIVE STOCK';
+                        html += '</button>';
+                    } else {
+                        html += '<div style="padding: 12px; background: #22c55e; color: #fff; font-weight: 700; text-align: center; border-radius: 4px;">';
+                        html += '✓ Sales Rep Verified - Waiting for Warehouse';
+                        html += '</div>';
+                    }
+
+                    html += '</form>';
+                }
+
+                html += '</div></div>';
+            }
+
+            // Order Totals
+            html += '<div style="background: #f9fafb; padding: 20px; border-radius: 8px; border: 2px solid #e5e7eb;">';
+            html += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;"><span style="font-size: 1.1rem; font-weight: 600;">Total USD:</span><span style="font-size: 1.5rem; font-weight: 700; color: #111827;">$' + parseFloat(data.total_usd).toFixed(2) + '</span></div>';
+            html += '<div style="display: flex; justify-content: space-between; align-items: center;"><span style="font-size: 1.1rem; font-weight: 600;">Total LBP:</span><span style="font-size: 1.5rem; font-weight: 700; color: #111827;">' + parseFloat(data.total_lbp).toLocaleString() + ' LBP</span></div>';
+            html += '</div>';
+
+            content.innerHTML = html;
+        })
+        .catch(error => {
+            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #dc2626;"><div style="font-size: 2rem; margin-bottom: 12px;">⚠️</div>Failed to load order details</div>';
+            console.error('Error:', error);
+        });
+}
+
+function closeOrderDetailsModal() {
+    document.getElementById('orderDetailsModal').style.display = 'none';
+}
+
 // Close modal on background click
 document.getElementById('statusModal').addEventListener('click', function(e) {
     if (e.target === this) {
         closeStatusModal();
+    }
+});
+
+document.getElementById('orderDetailsModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeOrderDetailsModal();
     }
 });
 </script>

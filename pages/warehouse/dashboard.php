@@ -10,25 +10,23 @@ $pdo = db();
 
 // Get dashboard statistics
 
-// Total products and stock quantity (warehouse only - salesperson_id = 0)
+// Total products and stock quantity (warehouse only - uses products.quantity_on_hand)
 $stockStats = $pdo->query("
     SELECT
         COUNT(*) as total_products,
-        SUM(qty_on_hand) as total_quantity
-    FROM s_stock
-    WHERE qty_on_hand > 0
-    AND salesperson_id = 0
+        SUM(quantity_on_hand) as total_quantity
+    FROM products
+    WHERE quantity_on_hand > 0
+    AND is_active = 1
 ")->fetch(PDO::FETCH_ASSOC);
 
 // Low stock count (products below reorder point - warehouse only)
 $lowStockCount = $pdo->query("
     SELECT COUNT(*) as count
-    FROM s_stock s
-    INNER JOIN products p ON p.id = s.product_id
-    WHERE s.salesperson_id = 0
-    AND s.qty_on_hand > 0
-    AND s.qty_on_hand <= p.reorder_point
-    AND p.is_active = 1
+    FROM products p
+    WHERE p.is_active = 1
+    AND p.quantity_on_hand > 0
+    AND p.quantity_on_hand <= p.reorder_point
 ")->fetch(PDO::FETCH_ASSOC);
 
 // Orders to prepare (pending, approved, preparing)
@@ -90,14 +88,13 @@ $topProducts = $pdo->query("
         p.item_name,
         p.image_url,
         SUM(oi.quantity) as total_ordered,
-        s.qty_on_hand,
+        p.quantity_on_hand as qty_on_hand,
         COUNT(DISTINCT oi.order_id) as order_count
     FROM order_items oi
     INNER JOIN products p ON p.id = oi.product_id
-    LEFT JOIN s_stock s ON s.product_id = p.id AND s.salesperson_id = 0
     INNER JOIN orders o ON o.id = oi.order_id
     WHERE o.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-    GROUP BY p.id, p.sku, p.item_name, p.image_url, s.qty_on_hand
+    GROUP BY p.id, p.sku, p.item_name, p.image_url, p.quantity_on_hand
     ORDER BY total_ordered DESC
     LIMIT 5
 ")->fetchAll(PDO::FETCH_ASSOC);
@@ -108,12 +105,11 @@ $criticalStock = $pdo->query("
         p.id,
         p.sku,
         p.item_name,
-        s.qty_on_hand,
+        p.quantity_on_hand as qty_on_hand,
         p.reorder_point
     FROM products p
-    INNER JOIN s_stock s ON s.product_id = p.id AND s.salesperson_id = 0
     WHERE p.is_active = 1
-    AND s.qty_on_hand <= 0
+    AND p.quantity_on_hand <= 0
     ORDER BY p.item_name ASC
     LIMIT 10
 ")->fetchAll(PDO::FETCH_ASSOC);
@@ -193,7 +189,7 @@ $statusStyles = [
     'returned' => 'background:#fef3c7;color:#92400e;',
 ];
 ?>
-
+    
 <!-- Key Metrics -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:24px;margin-bottom:32px;">
     <!-- Total Products -->

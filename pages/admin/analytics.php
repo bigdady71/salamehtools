@@ -263,7 +263,16 @@ $tierDistributionStmt = $pdo->prepare("
     GROUP BY c.customer_tier
     ORDER BY revenue_usd DESC
 ");
-$tierDistributionStmt->execute($params);
+
+// Build params for this specific query
+$tierParams = [':from' => $dateFrom, ':to' => $dateTo . ' 23:59:59'];
+if ($salesRepFilter) {
+    $tierParams[':sales_rep_id'] = (int)$salesRepFilter;
+}
+if ($orderTypeFilter) {
+    $tierParams[':order_type'] = $orderTypeFilter;
+}
+$tierDistributionStmt->execute($tierParams);
 $tierData = $tierDistributionStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // ========================================

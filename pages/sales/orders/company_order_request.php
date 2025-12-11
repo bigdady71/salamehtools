@@ -344,11 +344,44 @@ sales_portal_render_layout_start([
         }
         .product-search input {
             width: 100%;
-            padding: 10px 12px;
-            border: 1px solid var(--border);
+            padding: 12px 44px 12px 16px;
+            border: 2px solid var(--border);
             border-radius: 8px;
-            font-size: 0.95rem;
+            font-size: 1rem;
             background: var(--bg-panel);
+            transition: all 0.2s;
+        }
+        .product-search input:focus {
+            outline: none;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+        .product-search-icon {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+            font-size: 1.2rem;
+            pointer-events: none;
+        }
+        .product-search-clear {
+            position: absolute;
+            right: 44px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #dc2626;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: none;
+        }
+        .product-search-clear:hover {
+            background: #991b1b;
         }
         .product-list {
             max-height: 300px;
@@ -361,13 +394,37 @@ sales_portal_render_layout_start([
             padding: 12px;
             border-bottom: 1px solid var(--border);
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s;
         }
         .product-item:hover {
             background: var(--bg-panel-alt);
+            border-left: 4px solid #6366f1;
+            padding-left: 8px;
+        }
+        .product-item.selected {
+            background: #dbeafe;
+            border-left: 4px solid #3b82f6;
+            padding-left: 8px;
+        }
+        .product-item.highlighted {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding-left: 8px;
         }
         .product-item:last-child {
             border-bottom: none;
+        }
+        .product-item.hidden {
+            display: none;
+        }
+        .no-results {
+            padding: 40px 20px;
+            text-align: center;
+            color: var(--muted);
+            display: none;
+        }
+        .no-results.visible {
+            display: block;
         }
         .product-item-header {
             display: flex;
@@ -646,9 +703,12 @@ if (empty($customers)) {
     echo '</div>';
     echo '<div class="products-selector">';
     echo '<div class="product-search">';
-    echo '<input type="text" id="productSearch" placeholder="Search products...">';
+    echo '<input type="text" id="productSearch" placeholder="Search by name, SKU, or category... (Press Enter)" autocomplete="off">';
+    echo '<button type="button" class="product-search-clear" id="clearSearch">✕ Clear</button>';
+    echo '<span class="product-search-icon">🔍</span>';
     echo '</div>';
     echo '<div class="product-list" id="productList">';
+    echo '<div class="no-results" id="noResults">No products found. Try a different search term.</div>';
 
     foreach ($products as $product) {
         $prodId = (int)$product['id'];
@@ -670,7 +730,7 @@ if (empty($customers)) {
 
         $prodPriceLBP = $prodPriceUSD * $exchangeRate;
         echo '<div class="product-item" data-product-id="', $prodId, '" data-product-name="', $prodName, '" ';
-        echo 'data-product-sku="', $prodSku, '" data-price-usd="', $prodPriceUSD, '" ';
+        echo 'data-product-sku="', $prodSku, '" data-product-category="', $prodCategory, '" data-price-usd="', $prodPriceUSD, '" ';
         echo 'data-price-lbp="', $prodPriceLBP, '" data-warehouse-stock="', $prodStock, '">';
         echo '<div class="product-item-header">';
         echo '<span class="product-item-name">', $prodName, '</span>';
@@ -758,6 +818,7 @@ echo '    discount: 0';
 echo '  });';
 echo '  renderSelectedProducts();';
 echo '  updateSummary();';
+echo '  updateProductItemStates();';
 echo '}';
 echo '';
 echo 'function removeProduct(productId) {';
@@ -766,6 +827,7 @@ echo '  if (index > -1) {';
 echo '    selectedProducts.splice(index, 1);';
 echo '    renderSelectedProducts();';
 echo '    updateSummary();';
+echo '    updateProductItemStates();';
 echo '  }';
 echo '}';
 echo '';
@@ -887,18 +949,105 @@ echo '    addProduct(productId, productName, sku, priceUSD, priceLBP, warehouseS
 echo '  });';
 echo '});';
 echo '';
-echo 'document.getElementById("productSearch").addEventListener("input", function() {';
-echo '  const search = this.value.toLowerCase();';
+echo '// Enhanced search functionality with keyboard navigation';
+echo 'let currentHighlightIndex = -1;';
+echo 'let visibleProducts = [];';
+echo '';
+echo 'function performSearch() {';
+echo '  const searchInput = document.getElementById("productSearch");';
+echo '  const clearBtn = document.getElementById("clearSearch");';
+echo '  const noResults = document.getElementById("noResults");';
+echo '  const search = searchInput.value.toLowerCase().trim();';
+echo '';
+echo '  visibleProducts = [];';
+echo '  currentHighlightIndex = -1;';
+echo '';
+echo '  // Show/hide clear button';
+echo '  clearBtn.style.display = search.length > 0 ? "block" : "none";';
+echo '';
+echo '  let hasResults = false;';
 echo '  document.querySelectorAll(".product-item").forEach(item => {';
+echo '    item.classList.remove("highlighted");';
+echo '    if (search === "") {';
+echo '      item.classList.remove("hidden");';
+echo '      hasResults = true;';
+echo '      visibleProducts.push(item);';
+echo '      return;';
+echo '    }';
 echo '    const name = item.dataset.productName.toLowerCase();';
 echo '    const sku = item.dataset.productSku.toLowerCase();';
-echo '    if (name.includes(search) || sku.includes(search)) {';
-echo '      item.style.display = "block";';
+echo '    const category = (item.dataset.productCategory || "").toLowerCase();';
+echo '    if (name.includes(search) || sku.includes(search) || category.includes(search)) {';
+echo '      item.classList.remove("hidden");';
+echo '      visibleProducts.push(item);';
+echo '      hasResults = true;';
 echo '    } else {';
-echo '      item.style.display = "none";';
+echo '      item.classList.add("hidden");';
 echo '    }';
 echo '  });';
+echo '  noResults.classList.toggle("visible", !hasResults);';
+echo '  if (visibleProducts.length > 0) highlightProduct(0);';
+echo '}';
+echo '';
+echo 'function highlightProduct(index) {';
+echo '  visibleProducts.forEach(item => item.classList.remove("highlighted"));';
+echo '  if (index >= 0 && index < visibleProducts.length) {';
+echo '    currentHighlightIndex = index;';
+echo '    visibleProducts[index].classList.add("highlighted");';
+echo '    visibleProducts[index].scrollIntoView({ behavior: "smooth", block: "nearest" });';
+echo '  }';
+echo '}';
+echo '';
+echo 'function selectHighlightedProduct() {';
+echo '  if (currentHighlightIndex >= 0 && currentHighlightIndex < visibleProducts.length) {';
+echo '    const item = visibleProducts[currentHighlightIndex];';
+echo '    const productId = parseInt(item.dataset.productId);';
+echo '    const productName = item.dataset.productName;';
+echo '    const sku = item.dataset.productSku;';
+echo '    const priceUSD = parseFloat(item.dataset.priceUsd);';
+echo '    const priceLBP = parseFloat(item.dataset.priceLbp);';
+echo '    const warehouseStock = parseFloat(item.dataset.warehouseStock);';
+echo '    addProduct(productId, productName, sku, priceUSD, priceLBP, warehouseStock);';
+echo '    document.getElementById("productSearch").value = "";';
+echo '    performSearch();';
+echo '    document.getElementById("productSearch").focus();';
+echo '  }';
+echo '}';
+echo '';
+echo 'function updateProductItemStates() {';
+echo '  document.querySelectorAll(".product-item").forEach(item => {';
+echo '    const productId = parseInt(item.dataset.productId);';
+echo '    item.classList.toggle("selected", !!selectedProducts.find(p => p.id === productId));';
+echo '  });';
+echo '}';
+echo '';
+echo 'document.getElementById("productSearch").addEventListener("input", performSearch);';
+echo '';
+echo 'document.getElementById("productSearch").addEventListener("keydown", function(e) {';
+echo '  if (e.key === "ArrowDown") {';
+echo '    e.preventDefault();';
+echo '    if (currentHighlightIndex < visibleProducts.length - 1) highlightProduct(currentHighlightIndex + 1);';
+echo '  } else if (e.key === "ArrowUp") {';
+echo '    e.preventDefault();';
+echo '    if (currentHighlightIndex > 0) highlightProduct(currentHighlightIndex - 1);';
+echo '  } else if (e.key === "Enter") {';
+echo '    e.preventDefault();';
+echo '    selectHighlightedProduct();';
+echo '  } else if (e.key === "Escape") {';
+echo '    e.preventDefault();';
+echo '    this.value = "";';
+echo '    performSearch();';
+echo '  }';
 echo '});';
+echo '';
+echo 'document.getElementById("clearSearch").addEventListener("click", function() {';
+echo '  document.getElementById("productSearch").value = "";';
+echo '  performSearch();';
+echo '  document.getElementById("productSearch").focus();';
+echo '});';
+echo '';
+echo '// Focus search on page load';
+echo 'document.getElementById("productSearch").focus();';
 echo '</script>';
 
 sales_portal_render_layout_end();

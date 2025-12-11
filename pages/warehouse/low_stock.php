@@ -16,24 +16,23 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
             p.sku as 'SKU',
             p.item_name as 'Product Name',
             p.topcat_name as 'Category',
-            s.qty_on_hand as 'Qty in Stock',
+            p.quantity_on_hand as 'Qty in Stock',
             p.reorder_point as 'Reorder Point',
-            (p.reorder_point - s.qty_on_hand) as 'Qty Needed',
+            (p.reorder_point - p.quantity_on_hand) as 'Qty Needed',
             p.unit as 'Unit'
         FROM products p
-        INNER JOIN s_stock s ON s.product_id = p.id AND s.salesperson_id = 0
         WHERE p.is_active = 1
         AND p.reorder_point > 0
-        AND s.qty_on_hand <= p.reorder_point
-        ORDER BY (s.qty_on_hand / p.reorder_point) ASC
+        AND p.quantity_on_hand <= p.reorder_point
+        ORDER BY (p.quantity_on_hand / p.reorder_point) ASC
     ")->fetchAll(PDO::FETCH_ASSOC);
 
     $filename = 'low_stock_alerts_' . date('Y-m-d_His');
     exportToCSV($exportData, $filename);
 }
 
-// Test the query first
-$testQuery = "
+// Get low stock products (warehouse stock from products.quantity_on_hand)
+$lowStockProducts = $pdo->query("
     SELECT
         p.id,
         p.sku,
@@ -41,16 +40,13 @@ $testQuery = "
         p.topcat_name,
         p.unit,
         p.reorder_point,
-        s.qty_on_hand
+        p.quantity_on_hand as qty_on_hand
     FROM products p
-    INNER JOIN s_stock s ON s.product_id = p.id AND s.salesperson_id = 0
     WHERE p.is_active = 1
     AND p.reorder_point > 0
-    AND s.qty_on_hand <= p.reorder_point
-    ORDER BY (s.qty_on_hand / p.reorder_point) ASC, p.item_name ASC
-";
-
-$lowStockProducts = $pdo->query($testQuery)->fetchAll(PDO::FETCH_ASSOC);
+    AND p.quantity_on_hand <= p.reorder_point
+    ORDER BY (p.quantity_on_hand / p.reorder_point) ASC, p.item_name ASC
+")->fetchAll(PDO::FETCH_ASSOC);
 
 $title = 'Low Stock Alerts - Warehouse Portal';
 

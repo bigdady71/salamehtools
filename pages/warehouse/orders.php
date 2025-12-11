@@ -9,6 +9,78 @@ require_once __DIR__ . '/../../includes/stock_functions.php';
 $user = warehouse_portal_bootstrap();
 $pdo = db();
 
+// Handle OTP verification from warehouse side
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_otp_warehouse') {
+    $orderId = (int)($_POST['order_id'] ?? 0);
+    $salesRepOtpInput = trim($_POST['sales_rep_otp'] ?? '');
+
+    if ($orderId > 0 && $salesRepOtpInput !== '') {
+        try {
+            $pdo->beginTransaction();
+
+            // Get OTP record
+            $otpStmt = $pdo->prepare("
+                SELECT * FROM order_transfer_otps
+                WHERE order_id = ? AND expires_at > NOW()
+            ");
+            $otpStmt->execute([$orderId]);
+            $otpRecord = $otpStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$otpRecord) {
+                $_SESSION['error'] = 'OTP expired or not found. Please regenerate.';
+            } elseif ($otpRecord['sales_rep_otp'] !== $salesRepOtpInput) {
+                $_SESSION['error'] = 'Invalid Sales Rep OTP code!';
+            } else {
+                // Mark warehouse as verified
+                $updateStmt = $pdo->prepare("
+                    UPDATE order_transfer_otps
+                    SET warehouse_verified_at = NOW(),
+                        warehouse_verified_by = ?
+                    WHERE order_id = ?
+                ");
+                $updateStmt->execute([(int)$user['id'], $orderId]);
+
+                // Check if both parties have verified
+                $checkStmt = $pdo->prepare("
+                    SELECT * FROM order_transfer_otps
+                    WHERE order_id = ?
+                    AND warehouse_verified_at IS NOT NULL
+                    AND sales_rep_verified_at IS NOT NULL
+                ");
+                $checkStmt->execute([$orderId]);
+                $bothVerified = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($bothVerified) {
+                    // Both verified - transfer stock
+                    $pdo->commit();
+                    $transferSuccess = transferStockToSalesRep($pdo, $orderId, (int)$user['id']);
+
+                    if ($transferSuccess) {
+                        $_SESSION['success'] = 'OTP verified! Stock transferred to sales rep\'s van successfully.';
+                    } else {
+                        $_SESSION['error'] = 'OTP verified but stock transfer failed.';
+                    }
+                } else {
+                    $pdo->commit();
+                    $_SESSION['success'] = 'Warehouse OTP verified! Waiting for sales rep verification...';
+                }
+            }
+
+            if ($pdo->inTransaction()) {
+                $pdo->commit();
+            }
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $_SESSION['error'] = 'Error: ' . $e->getMessage();
+        }
+    }
+
+    header('Location: orders.php');
+    exit;
+}
+
 // Handle mark as prepared
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'mark_prepared') {
     $orderId = (int)($_POST['order_id'] ?? 0);
@@ -40,22 +112,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $updateStmt->execute([$orderId]);
 
             if ($updateStmt->rowCount() > 0) {
-                // Automatically deduct stock
-                $deductSuccess = deductStockForOrder($pdo, $orderId, (int)$user['id']);
+                // Get order details for notification
+                $orderDetailsStmt = $pdo->prepare("
+                    SELECT o.order_number, o.sales_rep_id, c.name as customer_name
+                    FROM orders o
+                    LEFT JOIN customers c ON c.id = o.customer_id
+                    WHERE o.id = ?
+                ");
+                $orderDetailsStmt->execute([$orderId]);
+                $orderDetails = $orderDetailsStmt->fetch(PDO::FETCH_ASSOC);
 
-                if ($deductSuccess) {
-                    $pdo->commit();
-                    $_SESSION['success'] = 'Order marked as prepared! Stock has been automatically deducted.';
-                } else {
-                    $pdo->rollBack();
-                    $_SESSION['error'] = 'Order status updated but stock deduction failed. Please check stock movements.';
+                // Generate OTP codes for secure handoff
+                $warehouseOtp = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+                $salesRepOtp = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+                $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
+
+                // Store OTP codes
+                try {
+                    $otpStmt = $pdo->prepare("
+                        INSERT INTO order_transfer_otps (order_id, warehouse_otp, sales_rep_otp, expires_at)
+                        VALUES (?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE
+                            warehouse_otp = VALUES(warehouse_otp),
+                            sales_rep_otp = VALUES(sales_rep_otp),
+                            expires_at = VALUES(expires_at),
+                            warehouse_verified_at = NULL,
+                            sales_rep_verified_at = NULL,
+                            warehouse_verified_by = NULL,
+                            sales_rep_verified_by = NULL
+                    ");
+                    $otpStmt->execute([$orderId, $warehouseOtp, $salesRepOtp, $expiresAt]);
+                } catch (Exception $otpEx) {
+                    error_log("Failed to generate OTP: " . $otpEx->getMessage());
                 }
+
+                // Commit the status update
+                $pdo->commit();
+
+                // Create notification for sales rep
+                if ($orderDetails && $orderDetails['sales_rep_id']) {
+                    try {
+                        $notificationStmt = $pdo->prepare("
+                            INSERT INTO notifications (user_id, type, payload, created_at)
+                            VALUES (?, 'order_ready', ?, NOW())
+                        ");
+                        $payload = json_encode([
+                            'order_id' => $orderId,
+                            'order_number' => $orderDetails['order_number'],
+                            'customer_name' => $orderDetails['customer_name'],
+                            'message' => 'Order ' . $orderDetails['order_number'] . ' for ' . $orderDetails['customer_name'] . ' is ready for pickup - OTP verification required'
+                        ]);
+                        $notificationStmt->execute([$orderDetails['sales_rep_id'], $payload]);
+                    } catch (Exception $notifException) {
+                        error_log("Failed to create notification: " . $notifException->getMessage());
+                    }
+                }
+
+                $_SESSION['success'] = 'Order marked as ready! OTP codes generated. Both parties must verify to complete stock transfer.';
+
             } else {
                 $pdo->rollBack();
                 $_SESSION['error'] = 'Could not update order status. Order may already be prepared.';
             }
         } catch (Exception $e) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             $_SESSION['error'] = 'Error: ' . $e->getMessage();
         }
     }
@@ -271,163 +393,223 @@ if (isset($_SESSION['error'])) {
                 p.description,
                 p.unit,
                 p.image_url,
-                COALESCE(s.qty_on_hand, 0) as qty_in_stock
+                COALESCE(p.quantity_on_hand, 0) as qty_in_stock
             FROM order_items oi
             INNER JOIN products p ON p.id = oi.product_id
-            LEFT JOIN s_stock s ON s.product_id = p.id AND s.salesperson_id = ?
             WHERE oi.order_id = ?
             ORDER BY p.item_name ASC
         ");
-        $itemsStmt->execute([$order['sales_rep_id'] ?? 0, $order['id']]);
+        $itemsStmt->execute([$order['id']]);
         $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Check if order has OTP (status = ready)
+        $otpData = null;
+        if ($order['status'] === 'ready') {
+            $otpStmt = $pdo->prepare("
+                SELECT * FROM order_transfer_otps
+                WHERE order_id = ? AND expires_at > NOW()
+            ");
+            $otpStmt->execute([$order['id']]);
+            $otpData = $otpStmt->fetch(PDO::FETCH_ASSOC);
+        }
         ?>
 
-        <div class="card" style="margin-bottom:24px;">
-            <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:20px;flex-wrap:wrap;gap:16px;">
-                <div>
-                    <h2 style="margin:0 0 8px;">
-                        <?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?>
-                    </h2>
-                    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:0.95rem;color:var(--text-light);">
+        <!-- Minimal Order Card -->
+        <div style="border:1px solid #000;margin-bottom:30px;background:#fff;">
+            <!-- Order Header -->
+            <div style="border-bottom:2px solid #000;padding:12px 16px;background:#f9f9f9;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div style="display:flex;gap:20px;align-items:center;font-size:0.9rem;">
+                        <strong style="font-size:1.1rem;"><?= htmlspecialchars($order['order_number'] ?? 'ORD-' . str_pad($order['id'], 6, '0', STR_PAD_LEFT), ENT_QUOTES, 'UTF-8') ?></strong>
                         <?php if ($order['sales_rep_name']): ?>
-                            <div>
-                                <strong>Sales Rep:</strong> <?= htmlspecialchars($order['sales_rep_name'], ENT_QUOTES, 'UTF-8') ?>
-                            </div>
+                            <span>Rep: <?= htmlspecialchars($order['sales_rep_name'], ENT_QUOTES, 'UTF-8') ?></span>
                         <?php endif; ?>
-                        <div>
-                            <strong>Customer:</strong> <?= htmlspecialchars($order['customer_name'], ENT_QUOTES, 'UTF-8') ?>
-                        </div>
+                        <span>Customer: <?= htmlspecialchars($order['customer_name'], ENT_QUOTES, 'UTF-8') ?></span>
                         <?php if ($order['customer_phone']): ?>
-                            <div>
-                                <strong>Phone:</strong> <?= htmlspecialchars($order['customer_phone'], ENT_QUOTES, 'UTF-8') ?>
-                            </div>
+                            <span>Tel: <?= htmlspecialchars($order['customer_phone'], ENT_QUOTES, 'UTF-8') ?></span>
                         <?php endif; ?>
-                        <div>
-                            <strong>Date:</strong> <?= date('M d, Y', strtotime($order['created_at'])) ?>
-                        </div>
-                        <div>
-                            <strong>Type:</strong> <?= $order['order_type'] === 'van_stock_sale' ? '🚚 Van Sale' : '🏢 Company Order' ?>
-                        </div>
-                        <div>
-                            <strong>Items:</strong> <?= (int)$order['item_count'] ?>
-                        </div>
+                        <span><?= date('d/m/Y', strtotime($order['created_at'])) ?></span>
+                        <span><?= $order['order_type'] === 'van_stock_sale' ? 'Van' : 'Company' ?></span>
                     </div>
-                    <?php if (!empty($order['order_notes'])): ?>
-                        <div style="margin-top:12px;padding:12px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:4px;">
-                            <strong style="color:#92400e;font-size:0.9rem;">📝 Order Notes:</strong>
-                            <div style="color:#78350f;font-size:0.9rem;margin-top:4px;">
-                                <?= nl2br(htmlspecialchars($order['order_notes'], ENT_QUOTES, 'UTF-8')) ?>
-                            </div>
-                        </div>
-                    <?php endif; ?>
+                    <div>
+                        <strong style="text-transform:uppercase;font-size:0.85rem;"><?= htmlspecialchars($statusLabels[$order['status']] ?? ucfirst($order['status']), ENT_QUOTES, 'UTF-8') ?></strong>
+                    </div>
                 </div>
-                <div style="text-align:right;">
-                    <span class="badge" style="<?= $statusStyles[$order['status']] ?? '' ?>;font-size:1rem;padding:8px 16px;">
-                        <?= htmlspecialchars($statusLabels[$order['status']] ?? ucfirst($order['status']), ENT_QUOTES, 'UTF-8') ?>
-                    </span>
-                </div>
+                <?php if (!empty($order['order_notes'])): ?>
+                    <div style="margin-top:8px;padding:8px;background:#fff;border:1px solid #ccc;font-size:0.85rem;">
+                        <strong>Notes:</strong> <?= nl2br(htmlspecialchars($order['order_notes'], ENT_QUOTES, 'UTF-8')) ?>
+                    </div>
+                <?php endif; ?>
             </div>
 
-            <!-- Order Items - Simplified -->
-            <div style="margin-bottom:20px;">
-                <h3 style="margin:0 0 12px;font-size:1rem;color:var(--muted);">📦 Items to Pick (<?= count($items) ?>)</h3>
-
-                <div style="display:flex;flex-direction:column;gap:12px;">
+            <!-- Order Items Table -->
+            <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr style="background:#f5f5f5;border-bottom:1px solid #000;">
+                        <th style="padding:10px;text-align:left;border-right:1px solid #ddd;width:80px;">Image</th>
+                        <th style="padding:10px;text-align:left;border-right:1px solid #ddd;">SKU</th>
+                        <th style="padding:10px;text-align:left;border-right:1px solid #ddd;">Product</th>
+                        <th style="padding:10px;text-align:center;border-right:1px solid #ddd;width:100px;">Ordered</th>
+                        <th style="padding:10px;text-align:center;border-right:1px solid #ddd;width:100px;">In Stock</th>
+                        <th style="padding:10px;text-align:center;width:120px;">To Ship</th>
+                    </tr>
+                </thead>
+                <tbody>
                     <?php foreach ($items as $item): ?>
                         <?php
                         $qtyOrdered = (float)$item['qty_ordered'];
                         $qtyInStock = (float)$item['qty_in_stock'];
                         $hasStock = $qtyInStock >= $qtyOrdered;
                         ?>
-                        <div style="background:white;border-radius:8px;padding:12px;border:2px solid <?= $hasStock ? '#e5e7eb' : '#fca5a5' ?>;display:flex;gap:12px;align-items:center;">
-                            <!-- Product Image -->
-                            <?php if (!empty($item['image_url'])): ?>
-                                <img src="<?= htmlspecialchars($item['image_url'], ENT_QUOTES, 'UTF-8') ?>"
-                                     alt="<?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                                     style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;">
-                            <?php else: ?>
-                                <div style="width:60px;height:60px;background:#f3f4f6;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:1.5rem;">
-                                    📦
-                                </div>
-                            <?php endif; ?>
-
-                            <!-- Product Info -->
-                            <div style="flex:1;min-width:0;">
-                                <div style="font-weight:600;font-size:1rem;margin-bottom:2px;">
-                                    <?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?>
-                                </div>
-                                <div style="font-size:0.85rem;color:#6b7280;">
-                                    <span style="font-family:monospace;font-weight:600;color:#3b82f6;">
-                                        <?= htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') ?>
-                                    </span>
-                                    <?php if ($item['description']): ?>
-                                        &nbsp;•&nbsp;<?= htmlspecialchars($item['description'], ENT_QUOTES, 'UTF-8') ?>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-
-                            <!-- Quantity Badge -->
-                            <div style="text-align:center;padding:8px 16px;background:#f3f4f6;border-radius:6px;min-width:80px;">
-                                <div style="font-size:2rem;font-weight:700;line-height:1;color:#1f2937;">
-                                    <?= number_format($qtyOrdered, 0) ?>
-                                </div>
-                                <div style="font-size:0.75rem;color:#6b7280;margin-top:2px;">
-                                    <?= htmlspecialchars($item['unit'], ENT_QUOTES, 'UTF-8') ?>
-                                </div>
-                            </div>
-
-                            <!-- Stock Status -->
-                            <div style="text-align:center;min-width:80px;">
-                                <?php if ($hasStock): ?>
-                                    <div style="color:#059669;font-size:2rem;line-height:1;">✓</div>
-                                    <div style="font-size:0.7rem;color:#6b7280;margin-top:2px;">
-                                        <?= number_format($qtyInStock, 0) ?> available
-                                    </div>
+                        <tr style="border-bottom:1px solid #ddd;">
+                            <td style="padding:10px;text-align:center;border-right:1px solid #ddd;">
+                                <?php if (!empty($item['image_url'])): ?>
+                                    <img src="<?= htmlspecialchars($item['image_url'], ENT_QUOTES, 'UTF-8') ?>"
+                                         alt="<?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                                         style="width:60px;height:60px;object-fit:cover;border:1px solid #ccc;">
                                 <?php else: ?>
-                                    <div style="color:#dc2626;font-size:1.5rem;line-height:1;">⚠️</div>
-                                    <div style="font-size:0.7rem;color:#dc2626;font-weight:600;margin-top:2px;">
-                                        Only <?= number_format($qtyInStock, 0) ?>
-                                    </div>
+                                    <div style="width:60px;height:60px;background:#f5f5f5;display:flex;align-items:center;justify-content:center;border:1px solid #ccc;">-</div>
                                 <?php endif; ?>
-                            </div>
-                        </div>
+                            </td>
+                            <td style="padding:10px;border-right:1px solid #ddd;">
+                                <strong><?= htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') ?></strong>
+                            </td>
+                            <td style="padding:10px;border-right:1px solid #ddd;">
+                                <div style="font-weight:600;"><?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
+                                <?php if ($item['description']): ?>
+                                    <div style="font-size:0.85rem;color:#666;"><?= htmlspecialchars($item['description'], ENT_QUOTES, 'UTF-8') ?></div>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding:10px;text-align:center;border-right:1px solid #ddd;">
+                                <strong><?= number_format($qtyOrdered, 0) ?></strong>
+                                <div style="font-size:0.8rem;color:#666;"><?= htmlspecialchars($item['unit'], ENT_QUOTES, 'UTF-8') ?></div>
+                            </td>
+                            <td style="padding:10px;text-align:center;border-right:1px solid #ddd;<?= !$hasStock ? 'background:#ffe5e5;' : '' ?>">
+                                <strong><?= number_format($qtyInStock, 0) ?></strong>
+                                <?php if (!$hasStock): ?>
+                                    <div style="font-size:0.75rem;color:#d00;font-weight:600;">SHORT</div>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding:10px;text-align:center;">
+                                <input type="number"
+                                       name="qty_to_ship_<?= $item['id'] ?>"
+                                       value="<?= min($qtyOrdered, $qtyInStock) ?>"
+                                       min="0"
+                                       max="<?= $qtyInStock ?>"
+                                       style="width:80px;padding:6px;text-align:center;border:1px solid #000;font-size:1rem;font-weight:600;"
+                                       data-item-id="<?= $item['id'] ?>">
+                            </td>
+                        </tr>
                     <?php endforeach; ?>
-                </div>
-            </div>
+                </tbody>
+            </table>
 
-            <!-- Actions - Simplified -->
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <!-- Actions -->
+            <div style="padding:16px;background:#f9f9f9;border-top:1px solid #000;display:flex;justify-content:space-between;align-items:center;">
+                <div style="display:flex;gap:10px;">
+                    <button type="button" onclick="checkStock(<?= $order['id'] ?>)" style="padding:8px 16px;background:#fff;border:1px solid #000;cursor:pointer;font-weight:600;">
+                        CHECK STOCK
+                    </button>
+                    <a href="print_picklist.php?order_id=<?= $order['id'] ?>" target="_blank"
+                       style="padding:8px 16px;background:#fff;border:1px solid #000;text-decoration:none;color:#000;font-weight:600;display:inline-block;">
+                        PRINT
+                    </a>
+                </div>
                 <?php if ($order['status'] !== 'ready'): ?>
-                    <a href="scan_order.php?order_id=<?= $order['id'] ?>"
-                       style="flex:1;min-width:200px;padding:14px 20px;background:#10b981;color:white;text-align:center;border-radius:8px;text-decoration:none;font-weight:600;font-size:1rem;">
-                        📱 Start Picking
-                    </a>
-                    <a href="print_picklist.php?order_id=<?= $order['id'] ?>"
-                       target="_blank"
-                       style="padding:14px 20px;background:#f3f4f6;color:#374151;text-align:center;border-radius:8px;text-decoration:none;font-weight:500;">
-                        🖨️ Print
-                    </a>
-                    <form method="POST" style="flex:1;min-width:200px;" onsubmit="return confirm('Mark this order as prepared and ready for shipment?');">
+                    <form method="POST" style="display:inline;" onsubmit="return confirm('Mark this order as ready for shipment?');">
                         <input type="hidden" name="action" value="mark_prepared">
                         <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
-                        <button type="submit" style="width:100%;padding:14px 20px;background:#3b82f6;color:white;border:none;border-radius:8px;font-weight:600;font-size:1rem;cursor:pointer;">
-                            ✓ Mark Ready
+                        <button type="submit" style="padding:10px 24px;background:#000;color:#fff;border:none;cursor:pointer;font-weight:600;font-size:0.95rem;">
+                            MARK AS READY
                         </button>
                     </form>
                 <?php else: ?>
-                    <div style="flex:1;padding:14px 20px;background:#d1fae5;color:#059669;text-align:center;border-radius:8px;font-weight:600;font-size:1rem;border:2px solid #059669;">
-                        ✓ Ready for Shipment
-                    </div>
-                    <a href="print_picklist.php?order_id=<?= $order['id'] ?>"
-                       target="_blank"
-                       style="padding:14px 20px;background:#f3f4f6;color:#374151;text-align:center;border-radius:8px;text-decoration:none;font-weight:500;">
-                        🖨️ Print
-                    </a>
+                    <?php if ($otpData): ?>
+                        <?php
+                        $warehouseVerified = $otpData['warehouse_verified_at'] !== null;
+                        $salesRepVerified = $otpData['sales_rep_verified_at'] !== null;
+                        $bothVerified = $warehouseVerified && $salesRepVerified;
+                        ?>
+                        <div style="display:flex;flex-direction:column;gap:12px;padding:12px;background:#fff;border:2px solid #000;border-radius:4px;">
+                            <?php if ($bothVerified): ?>
+                                <div style="text-align:center;padding:8px;background:#22c55e;color:#fff;font-weight:700;border-radius:4px;">
+                                    ✓ STOCK TRANSFERRED
+                                </div>
+                            <?php else: ?>
+                                <!-- Warehouse OTP Display -->
+                                <div style="background:#fef3c7;padding:12px;border-radius:4px;border:2px solid #f59e0b;">
+                                    <div style="font-size:0.75rem;font-weight:600;color:#92400e;margin-bottom:4px;">YOUR OTP (Show to Sales Rep):</div>
+                                    <div style="font-size:2rem;font-weight:700;letter-spacing:8px;color:#000;text-align:center;font-family:monospace;">
+                                        <?= htmlspecialchars($otpData['warehouse_otp'], ENT_QUOTES, 'UTF-8') ?>
+                                    </div>
+                                </div>
+
+                                <!-- Sales Rep OTP Input -->
+                                <form method="POST" style="display:flex;flex-direction:column;gap:8px;">
+                                    <input type="hidden" name="action" value="verify_otp_warehouse">
+                                    <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
+                                    <div>
+                                        <label style="font-size:0.75rem;font-weight:600;display:block;margin-bottom:4px;">Enter Sales Rep OTP:</label>
+                                        <input type="text" name="sales_rep_otp" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required
+                                               style="width:100%;padding:12px;font-size:1.5rem;text-align:center;letter-spacing:8px;font-family:monospace;border:2px solid #000;font-weight:700;"
+                                               <?= $warehouseVerified ? 'disabled' : '' ?>>
+                                    </div>
+                                    <?php if (!$warehouseVerified): ?>
+                                        <button type="submit" style="padding:12px;background:#000;color:#fff;border:none;cursor:pointer;font-weight:600;font-size:0.95rem;">
+                                            VERIFY & COMPLETE TRANSFER
+                                        </button>
+                                    <?php else: ?>
+                                        <div style="padding:8px;background:#22c55e;color:#fff;font-weight:600;text-align:center;border-radius:4px;">
+                                            ✓ Warehouse Verified - Waiting for Sales Rep
+                                        </div>
+                                    <?php endif; ?>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+                    <?php else: ?>
+                        <div style="padding:10px 24px;background:#dc2626;color:#fff;font-weight:600;">
+                            OTP EXPIRED - RE-MARK AS READY
+                        </div>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
         </div>
     <?php endforeach; ?>
 <?php endif; ?>
+
+<script>
+function checkStock(orderId) {
+    // Get all input fields in the order
+    const inputs = document.querySelectorAll('input[type="number"]');
+    let hasIssues = false;
+    let message = 'Stock Check:\n\n';
+
+    inputs.forEach(input => {
+        const toShip = parseInt(input.value) || 0;
+        const max = parseInt(input.max) || 0;
+        const row = input.closest('tr');
+
+        if (toShip > max) {
+            hasIssues = true;
+            const sku = row.querySelector('td:nth-child(2)').textContent.trim();
+            message += `${sku}: Cannot ship ${toShip}, only ${max} in stock\n`;
+            row.style.background = '#ffe5e5';
+        } else if (toShip === 0) {
+            const sku = row.querySelector('td:nth-child(2)').textContent.trim();
+            message += `${sku}: Quantity set to 0 (will not ship)\n`;
+            row.style.background = '#fff9e5';
+        } else {
+            row.style.background = '';
+        }
+    });
+
+    if (!hasIssues) {
+        message += 'All quantities are within available stock.';
+    }
+
+    alert(message);
+}
+</script>
 
 <?php
 warehouse_portal_render_layout_end();

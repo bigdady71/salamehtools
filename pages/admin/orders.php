@@ -2870,11 +2870,30 @@ admin_render_flashes($flashes);
                             option.appendChild(skuSpan);
                         }
 
-                        const defaultPrice = defaultUnitPriceUsd(item);
-                        if (defaultPrice > 0) {
+                        // Show both wholesale and retail prices for reference
+                        const wholesalePrice = parseFloat(item.wholesale_price_usd);
+                        const retailPrice = parseFloat(item.sale_price_usd);
+                        const priceInfo = [];
+
+                        if (Number.isFinite(wholesalePrice) && wholesalePrice > 0) {
+                            priceInfo.push('Wholesale: USD ' + wholesalePrice.toFixed(2));
+                        }
+                        if (Number.isFinite(retailPrice) && retailPrice > 0) {
+                            priceInfo.push('Retail: USD ' + retailPrice.toFixed(2));
+                        }
+
+                        if (priceInfo.length > 0) {
                             const priceSpan = document.createElement('span');
-                            priceSpan.textContent = 'USD ' + defaultPrice.toFixed(2);
+                            priceSpan.style.fontWeight = '600';
+                            priceSpan.style.color = '#1f2937';
+                            priceSpan.textContent = priceInfo.join(' • ');
                             option.appendChild(priceSpan);
+                        } else {
+                            const noPriceSpan = document.createElement('span');
+                            noPriceSpan.style.color = '#dc2626';
+                            noPriceSpan.style.fontWeight = '600';
+                            noPriceSpan.textContent = '⚠ No price set - manual entry required';
+                            option.appendChild(noPriceSpan);
                         }
 
                         if (item.quantity_on_hand !== undefined && item.quantity_on_hand !== null) {
@@ -3166,9 +3185,23 @@ admin_render_flashes($flashes);
                         usdInput.min = '0';
                         usdInput.step = '0.01';
                         usdInput.value = Number(item.unit_price_usd || 0).toFixed(2);
+
+                        // Highlight if no price is set
+                        if (Number(item.unit_price_usd || 0) === 0) {
+                            usdInput.style.border = '2px solid #dc2626';
+                            usdInput.style.background = '#fef2f2';
+                            usdInput.placeholder = 'Enter price';
+                        }
                         usdInput.addEventListener('input', function (event) {
                             const value = parseFloat(event.target.value);
                             orderItems[index].unit_price_usd = Number.isFinite(value) && value >= 0 ? value : 0;
+
+                            // Remove red highlight when price is entered
+                            if (Number.isFinite(value) && value > 0) {
+                                event.target.style.border = '';
+                                event.target.style.background = '';
+                            }
+
                             applyExchangeRateToItem(orderItems[index]);
                             if (lbpValue) {
                                 if (exchangeRateValue > 0 && !(lbpValue instanceof HTMLInputElement)) {
@@ -3529,6 +3562,25 @@ admin_render_flashes($flashes);
                 }
                 if (customerPhoneInput) {
                     customerPhoneInput.addEventListener('input', validateForm);
+                }
+
+                // Ensure order items are synced before form submission
+                if (form) {
+                    form.addEventListener('submit', function(event) {
+                        // Sync order items one final time before submitting
+                        syncOrderItemsInput();
+
+                        // Double-check that we have items
+                        if (orderItems.length === 0) {
+                            event.preventDefault();
+                            alert('Please add at least one product to the order.');
+                            return false;
+                        }
+
+                        // Debug: Log what we're submitting
+                        console.log('Submitting order with items:', orderItems);
+                        console.log('Hidden field value:', orderItemsInput.value);
+                    });
                 }
 
                 setNewCustomerMode(false);

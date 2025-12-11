@@ -8,7 +8,141 @@ declare(strict_types=1);
  */
 
 /**
- * Deduct stock when an order is shipped
+ * Transfer stock from warehouse to sales rep's van when order is ready
+ *
+ * @param PDO $pdo Database connection
+ * @param int $orderId Order ID
+ * @param int $userId User performing the action
+ * @return bool Success status
+ */
+function transferStockToSalesRep(PDO $pdo, int $orderId, int $userId): bool
+{
+    try {
+        $pdo->beginTransaction();
+
+        // Get order details
+        $orderStmt = $pdo->prepare("
+            SELECT o.id, o.order_type, o.sales_rep_id
+            FROM orders o
+            WHERE o.id = ?
+        ");
+        $orderStmt->execute([$orderId]);
+        $order = $orderStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$order) {
+            throw new Exception("Order not found");
+        }
+
+        // Only transfer for company orders (not van stock sales)
+        if ($order['order_type'] === 'van_stock_sale' || !$order['sales_rep_id']) {
+            $pdo->commit();
+            return true; // Van sales don't need transfer
+        }
+
+        // Get all order items
+        $itemsStmt = $pdo->prepare("
+            SELECT oi.product_id, oi.quantity, p.sku, p.item_name
+            FROM order_items oi
+            INNER JOIN products p ON p.id = oi.product_id
+            WHERE oi.order_id = ?
+        ");
+        $itemsStmt->execute([$orderId]);
+        $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($items as $item) {
+            $productId = (int)$item['product_id'];
+            $quantity = (float)$item['quantity'];
+
+            // Deduct from warehouse stock (products.quantity_on_hand)
+            $deductStmt = $pdo->prepare("
+                UPDATE products
+                SET quantity_on_hand = quantity_on_hand - ?,
+                    updated_at = NOW()
+                WHERE id = ?
+            ");
+            $deductStmt->execute([$quantity, $productId]);
+
+            // Add to sales rep's van stock (van_stock_items or s_stock)
+            // First, check if the item exists in van_stock_items
+            $checkVanStmt = $pdo->prepare("
+                SELECT id, quantity FROM van_stock_items
+                WHERE sales_rep_id = ? AND product_id = ?
+            ");
+            $checkVanStmt->execute([$order['sales_rep_id'], $productId]);
+            $vanStock = $checkVanStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($vanStock) {
+                // Update existing van stock
+                $updateVanStmt = $pdo->prepare("
+                    UPDATE van_stock_items
+                    SET quantity = quantity + ?,
+                        updated_at = NOW()
+                    WHERE sales_rep_id = ? AND product_id = ?
+                ");
+                $updateVanStmt->execute([$quantity, $order['sales_rep_id'], $productId]);
+            } else {
+                // Insert new van stock record
+                $insertVanStmt = $pdo->prepare("
+                    INSERT INTO van_stock_items (sales_rep_id, product_id, quantity, created_at, updated_at)
+                    VALUES (?, ?, ?, NOW(), NOW())
+                ");
+                $insertVanStmt->execute([$order['sales_rep_id'], $productId, $quantity]);
+            }
+
+            // Create stock movement records
+            // Warehouse deduction
+            $movementStmt = $pdo->prepare("
+                INSERT INTO s_stock_movements (
+                    salesperson_id,
+                    product_id,
+                    delta_qty,
+                    reason,
+                    order_item_id,
+                    note,
+                    created_at
+                ) VALUES (?, ?, ?, 'transfer_out', ?, ?, NOW())
+            ");
+            $movementStmt->execute([
+                0, // Warehouse
+                $productId,
+                -$quantity,
+                null,
+                "Transfer to sales rep - Order #" . $orderId
+            ]);
+
+            // Sales rep addition
+            $movementStmt2 = $pdo->prepare("
+                INSERT INTO s_stock_movements (
+                    salesperson_id,
+                    product_id,
+                    delta_qty,
+                    reason,
+                    order_item_id,
+                    note,
+                    created_at
+                ) VALUES (?, ?, ?, 'transfer_in', ?, ?, NOW())
+            ");
+            $movementStmt2->execute([
+                $order['sales_rep_id'],
+                $productId,
+                $quantity,
+                null,
+                "Transfer from warehouse - Order #" . $orderId
+            ]);
+        }
+
+        $pdo->commit();
+        return true;
+
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        error_log("Stock transfer failed for order {$orderId}: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Deduct stock when an order is delivered (from sales rep's van)
  *
  * @param PDO $pdo Database connection
  * @param int $orderId Order ID
@@ -78,12 +212,12 @@ function deductStockForOrder(PDO $pdo, int $orderId, int $userId): bool
                     "Van sale - Order #" . $orderId
                 ]);
             } else {
-                // Deduct from warehouse stock (salesperson_id = 0)
+                // Deduct from warehouse stock (products.quantity_on_hand)
                 $deductStmt = $pdo->prepare("
-                    UPDATE s_stock
-                    SET qty_on_hand = qty_on_hand - ?,
+                    UPDATE products
+                    SET quantity_on_hand = quantity_on_hand - ?,
                         updated_at = NOW()
-                    WHERE product_id = ? AND salesperson_id = 0
+                    WHERE id = ?
                 ");
                 $deductStmt->execute([$quantity, $productId]);
 
@@ -224,10 +358,9 @@ function checkStockAvailability(PDO $pdo, int $orderId): array
             oi.quantity as qty_needed,
             p.sku,
             p.item_name,
-            COALESCE(s.qty_on_hand, 0) as qty_on_hand
+            COALESCE(p.quantity_on_hand, 0) as qty_on_hand
         FROM order_items oi
         INNER JOIN products p ON p.id = oi.product_id
-        LEFT JOIN s_stock s ON s.product_id = p.id
         WHERE oi.order_id = ?
     ");
     $itemsStmt->execute([$orderId]);
