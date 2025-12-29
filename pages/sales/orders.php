@@ -454,7 +454,182 @@ sales_portal_render_layout_start([
     'heading' => 'My Orders',
     'subtitle' => 'View and manage orders for your customers',
     'user' => $user,
-    'active' => 'orders'
+    'active' => 'orders',
+    'extra_head' => '<style>
+        .page-header {
+            background: white;
+            padding: 20px 24px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #e5e7eb;
+        }
+        .page-header h1 {
+            color: #111827;
+            margin: 0 0 4px 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        .page-header .subtitle {
+            color: #6b7280;
+            margin: 0;
+            font-size: 0.9rem;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+        }
+        .stat-label {
+            font-size: 0.8rem;
+            color: #6b7280;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: #111827;
+        }
+        .filters {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #e5e7eb;
+        }
+        .filters label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 6px;
+            color: #374151;
+            font-size: 0.875rem;
+        }
+        .form-control {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            transition: border-color 0.2s;
+        }
+        .form-control:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        .table-container {
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            overflow: hidden;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .data-table thead {
+            background: #f9fafb;
+        }
+        .data-table th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.8rem;
+            color: #374151;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .data-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 0.9rem;
+        }
+        .data-table tbody tr:hover {
+            background: #f9fafb;
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .text-center {
+            text-align: center;
+        }
+        .text-right {
+            text-align: right;
+        }
+        .empty-state {
+            background: white;
+            border-radius: 8px;
+            padding: 48px 32px;
+            text-align: center;
+            border: 1px solid #e5e7eb;
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            margin-top: 20px;
+            padding: 16px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            max-width: 900px;
+            width: 95%;
+            max-height: 90vh;
+            overflow-y: auto;
+            margin: auto;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 16px;
+        }
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #111827;
+        }
+    </style>'
 ]);
 ?>
 
@@ -466,7 +641,7 @@ sales_portal_render_layout_start([
 </div>
 
 <!-- Summary Stats -->
-<div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
+<div class="stats-grid">
     <div class="stat-card">
         <div class="stat-label">Total Orders</div>
         <div class="stat-value"><?= number_format((int)$stats['total_orders']) ?></div>
@@ -485,21 +660,21 @@ sales_portal_render_layout_start([
     </div>
     <div class="stat-card">
         <div class="stat-label">Total Value</div>
-        <div class="stat-value">$<?= number_format((float)$stats['total_value_usd'], 2) ?></div>
+        <div class="stat-value" style="color: #059669;">$<?= number_format((float)$stats['total_value_usd'], 2) ?></div>
     </div>
 </div>
 
 <!-- Filters -->
-<div class="filters" style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 24px; border: 1px solid #e5e7eb;">
+<div class="filters">
     <form method="GET" action="">
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
             <div>
-                <label style="display: block; font-weight: 500; margin-bottom: 6px;">Search</label>
+                <label>Search</label>
                 <input type="text" name="search" value="<?= htmlspecialchars($search, ENT_QUOTES, 'UTF-8') ?>"
                        placeholder="Order #, customer..." class="form-control">
             </div>
             <div>
-                <label style="display: block; font-weight: 500; margin-bottom: 6px;">Status</label>
+                <label>Status</label>
                 <select name="status" class="form-control">
                     <option value="">All Statuses</option>
                     <?php foreach ($statusLabels as $key => $label): ?>
@@ -511,7 +686,7 @@ sales_portal_render_layout_start([
                 </select>
             </div>
             <div>
-                <label style="display: block; font-weight: 500; margin-bottom: 6px;">Order Type</label>
+                <label>Order Type</label>
                 <select name="type" class="form-control">
                     <option value="">All Types</option>
                     <option value="company_order" <?= $typeFilter === 'company_order' ? 'selected' : '' ?>>Company Order</option>
@@ -519,18 +694,18 @@ sales_portal_render_layout_start([
                 </select>
             </div>
             <div>
-                <label style="display: block; font-weight: 500; margin-bottom: 6px;">Date From</label>
+                <label>Date From</label>
                 <input type="date" name="date_from" value="<?= htmlspecialchars($dateFrom, ENT_QUOTES, 'UTF-8') ?>" class="form-control">
             </div>
             <div>
-                <label style="display: block; font-weight: 500; margin-bottom: 6px;">Date To</label>
+                <label>Date To</label>
                 <input type="date" name="date_to" value="<?= htmlspecialchars($dateTo, ENT_QUOTES, 'UTF-8') ?>" class="form-control">
             </div>
         </div>
 
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button type="submit" class="btn btn-primary">Apply Filters</button>
-            <a href="orders.php" class="btn">Clear</a>
+            <button type="submit" class="btn btn-info">Apply Filters</button>
+            <a href="orders.php" class="btn btn-secondary">Clear</a>
             <?php
             // Build export URL with current filters
             $exportUrl = '?action=export';
@@ -550,15 +725,15 @@ sales_portal_render_layout_start([
                 $exportUrl .= '&date_to=' . urlencode($dateTo);
             }
             ?>
-            <a href="<?= htmlspecialchars($exportUrl, ENT_QUOTES, 'UTF-8') ?>" class="btn" style="background: #10b981; color: white; border-color: #10b981;">📊 Export CSV</a>
+            <a href="<?= htmlspecialchars($exportUrl, ENT_QUOTES, 'UTF-8') ?>" class="btn btn-success">📊 Export CSV</a>
         </div>
     </form>
 </div>
 
 <!-- Orders Table -->
 <?php if (!empty($orders)): ?>
-<div class="table-container" style="background: white; border-radius: 8px; border: 1px solid #e5e7eb; overflow-x: auto;">
-    <table class="data-table" style="width: 100%;">
+<div class="table-container">
+    <table class="data-table">
         <thead>
             <tr>
                 <th>Order Number</th>
@@ -596,12 +771,12 @@ sales_portal_render_layout_start([
                 <td><?= $order['delivery_date'] ? date('M d, Y', strtotime($order['delivery_date'])) : '—' ?></td>
                 <td class="text-center">
                     <div style="display: flex; gap: 8px; justify-content: center;">
-                        <button onclick="viewOrderDetails(<?= $order['id'] ?>)" class="btn btn-sm" style="background: #1f2937; border-color: #1f2937;">View</button>
+                        <button onclick="viewOrderDetails(<?= $order['id'] ?>)" class="btn btn-info btn-sm">View</button>
                         <?php
                         $canUpdateStatus = !in_array($order['status'], ['delivered', 'cancelled', 'returned'], true);
                         ?>
                         <?php if ($canUpdateStatus): ?>
-                            <button onclick="openStatusModal(<?= $order['id'] ?>, '<?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['status'], ENT_QUOTES, 'UTF-8') ?>')" class="btn btn-sm">Update Status</button>
+                            <button onclick="openStatusModal(<?= $order['id'] ?>, '<?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['status'], ENT_QUOTES, 'UTF-8') ?>')" class="btn btn-warning btn-sm">Update Status</button>
                         <?php else: ?>
                             <span style="color: #9ca3af; font-size: 0.85rem;">Completed</span>
                         <?php endif; ?>
@@ -615,41 +790,41 @@ sales_portal_render_layout_start([
 
 <!-- Pagination -->
 <?php if ($totalPages > 1): ?>
-<div class="pagination" style="display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 24px;">
+<div class="pagination">
     <?php if ($page > 1): ?>
-        <a href="?page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $typeFilter ? '&type=' . urlencode($typeFilter) : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>" class="btn">← Previous</a>
+        <a href="?page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $typeFilter ? '&type=' . urlencode($typeFilter) : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>" class="btn btn-secondary">← Previous</a>
     <?php endif; ?>
 
-    <span>Page <?= $page ?> of <?= $totalPages ?></span>
+    <span style="font-weight: 600; color: #374151;">Page <?= $page ?> of <?= $totalPages ?></span>
 
     <?php if ($page < $totalPages): ?>
-        <a href="?page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $typeFilter ? '&type=' . urlencode($typeFilter) : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>" class="btn">Next →</a>
+        <a href="?page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $typeFilter ? '&type=' . urlencode($typeFilter) : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>" class="btn btn-secondary">Next →</a>
     <?php endif; ?>
 </div>
 <?php endif; ?>
 
-<div style="margin-top: 16px; color: #6b7280; font-size: 0.9rem; text-align: center;">
-    Showing <?= count($orders) ?> of <?= number_format($totalMatches) ?> orders
+<div style="margin-top: 16px; color: #6b7280; font-size: 0.9rem; text-align: center; padding: 12px; background: white; border-radius: 8px;">
+    Showing <strong><?= count($orders) ?></strong> of <strong><?= number_format($totalMatches) ?></strong> orders
 </div>
 
 <?php else: ?>
-<div class="empty-state" style="background: white; border-radius: 8px; padding: 48px; text-align: center; border: 1px solid #e5e7eb;">
-    <div style="font-size: 3rem; margin-bottom: 16px;">📦</div>
-    <h3 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 8px;">No Orders Found</h3>
-    <p style="color: #6b7280; margin-bottom: 24px;">Try adjusting your filters or create a new order.</p>
+<div class="empty-state">
+    <div style="font-size: 4rem; margin-bottom: 16px; opacity: 0.6;">📦</div>
+    <h3 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 12px; color: #111827;">No Orders Found</h3>
+    <p style="color: #6b7280; margin-bottom: 32px; font-size: 1.05rem;">Try adjusting your filters or create a new order to get started.</p>
     <div style="display: flex; gap: 12px; justify-content: center;">
-        <a href="orders/van_stock_sales.php" class="btn btn-primary">🚚 New Van Stock Sale</a>
-        <a href="orders/company_order_request.php" class="btn">🏢 New Company Order</a>
+        <a href="orders/van_stock_sales.php" class="btn btn-success">🚚 New Van Stock Sale</a>
+        <a href="orders/company_order_request.php" class="btn btn-info">🏢 New Company Order</a>
     </div>
 </div>
 <?php endif; ?>
 
 <!-- Order Details Modal -->
-<div id="orderDetailsModal" class="modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 1000; align-items: center; justify-content: center; overflow-y: auto; padding: 20px;">
-    <div class="modal-content" style="background: white; border-radius: 12px; padding: 32px; max-width: 900px; width: 95%; max-height: 90vh; overflow-y: auto; margin: auto;">
-        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 2px solid #e5e7eb; padding-bottom: 16px;">
-            <h2 style="margin: 0; font-size: 1.75rem; font-weight: 700;">Order Details</h2>
-            <button onclick="closeOrderDetailsModal()" style="background: none; border: none; font-size: 2rem; cursor: pointer; color: #9ca3af; line-height: 1;">&times;</button>
+<div id="orderDetailsModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 900px;">
+        <div class="modal-header">
+            <h2>Order Details</h2>
+            <button onclick="closeOrderDetailsModal()" style="background: none; border: none; font-size: 2rem; cursor: pointer; color: #9ca3af; line-height: 1; transition: color 0.2s;">&times;</button>
         </div>
 
         <div id="orderDetailsContent" style="min-height: 200px;">
@@ -662,11 +837,11 @@ sales_portal_render_layout_start([
 </div>
 
 <!-- Status Update Modal -->
-<div id="statusModal" class="modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 1000; align-items: center; justify-content: center;">
-    <div class="modal-content" style="background: white; border-radius: 12px; padding: 32px; max-width: 500px; width: 90%;">
-        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-            <h2 style="margin: 0; font-size: 1.5rem;">Update Order Status</h2>
-            <button onclick="closeStatusModal()" style="background: none; border: none; font-size: 1.8rem; cursor: pointer; color: #9ca3af;">&times;</button>
+<div id="statusModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2 style="font-size: 1.5rem;">Update Order Status</h2>
+            <button onclick="closeStatusModal()" style="background: none; border: none; font-size: 1.8rem; cursor: pointer; color: #9ca3af; transition: color 0.2s;">&times;</button>
         </div>
 
         <form method="POST" action="">
@@ -698,8 +873,8 @@ sales_portal_render_layout_start([
             </div>
 
             <div style="display: flex; gap: 12px;">
-                <button type="submit" class="btn btn-primary" style="flex: 1;">Update Status</button>
-                <button type="button" onclick="closeStatusModal()" class="btn" style="flex: 1;">Cancel</button>
+                <button type="submit" class="btn btn-warning" style="flex: 1;">Update Status</button>
+                <button type="button" onclick="closeStatusModal()" class="btn btn-secondary" style="flex: 1;">Cancel</button>
             </div>
         </form>
     </div>

@@ -241,7 +241,7 @@ function customer_portal_render_layout_start(array $options = []): void
     echo '</script>';
 
     echo $extraHead;
-    echo '<link rel="stylesheet" href="/css/app.css?v=2">';
+    echo '<link rel="stylesheet" href="../css/app.css?v=2">';
     echo '<style>';
     // MAKASSI Red/Black/White Theme
     echo ':root{';

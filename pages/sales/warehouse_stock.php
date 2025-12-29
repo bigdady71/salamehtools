@@ -37,7 +37,7 @@ if ($searchFilter !== '') {
 }
 
 if ($categoryFilter !== '') {
-    $whereClauses[] = "p.topcat = :category";
+    $whereClauses[] = "p.topcat_name = :category";
     $params[':category'] = $categoryFilter;
 }
 
@@ -60,10 +60,10 @@ $whereSQL = implode(' AND ', $whereClauses);
 
 // Get categories for filter
 $categoriesStmt = $pdo->query("
-    SELECT DISTINCT topcat
+    SELECT DISTINCT topcat_name
     FROM products
-    WHERE topcat IS NOT NULL AND topcat != '' AND is_active = 1
-    ORDER BY topcat ASC
+    WHERE topcat_name IS NOT NULL AND topcat_name != '' AND is_active = 1
+    ORDER BY topcat_name ASC
 ");
 $categories = $categoriesStmt->fetchAll(PDO::FETCH_COLUMN);
 
@@ -80,8 +80,10 @@ $productsQuery = "
         p.sku,
         p.item_name,
         p.second_name,
+        p.topcat_name,
         p.topcat,
         p.midcat,
+        p.midcat_name,
         p.unit,
         p.sale_price_usd,
         p.wholesale_price_usd,
@@ -125,7 +127,48 @@ sales_portal_render_layout_start([
     'heading' => 'Warehouse Stock Availability',
     'subtitle' => 'View warehouse inventory for company order planning (Read-only)',
     'user' => $user,
-    'active' => 'warehouse_stock'
+    'active' => 'warehouse_stock',
+    'extra_head' => '<link rel="stylesheet" href="../../css/sales-common.css">
+    <style>
+        .warehouse-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .warehouse-table thead {
+            background: #f9fafb;
+        }
+        .warehouse-table th {
+            padding: 14px 16px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: #374151;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid #e5e7eb;
+            background: #f3f4f6;
+        }
+        .warehouse-table td {
+            padding: 12px 16px;
+            text-align: center;
+            font-size: 0.9rem;
+            border: 1px solid #e5e7eb;
+            color: #111827;
+        }
+        .warehouse-table tbody tr:nth-child(odd) {
+            background: #ffffff;
+        }
+        .warehouse-table tbody tr:nth-child(even) {
+            background: #f9fafb;
+        }
+        .warehouse-table tbody tr:hover {
+            background: #eff6ff;
+            transition: background-color 0.2s ease;
+        }
+        .product-name-cell {
+            text-align: left !important;
+        }
+    </style>'
 ]);
 ?>
 
@@ -175,38 +218,40 @@ sales_portal_render_layout_start([
 </div>
 
 <!-- Filters -->
-<div class="filters" style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 24px; border: 1px solid #e5e7eb;">
-    <form method="GET" action="" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; align-items: end;">
-        <div>
-            <label style="display: block; font-weight: 500; margin-bottom: 6px;">Search</label>
-            <input type="text" name="search" value="<?= htmlspecialchars($searchFilter, ENT_QUOTES, 'UTF-8') ?>"
-                   placeholder="Product name, SKU..." class="form-control">
+<div class="filters">
+    <form method="GET" action="">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+            <div>
+                <label>Search</label>
+                <input type="text" name="search" value="<?= htmlspecialchars($searchFilter, ENT_QUOTES, 'UTF-8') ?>"
+                       placeholder="Product name, SKU..." class="form-control">
+            </div>
+            <div>
+                <label>Category</label>
+                <select name="category" class="form-control">
+                    <option value="">All Categories</option>
+                    <?php foreach ($categories as $cat): ?>
+                        <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>"
+                                <?= $categoryFilter === $cat ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div>
+                <label>Stock Level</label>
+                <select name="alert" class="form-control">
+                    <option value="all" <?= $stockAlert === 'all' ? 'selected' : '' ?>>All Levels</option>
+                    <option value="out" <?= $stockAlert === 'out' ? 'selected' : '' ?>>Out of Stock</option>
+                    <option value="critical" <?= $stockAlert === 'critical' ? 'selected' : '' ?>>Critical (≤ Safety Stock)</option>
+                    <option value="low" <?= $stockAlert === 'low' ? 'selected' : '' ?>>Low (≤ Reorder Point)</option>
+                    <option value="ok" <?= $stockAlert === 'ok' ? 'selected' : '' ?>>OK Stock</option>
+                </select>
+            </div>
         </div>
-        <div>
-            <label style="display: block; font-weight: 500; margin-bottom: 6px;">Category</label>
-            <select name="category" class="form-control">
-                <option value="">All Categories</option>
-                <?php foreach ($categories as $cat): ?>
-                    <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>"
-                            <?= $categoryFilter === $cat ? 'selected' : '' ?>>
-                        <?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-        <div>
-            <label style="display: block; font-weight: 500; margin-bottom: 6px;">Stock Level</label>
-            <select name="alert" class="form-control">
-                <option value="all" <?= $stockAlert === 'all' ? 'selected' : '' ?>>All Levels</option>
-                <option value="out" <?= $stockAlert === 'out' ? 'selected' : '' ?>>Out of Stock</option>
-                <option value="critical" <?= $stockAlert === 'critical' ? 'selected' : '' ?>>Critical (≤ Safety Stock)</option>
-                <option value="low" <?= $stockAlert === 'low' ? 'selected' : '' ?>>Low (≤ Reorder Point)</option>
-                <option value="ok" <?= $stockAlert === 'ok' ? 'selected' : '' ?>>OK Stock</option>
-            </select>
-        </div>
-        <div style="display: flex; gap: 8px;">
-            <button type="submit" class="btn btn-primary">Apply Filters</button>
-            <a href="?" class="btn">Clear</a>
+        <div class="filter-actions">
+            <button type="submit" class="btn btn-info">🔍 Apply Filters</button>
+            <a href="?" class="btn btn-secondary">✕ Clear</a>
         </div>
     </form>
 </div>
@@ -214,18 +259,18 @@ sales_portal_render_layout_start([
 <!-- Products Table -->
 <?php if (!empty($products)): ?>
 <div class="table-container" style="background: white; border-radius: 8px; border: 1px solid #e5e7eb; overflow-x: auto;">
-    <table class="data-table" style="width: 100%;">
+    <table class="warehouse-table">
         <thead>
             <tr>
                 <th>Product</th>
                 <th>SKU</th>
                 <th>Category</th>
                 <th>Unit</th>
-                <th class="text-right">Sale Price</th>
-                <th class="text-right">Wholesale</th>
-                <th class="text-right">Warehouse Qty</th>
-                <th class="text-right">Safety Stock</th>
-                <th class="text-center">Status</th>
+                <th>Sale Price</th>
+                <th>Wholesale</th>
+                <th>Warehouse Qty</th>
+                <th>Safety Stock</th>
+                <th>Status</th>
             </tr>
         </thead>
         <tbody>
@@ -249,7 +294,7 @@ sales_portal_render_layout_start([
                 }
             ?>
             <tr>
-                <td>
+                <td class="product-name-cell">
                     <div style="font-weight: 500;"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
                     <?php if ($product['second_name']): ?>
                         <div style="font-size: 0.85rem; color: #6b7280;"><?= htmlspecialchars($product['second_name'], ENT_QUOTES, 'UTF-8') ?></div>
@@ -257,20 +302,20 @@ sales_portal_render_layout_start([
                 </td>
                 <td><code style="font-size: 0.9rem; background: #f3f4f6; padding: 2px 6px; border-radius: 4px;"><?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?></code></td>
                 <td>
-                    <?php if ($product['topcat']): ?>
+                    <?php if ($product['topcat_name']): ?>
                         <span style="font-size: 0.85rem; background: #f3f4f6; padding: 3px 8px; border-radius: 4px;">
-                            <?= htmlspecialchars($product['topcat'], ENT_QUOTES, 'UTF-8') ?>
+                            <?= htmlspecialchars($product['topcat_name'], ENT_QUOTES, 'UTF-8') ?>
                         </span>
                     <?php endif; ?>
                 </td>
                 <td><?= htmlspecialchars($product['unit'] ?? '', ENT_QUOTES, 'UTF-8') ?></td>
-                <td class="text-right">$<?= number_format((float)$product['sale_price_usd'], 2) ?></td>
-                <td class="text-right">$<?= number_format((float)$product['wholesale_price_usd'], 2) ?></td>
-                <td class="text-right">
+                <td>$<?= number_format((float)$product['sale_price_usd'], 2) ?></td>
+                <td>$<?= number_format((float)$product['wholesale_price_usd'], 2) ?></td>
+                <td>
                     <strong style="font-size: 1.05rem;"><?= number_format($qty, 1) ?></strong>
                 </td>
-                <td class="text-right" style="color: #6b7280; font-size: 0.9rem;"><?= number_format($safetyStock, 1) ?></td>
-                <td class="text-center">
+                <td style="color: #6b7280; font-size: 0.9rem;"><?= number_format($safetyStock, 1) ?></td>
+                <td>
                     <span class="badge" style="<?= $statusColor ?>"><?= $status ?></span>
                 </td>
             </tr>

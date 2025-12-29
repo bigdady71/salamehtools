@@ -16,8 +16,10 @@ $flashes = [];
 
 
 // Get active exchange rate
-$exchangeRate = 89500.0; // Default fallback
+$exchangeRate = null;
 $exchangeRateId = null;
+$exchangeRateError = false;
+
 try {
     $rateStmt = $pdo->prepare("
         SELECT id, rate
@@ -32,9 +34,26 @@ try {
     if ($rateRow && (float)$rateRow['rate'] > 0) {
         $exchangeRate = (float)$rateRow['rate'];
         $exchangeRateId = (int)$rateRow['id'];
+    } else {
+        $exchangeRateError = true;
+        error_log("Exchange rate not found in database");
     }
 } catch (PDOException $e) {
+    $exchangeRateError = true;
     error_log("Failed to fetch exchange rate: " . $e->getMessage());
+}
+
+// If exchange rate is unavailable, show error and block form
+if ($exchangeRateError || $exchangeRate === null) {
+    $flashes[] = [
+        'type' => 'error',
+        'title' => 'Exchange Rate Unavailable',
+        'message' => 'Cannot create orders at this time. The system exchange rate is not configured. Please contact your administrator.',
+        'dismissible' => false,
+    ];
+    $canCreateOrder = false;
+} else {
+    $canCreateOrder = true;
 }
 
 // Handle order creation
@@ -277,6 +296,9 @@ $productsStmt = $pdo->prepare("
         p.sku,
         p.item_name,
         p.topcat as category,
+        p.description,
+        p.barcode,
+        p.code_clean,
         p.sale_price_usd,
         p.quantity_on_hand
     FROM products p
@@ -327,6 +349,101 @@ sales_portal_render_layout_start([
             border-radius: 8px;
             font-size: 0.95rem;
             background: var(--bg);
+        }
+        .customer-search-wrapper {
+            position: relative;
+            margin-bottom: 10px;
+        }
+        .customer-search-wrapper input {
+            width: 100%;
+            padding: 10px 40px 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.95rem;
+            background: var(--bg-panel);
+            transition: all 0.2s;
+        }
+        .customer-search-wrapper input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+        }
+        .customer-search-icon {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+            pointer-events: none;
+        }
+        .customer-search-clear {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            display: none;
+            font-weight: 600;
+        }
+        .customer-search-clear:hover {
+            background: #dc2626;
+        }
+        .customer-list {
+            max-height: 250px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-panel);
+            margin-top: 8px;
+        }
+        .customer-item {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .customer-item:hover {
+            background: var(--bg-panel-alt);
+        }
+        .customer-item:last-child {
+            border-bottom: none;
+        }
+        .customer-item.highlighted {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+        }
+        .customer-item.hidden {
+            display: none !important;
+        }
+        .customer-item-name {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .customer-item-meta {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        .selected-customer {
+            padding: 12px 16px;
+            background: #d1fae5;
+            border: 2px solid #059669;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        .selected-customer-name {
+            font-weight: 600;
+            color: #065f46;
+            margin-bottom: 4px;
+        }
+        .selected-customer-info {
+            font-size: 0.9rem;
+            color: #047857;
         }
         .form-group textarea {
             resize: vertical;
@@ -544,28 +661,6 @@ sales_portal_render_layout_start([
             font-weight: 700;
             color: var(--accent);
         }
-        .btn-submit {
-            width: 100%;
-            padding: 14px 20px;
-            background: #6366f1;
-            color: #fff;
-            border: none;
-            border-radius: 10px;
-            font-weight: 700;
-            font-size: 1.1rem;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .btn-submit:hover {
-            background: #4f46e5;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-        }
-        .btn-submit:disabled {
-            background: #9ca3af;
-            cursor: not-allowed;
-            transform: none;
-        }
         .flash-stack {
             margin-bottom: 24px;
         }
@@ -652,6 +747,17 @@ if ($flashes) {
     echo '</div>';
 }
 
+if (!$canCreateOrder) {
+    echo '<div class="empty-state">';
+    echo '<div class="empty-state-icon">⚠️</div>';
+    echo '<h3>System Configuration Required</h3>';
+    echo '<p>Orders cannot be created until the exchange rate is properly configured in the system.</p>';
+    echo '<p><a href="../dashboard.php" class="btn btn-info">Return to Dashboard</a></p>';
+    echo '</div>';
+    sales_portal_render_layout_end();
+    exit;
+}
+
 if (empty($customers)) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">👥</div>';
@@ -682,16 +788,30 @@ if (empty($customers)) {
     echo '<h3>1. Select Customer</h3>';
     echo '<div class="form-group">';
     echo '<label>Customer <span style="color:red;">*</span></label>';
-    echo '<select name="customer_id" required>';
-    echo '<option value="">Choose a customer...</option>';
+    echo '<div class="customer-search-wrapper">';
+    echo '<input type="text" id="customerSearch" placeholder="Search by name or phone..." autocomplete="off">';
+    echo '<button type="button" class="customer-search-clear" id="clearCustomerSearch">✕ Clear</button>';
+    echo '<span class="customer-search-icon">🔍</span>';
+    echo '</div>';
+    echo '<input type="hidden" name="customer_id" id="selectedCustomerId" required>';
+    echo '<div class="customer-list" id="customerList" style="display:none;">';
     foreach ($customers as $customer) {
         $custId = (int)$customer['id'];
         $custName = htmlspecialchars($customer['name'], ENT_QUOTES, 'UTF-8');
-        $custPhone = $customer['phone'] ? ' - ' . htmlspecialchars($customer['phone'], ENT_QUOTES, 'UTF-8') : '';
-        $custCity = $customer['city'] ? ' (' . htmlspecialchars($customer['city'], ENT_QUOTES, 'UTF-8') . ')' : '';
-        echo '<option value="', $custId, '">', $custName, $custPhone, $custCity, '</option>';
+        $custPhone = htmlspecialchars($customer['phone'] ?? '', ENT_QUOTES, 'UTF-8');
+        $custCity = htmlspecialchars($customer['city'] ?? '', ENT_QUOTES, 'UTF-8');
+        echo '<div class="customer-item" data-customer-id="', $custId, '" data-customer-name="', $custName, '" ';
+        echo 'data-customer-phone="', $custPhone, '" data-customer-city="', $custCity, '">';
+        echo '<div class="customer-item-name">', $custName, '</div>';
+        echo '<div class="customer-item-meta">';
+        if ($custPhone) echo 'Phone: ', $custPhone;
+        if ($custPhone && $custCity) echo ' | ';
+        if ($custCity) echo 'City: ', $custCity;
+        echo '</div>';
+        echo '</div>';
     }
-    echo '</select>';
+    echo '</div>';
+    echo '<div class="selected-customer" id="selectedCustomerDisplay" style="display:none;"></div>';
     echo '</div>';
     echo '</div>';
 
@@ -703,7 +823,7 @@ if (empty($customers)) {
     echo '</div>';
     echo '<div class="products-selector">';
     echo '<div class="product-search">';
-    echo '<input type="text" id="productSearch" placeholder="Search by name, SKU, or category... (Press Enter)" autocomplete="off">';
+    echo '<input type="text" id="productSearch" placeholder="Search by name, SKU, category, barcode, code, or description..." autocomplete="off">';
     echo '<button type="button" class="product-search-clear" id="clearSearch">✕ Clear</button>';
     echo '<span class="product-search-icon">🔍</span>';
     echo '</div>';
@@ -712,9 +832,12 @@ if (empty($customers)) {
 
     foreach ($products as $product) {
         $prodId = (int)$product['id'];
-        $prodSku = htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8');
+        $prodSku = htmlspecialchars($product['sku'] ?? '', ENT_QUOTES, 'UTF-8');
         $prodName = htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8');
         $prodCategory = $product['category'] ? htmlspecialchars($product['category'], ENT_QUOTES, 'UTF-8') : '';
+        $prodDescription = $product['description'] ? htmlspecialchars($product['description'], ENT_QUOTES, 'UTF-8') : '';
+        $prodBarcode = $product['barcode'] ? htmlspecialchars($product['barcode'], ENT_QUOTES, 'UTF-8') : '';
+        $prodCodeClean = $product['code_clean'] ? htmlspecialchars($product['code_clean'], ENT_QUOTES, 'UTF-8') : '';
         $prodPriceUSD = (float)$product['sale_price_usd'];
         $prodStock = (float)$product['quantity_on_hand'];
 
@@ -730,7 +853,9 @@ if (empty($customers)) {
 
         $prodPriceLBP = $prodPriceUSD * $exchangeRate;
         echo '<div class="product-item" data-product-id="', $prodId, '" data-product-name="', $prodName, '" ';
-        echo 'data-product-sku="', $prodSku, '" data-product-category="', $prodCategory, '" data-price-usd="', $prodPriceUSD, '" ';
+        echo 'data-product-sku="', $prodSku, '" data-product-category="', $prodCategory, '" ';
+        echo 'data-product-description="', $prodDescription, '" data-product-barcode="', $prodBarcode, '" ';
+        echo 'data-product-code="', $prodCodeClean, '" data-price-usd="', $prodPriceUSD, '" ';
         echo 'data-price-lbp="', $prodPriceLBP, '" data-warehouse-stock="', $prodStock, '">';
         echo '<div class="product-item-header">';
         echo '<span class="product-item-name">', $prodName, '</span>';
@@ -793,7 +918,7 @@ if (empty($customers)) {
     echo '</div>';
     echo '</div>';
 
-    echo '<button type="submit" class="btn-submit" id="submitButton" disabled>Submit Order Request</button>';
+    echo '<button type="submit" class="btn btn-success btn-block btn-lg" id="submitButton" disabled>Submit Order Request</button>';
     echo '</form>';
 }
 
@@ -975,9 +1100,12 @@ echo '      visibleProducts.push(item);';
 echo '      return;';
 echo '    }';
 echo '    const name = item.dataset.productName.toLowerCase();';
-echo '    const sku = item.dataset.productSku.toLowerCase();';
+echo '    const sku = (item.dataset.productSku || "").toLowerCase();';
 echo '    const category = (item.dataset.productCategory || "").toLowerCase();';
-echo '    if (name.includes(search) || sku.includes(search) || category.includes(search)) {';
+echo '    const description = (item.dataset.productDescription || "").toLowerCase();';
+echo '    const barcode = (item.dataset.productBarcode || "").toLowerCase();';
+echo '    const code = (item.dataset.productCode || "").toLowerCase();';
+echo '    if (name.includes(search) || sku.includes(search) || category.includes(search) || description.includes(search) || barcode.includes(search) || code.includes(search)) {';
 echo '      item.classList.remove("hidden");';
 echo '      visibleProducts.push(item);';
 echo '      hasResults = true;';
@@ -1046,8 +1174,132 @@ echo '  performSearch();';
 echo '  document.getElementById("productSearch").focus();';
 echo '});';
 echo '';
-echo '// Focus search on page load';
-echo 'document.getElementById("productSearch").focus();';
+echo '// Customer search functionality';
+echo 'let currentCustomerHighlightIndex = -1;';
+echo 'let visibleCustomers = [];';
+echo '';
+echo 'function performCustomerSearch() {';
+echo '  const searchInput = document.getElementById("customerSearch");';
+echo '  const clearBtn = document.getElementById("clearCustomerSearch");';
+echo '  const customerList = document.getElementById("customerList");';
+echo '  const search = searchInput.value.toLowerCase().trim();';
+echo '';
+echo '  visibleCustomers = [];';
+echo '  currentCustomerHighlightIndex = -1;';
+echo '';
+echo '  clearBtn.style.display = search.length > 0 ? "block" : "none";';
+echo '';
+echo '  customerList.style.display = "block";';
+echo '  let hasResults = false;';
+echo '';
+echo '  document.querySelectorAll(".customer-item").forEach(item => {';
+echo '    const name = item.dataset.customerName.toLowerCase();';
+echo '    const phone = (item.dataset.customerPhone || "").toLowerCase();';
+echo '    const matches = search === "" || name.includes(search) || phone.includes(search);';
+echo '';
+echo '    item.classList.toggle("hidden", !matches);';
+echo '    item.classList.remove("highlighted");';
+echo '';
+echo '    if (matches) {';
+echo '      hasResults = true;';
+echo '      visibleCustomers.push(item);';
+echo '    }';
+echo '  });';
+echo '';
+echo '  if (visibleCustomers.length > 0) {';
+echo '    highlightCustomer(0);';
+echo '  }';
+echo '}';
+echo '';
+echo 'function highlightCustomer(index) {';
+echo '  visibleCustomers.forEach(item => item.classList.remove("highlighted"));';
+echo '  if (index >= 0 && index < visibleCustomers.length) {';
+echo '    currentCustomerHighlightIndex = index;';
+echo '    visibleCustomers[index].classList.add("highlighted");';
+echo '    visibleCustomers[index].scrollIntoView({ behavior: "smooth", block: "nearest" });';
+echo '  }';
+echo '}';
+echo '';
+echo 'function selectHighlightedCustomer() {';
+echo '  if (currentCustomerHighlightIndex >= 0 && currentCustomerHighlightIndex < visibleCustomers.length) {';
+echo '    const item = visibleCustomers[currentCustomerHighlightIndex];';
+echo '    selectCustomer(item);';
+echo '  }';
+echo '}';
+echo '';
+echo 'function selectCustomer(item) {';
+echo '  const customerId = item.dataset.customerId;';
+echo '  const customerName = item.dataset.customerName;';
+echo '  const customerPhone = item.dataset.customerPhone || "";';
+echo '  const customerCity = item.dataset.customerCity || "";';
+echo '';
+echo '  document.getElementById("selectedCustomerId").value = customerId;';
+echo '  document.getElementById("customerSearch").value = customerName;';
+echo '  document.getElementById("customerList").style.display = "none";';
+echo '';
+echo '  let displayHtml = "<div class=\"selected-customer-name\">" + customerName + "</div>";';
+echo '  displayHtml += "<div class=\"selected-customer-info\">";';
+echo '  if (customerPhone) displayHtml += "Phone: " + customerPhone;';
+echo '  if (customerPhone && customerCity) displayHtml += " | ";';
+echo '  if (customerCity) displayHtml += "City: " + customerCity;';
+echo '  displayHtml += "</div>";';
+echo '';
+echo '  const displayDiv = document.getElementById("selectedCustomerDisplay");';
+echo '  displayDiv.innerHTML = displayHtml;';
+echo '  displayDiv.style.display = "block";';
+echo '}';
+echo '';
+echo 'document.getElementById("customerSearch").addEventListener("input", performCustomerSearch);';
+echo '';
+echo 'document.getElementById("customerSearch").addEventListener("focus", function() {';
+echo '  performCustomerSearch();';
+echo '});';
+echo '';
+echo 'document.getElementById("customerSearch").addEventListener("keydown", function(e) {';
+echo '  if (e.key === "ArrowDown") {';
+echo '    e.preventDefault();';
+echo '    if (currentCustomerHighlightIndex < visibleCustomers.length - 1) highlightCustomer(currentCustomerHighlightIndex + 1);';
+echo '  } else if (e.key === "ArrowUp") {';
+echo '    e.preventDefault();';
+echo '    if (currentCustomerHighlightIndex > 0) highlightCustomer(currentCustomerHighlightIndex - 1);';
+echo '  } else if (e.key === "Enter") {';
+echo '    e.preventDefault();';
+echo '    selectHighlightedCustomer();';
+echo '  } else if (e.key === "Escape") {';
+echo '    e.preventDefault();';
+echo '    this.value = "";';
+echo '    document.getElementById("customerList").style.display = "none";';
+echo '    document.getElementById("clearCustomerSearch").style.display = "none";';
+echo '  }';
+echo '});';
+echo '';
+echo 'document.getElementById("clearCustomerSearch").addEventListener("click", function() {';
+echo '  document.getElementById("customerSearch").value = "";';
+echo '  document.getElementById("selectedCustomerId").value = "";';
+echo '  document.getElementById("customerList").style.display = "none";';
+echo '  document.getElementById("selectedCustomerDisplay").style.display = "none";';
+echo '  this.style.display = "none";';
+echo '  document.getElementById("customerSearch").focus();';
+echo '});';
+echo '';
+echo 'document.querySelectorAll(".customer-item").forEach(item => {';
+echo '  item.addEventListener("click", function() {';
+echo '    selectCustomer(this);';
+echo '  });';
+echo '});';
+echo '';
+echo '// Hide customer list when clicking outside';
+echo 'document.addEventListener("click", function(e) {';
+echo '  const customerSearch = document.getElementById("customerSearch");';
+echo '  const customerList = document.getElementById("customerList");';
+echo '  const clearBtn = document.getElementById("clearCustomerSearch");';
+echo '  if (e.target !== customerSearch && e.target !== clearBtn && !customerList.contains(e.target)) {';
+echo '    customerList.style.display = "none";';
+echo '  }';
+echo '});';
+echo '';
+echo '// Focus customer search on page load';
+echo 'document.getElementById("customerSearch").focus();';
 echo '</script>';
 
 sales_portal_render_layout_end();

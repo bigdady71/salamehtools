@@ -554,23 +554,6 @@ sales_portal_render_layout_start([
     box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
 }
 
-.btn-apply {
-    padding: 10px 24px;
-    background: var(--accent);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.btn-apply:hover {
-    background: var(--accent-2);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
-}
-
 .alerts-container {
     display: flex;
     flex-direction: column;
@@ -959,7 +942,7 @@ sales_portal_render_layout_start([
 
         <div class="filter-group">
             <label>&nbsp;</label>
-            <button type="submit" class="btn-apply">Apply Filter</button>
+            <button type="submit" class="btn btn-info">Apply Filter</button>
         </div>
     </form>
 </div>
@@ -995,7 +978,7 @@ function toggleCustomDates() {
         <div class="metric-sub"><?= number_format($revenue['order_count']) ?> orders</div>
         <?php if ($revenueGrowth != 0): ?>
             <div class="metric-growth <?= $revenueGrowth > 0 ? 'positive' : 'negative' ?>">
-                <?= $revenueGrowth > 0 ? '↑' : '↓' ?> <?= abs(number_format($revenueGrowth, 1)) ?>% vs previous period
+                <?= $revenueGrowth > 0 ? '↑' : '↓' ?> <?= number_format(abs($revenueGrowth), 1) ?>% vs previous period
             </div>
         <?php endif; ?>
     </div>
@@ -1006,7 +989,7 @@ function toggleCustomDates() {
         <div class="metric-sub">Avg: $<?= number_format($revenue['avg_order_value_usd'], 2) ?></div>
         <?php if ($ordersGrowth != 0): ?>
             <div class="metric-growth <?= $ordersGrowth > 0 ? 'positive' : 'negative' ?>">
-                <?= $ordersGrowth > 0 ? '↑' : '↓' ?> <?= abs(number_format($ordersGrowth, 1)) ?>% vs previous period
+                <?= $ordersGrowth > 0 ? '↑' : '↓' ?> <?= number_format(abs($ordersGrowth), 1) ?>% vs previous period
             </div>
         <?php endif; ?>
     </div>
@@ -1017,7 +1000,7 @@ function toggleCustomDates() {
         <div class="metric-sub">Unique customers</div>
         <?php if ($customersGrowth != 0): ?>
             <div class="metric-growth <?= $customersGrowth > 0 ? 'positive' : 'negative' ?>">
-                <?= $customersGrowth > 0 ? '↑' : '↓' ?> <?= abs(number_format($customersGrowth, 1)) ?>% vs previous period
+                <?= $customersGrowth > 0 ? '↑' : '↓' ?> <?= number_format(abs($customersGrowth), 1) ?>% vs previous period
             </div>
         <?php endif; ?>
     </div>

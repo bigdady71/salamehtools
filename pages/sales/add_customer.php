@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $phone = trim((string)($_POST['phone'] ?? ''));
         $location = trim((string)($_POST['location'] ?? ''));
         $shopType = trim((string)($_POST['shop_type'] ?? ''));
-        $email = trim((string)($_POST['email'] ?? ''));
+        $password = trim((string)($_POST['password'] ?? ''));
         $enablePortal = isset($_POST['enable_portal']) && $_POST['enable_portal'] === '1';
 
         $errors = [];
@@ -51,15 +51,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
 
         if ($enablePortal) {
-            if ($email === '') {
-                $errors[] = 'Email is required to enable portal access.';
-            } else {
-                // Check for duplicate email in users table
-                $checkEmailStmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE email = ?");
-                $checkEmailStmt->execute([$email]);
-                if ((int)$checkEmailStmt->fetchColumn() > 0) {
-                    $errors[] = 'A user with this email already exists.';
-                }
+            if ($password === '') {
+                $errors[] = 'Password is required to enable portal access.';
+            } elseif (strlen($password) < 4) {
+                $errors[] = 'Password must be at least 4 characters long.';
             }
         }
 
@@ -69,31 +64,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             try {
                 $pdo->beginTransaction();
 
-                $userId = null;
-                $tempPassword = null;
-
-                // Create user account if portal access is enabled
-                if ($enablePortal) {
-                    // Generate temporary password (phone number for now - easy to remember)
-                    $tempPassword = $phone;
-
-                    $userInsertStmt = $pdo->prepare("
-                        INSERT INTO users (name, email, phone, password_hash, role, is_active, created_at)
-                        VALUES (?, ?, ?, ?, '', 1, NOW())
-                    ");
-
-                    $userInsertStmt->execute([
-                        $name,
-                        $email,
-                        $phone,
-                        $tempPassword // Plain text for now as requested
-                    ]);
-
-                    $userId = (int)$pdo->lastInsertId();
-                }
-
+                // Insert customer with password
                 $insertStmt = $pdo->prepare("
-                    INSERT INTO customers (name, phone, location, shop_type, assigned_sales_rep_id, user_id, login_enabled, is_active, created_at)
+                    INSERT INTO customers (name, phone, location, shop_type, password_hash, assigned_sales_rep_id, login_enabled, is_active, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW())
                 ");
 
@@ -102,18 +75,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $phone,
                     $location !== '' ? $location : null,
                     $shopType !== '' ? $shopType : null,
+                    $enablePortal && $password !== '' ? $password : null, // Store plain text password
                     $repId, // Automatically assign to current sales rep
-                    $userId,
                     $enablePortal ? 1 : 0
                 ]);
 
                 $pdo->commit();
 
-                if ($enablePortal && $tempPassword) {
+                if ($enablePortal && $password) {
                     flash('success', "Customer \"{$name}\" has been successfully created with portal access!<br>
                         <strong>Login URL:</strong> <a href='/salamehtools/pages/login.php' target='_blank'>Customer Login</a><br>
-                        <strong>Username:</strong> {$phone} (or {$email})<br>
-                        <strong>Temporary Password:</strong> {$tempPassword}<br>
+                        <strong>Username:</strong> {$phone} or {$name}<br>
+                        <strong>Password:</strong> {$password}<br>
                         <em>Please share these credentials with the customer.</em>");
                 } else {
                     flash('success', "Customer \"{$name}\" has been successfully created and assigned to you.");
@@ -137,13 +110,14 @@ sales_portal_render_layout_start([
     'heading' => '➕ Add New Customer',
     'subtitle' => 'Create a new customer that will be automatically assigned to you',
     'user' => $user,
-    'active' => 'users'
+    'active' => 'add_customer' // Highlight "Add Customer" in sidebar
 ]);
 ?>
 
 <style>
 .form-container {
     max-width: 800px;
+    margin: 0 auto;
     background: white;
     border-radius: 12px;
     padding: 32px;
@@ -355,21 +329,21 @@ sales_portal_render_layout_start([
                     required
                     value="<?= htmlspecialchars($_POST['phone'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
                 >
-                <div class="form-help">Primary contact number (used as default password)</div>
+                <div class="form-help">Primary contact number (used as username for login)</div>
             </div>
 
-            <!-- Email -->
+            <!-- Password -->
             <div class="form-group">
-                <label class="form-label" for="email" id="email-label">Email Address</label>
+                <label class="form-label" for="password" id="password-label">Password</label>
                 <input
-                    type="email"
-                    id="email"
-                    name="email"
+                    type="text"
+                    id="password"
+                    name="password"
                     class="form-input"
-                    placeholder="customer@example.com"
-                    value="<?= htmlspecialchars($_POST['email'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                    placeholder="Enter customer password"
+                    value="<?= htmlspecialchars($_POST['password'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
                 >
-                <div class="form-help">Required if enabling portal access</div>
+                <div class="form-help">Required if enabling portal access (min 4 characters)</div>
             </div>
 
             <!-- Shop Type -->
@@ -414,23 +388,23 @@ sales_portal_render_layout_start([
                     </label>
                     <div style="margin-left: 32px; margin-top: 8px; font-size: 0.9rem; color: #047857;">
                         Allow this customer to access the online portal to view orders, invoices, make payments, and browse products.
-                        <br><strong>Note:</strong> Email is required for portal access. Temporary password will be their phone number.
+                        <br><strong>Note:</strong> Password is required for portal access. Customer can login using phone number or name.
                     </div>
                 </div>
             </div>
         </div>
 
         <script>
-        // Make email required when portal access is enabled
+        // Make password required when portal access is enabled
         document.getElementById('enable_portal').addEventListener('change', function() {
-            const emailInput = document.getElementById('email');
-            const emailLabel = document.getElementById('email-label');
+            const passwordInput = document.getElementById('password');
+            const passwordLabel = document.getElementById('password-label');
             if (this.checked) {
-                emailInput.required = true;
-                emailLabel.classList.add('required');
+                passwordInput.required = true;
+                passwordLabel.classList.add('required');
             } else {
-                emailInput.required = false;
-                emailLabel.classList.remove('required');
+                passwordInput.required = false;
+                passwordLabel.classList.remove('required');
             }
         });
         </script>
@@ -439,7 +413,7 @@ sales_portal_render_layout_start([
             <a href="users.php" class="btn btn-secondary">
                 Cancel
             </a>
-            <button type="submit" class="btn btn-primary">
+            <button type="submit" class="btn btn-success">
                 ✓ Create Customer
             </button>
         </div>

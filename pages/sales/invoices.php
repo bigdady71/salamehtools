@@ -855,8 +855,8 @@ admin_render_flashes($flashes);
         </div>
 
         <div class="filter-actions">
-            <button type="submit" class="btn btn-primary">Apply Filters</button>
-            <a href="invoices.php" class="btn">Clear</a>
+            <button type="submit" class="btn btn-info">Apply Filters</button>
+            <a href="invoices.php" class="btn btn-secondary">Clear</a>
             <?php
             // Build export URL with current filters
             $exportUrl = '?action=export';
@@ -876,7 +876,7 @@ admin_render_flashes($flashes);
                 $exportUrl .= '&date_to=' . urlencode($dateTo);
             }
             ?>
-            <a href="<?= htmlspecialchars($exportUrl, ENT_QUOTES, 'UTF-8') ?>" class="btn" style="background: #10b981; color: white; border-color: #10b981;">📊 Export CSV</a>
+            <a href="<?= htmlspecialchars($exportUrl, ENT_QUOTES, 'UTF-8') ?>" class="btn btn-success">📊 Export CSV</a>
         </div>
     </form>
 </div>
@@ -977,7 +977,7 @@ admin_render_flashes($flashes);
                     <td class="text-center">
                         <?php if ($invoice['status'] !== 'voided' && $invoice['status'] !== 'draft' && $invoice['status'] !== 'paid' && ($balanceUsd > 0.01 || $balanceLbp > 0.01)): ?>
                             <button onclick="openPaymentModal(<?= $invoice['id'] ?>, '<?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?>', <?= $balanceUsd ?>, <?= $balanceLbp ?>)"
-                                    class="btn" style="font-size: 0.85rem; padding: 6px 12px;">
+                                    class="btn btn-success btn-sm">
                                 Record Payment
                             </button>
                         <?php else: ?>
@@ -1069,8 +1069,8 @@ admin_render_flashes($flashes);
             </div>
 
             <div class="form-actions">
-                <button type="button" class="btn" onclick="closePaymentModal()">Cancel</button>
-                <button type="submit" class="btn btn-primary">Record Payment</button>
+                <button type="button" class="btn btn-secondary" onclick="closePaymentModal()">Cancel</button>
+                <button type="submit" class="btn btn-success">Record Payment</button>
             </div>
         </form>
     </div>

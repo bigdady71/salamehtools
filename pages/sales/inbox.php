@@ -406,7 +406,7 @@ $title = 'Customer Messages Inbox - Sales Portal';
                             </a>
                         <?php endif; ?>
                         <?php if ($msg['sender_type'] === 'customer'): ?>
-                            <button onclick="toggleReply(<?= $msg['id'] ?>); event.stopPropagation();" class="btn btn-primary">
+                            <button onclick="toggleReply(<?= $msg['id'] ?>); event.stopPropagation();" class="btn btn-info">
                                 Reply
                             </button>
                         <?php endif; ?>
@@ -423,7 +423,7 @@ $title = 'Customer Messages Inbox - Sales Portal';
                                 <input type="hidden" name="action" value="reply">
                                 <input type="hidden" name="message_id" value="<?= $msg['id'] ?>">
                                 <textarea name="reply" placeholder="Type your reply here..." required></textarea>
-                                <button type="submit" class="btn btn-primary">Send Reply</button>
+                                <button type="submit" class="btn btn-success">Send Reply</button>
                                 <button type="button" onclick="toggleReply(<?= $msg['id'] ?>); event.stopPropagation();" class="btn btn-secondary">Cancel</button>
                             </form>
                         </div>

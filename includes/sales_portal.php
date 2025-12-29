@@ -125,7 +125,7 @@ function sales_portal_render_layout_start(array $options = []): void
     echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
     echo '<title>', $escTitle, '</title>';
     echo $extraHead;
-    echo '<link rel="stylesheet" href="/css/app.css?v=2">';
+    echo '<link rel="stylesheet" href="../css/app.css?v=2">';
     echo '<style>';
     echo ':root{--bg:#f3f4f6;--bg-panel:#ffffff;--bg-panel-alt:#f9fafc;--text:#111827;--muted:#6b7280;';
     echo '--accent:#0ea5e9;--accent-2:#06b6d4;--border:#e5e7eb;--sales-gradient:linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);}';

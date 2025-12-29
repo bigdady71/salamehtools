@@ -863,7 +863,7 @@ foreach ($flashes as $msg):
                 <input type="date" name="due_date" class="form-control">
             </div>
 
-            <button type="submit" class="btn btn-primary">Add Follow-up</button>
+            <button type="submit" class="btn btn-success">Add Follow-up</button>
         </form>
     </div>
 
@@ -958,7 +958,7 @@ foreach ($flashes as $msg):
                     <?= $customer['last_payment_date'] ? date('M d, Y', strtotime($customer['last_payment_date'])) : '<span style="color: #dc2626;">Never</span>' ?>
                 </td>
                 <td class="text-center">
-                    <a href="?customer_id=<?= $customer['id'] ?>" class="btn btn-sm btn-primary">
+                    <a href="?customer_id=<?= $customer['id'] ?>" class="btn btn-sm btn-info">
                         View Details
                     </a>
                 </td>

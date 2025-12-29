@@ -331,65 +331,61 @@ $statusStyles = [
             No product movement data available
         </p>
     <?php else: ?>
-        <div style="display:flex;flex-direction:column;gap:12px;">
-            <?php foreach ($topProducts as $product): ?>
-                <?php
-                $stockOnHand = (float)($product['qty_on_hand'] ?? 0);
-                $totalOrdered = (float)$product['total_ordered'];
-                $stockColor = '';
-
-                if ($stockOnHand <= 0) {
-                    $stockColor = '#dc2626';
-                } elseif ($stockOnHand < $totalOrdered * 0.2) {
-                    $stockColor = '#f59e0b';
-                } else {
-                    $stockColor = '#059669';
-                }
-                ?>
-                <div style="background:white;border:2px solid #e5e7eb;border-radius:8px;padding:12px;display:flex;gap:12px;align-items:center;">
-                    <!-- Product Image -->
-                    <?php if (!empty($product['image_url'])): ?>
-                        <img src="<?= htmlspecialchars($product['image_url'], ENT_QUOTES, 'UTF-8') ?>"
-                             alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                             style="width:50px;height:50px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;">
-                    <?php else: ?>
-                        <div style="width:50px;height:50px;background:#f3f4f6;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:1.3rem;">
-                            📦
-                        </div>
-                    <?php endif; ?>
-
-                    <!-- Product Info -->
-                    <div style="flex:1;min-width:0;">
-                        <div style="font-weight:600;font-size:0.95rem;">
-                            <?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>
-                        </div>
-                        <div style="font-size:0.8rem;color:#6b7280;">
-                            <span style="font-family:monospace;font-weight:600;">
-                                <?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?>
-                            </span>
-                            &nbsp;•&nbsp;<?= (int)$product['order_count'] ?> orders
-                        </div>
-                    </div>
-
-                    <!-- Stats -->
-                    <div style="text-align:center;padding:8px 12px;background:#f3f4f6;border-radius:6px;min-width:80px;">
-                        <div style="font-size:1.2rem;font-weight:700;color:#1f2937;">
-                            <?= number_format($totalOrdered, 0) ?>
-                        </div>
-                        <div style="font-size:0.7rem;color:#6b7280;">ordered</div>
-                    </div>
-
-                    <!-- Stock Status -->
-                    <div style="text-align:center;min-width:70px;">
-                        <div style="font-weight:700;font-size:1.1rem;color:<?= $stockColor ?>;">
-                            <?= number_format($stockOnHand, 0) ?>
-                        </div>
-                        <div style="font-size:0.7rem;color:#6b7280;">in stock</div>
-                    </div>
-                </div>
-            <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
+     <div style="display:flex;flex-direction:column;gap:12px;">
+         <?php foreach ($topProducts as $product): ?>
+             <?php
+             $stockOnHand = (float)($product['qty_on_hand'] ?? 0);
+             $totalOrdered = (float)$product['total_ordered'];
+             $stockColor = '';
+             if ($stockOnHand <= 0) {
+                 $stockColor = '#dc2626';
+             } elseif ($stockOnHand < $totalOrdered * 0.2) {
+                 $stockColor = '#f59e0b';
+             } else {
+                 $stockColor = '#059669';
+             }
+             ?>
+             <div style="background:white;border:2px solid #e5e7eb;border-radius:8px;padding:12px;display:flex;gap:12px;align-items:center;">
+                 <!-- Product Image -->
+                 <?php if (!empty($product['image_url'])): ?>
+                     <img src="<?= htmlspecialchars($product['image_url'], ENT_QUOTES, 'UTF-8') ?>"
+                          alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                          style="width:50px;height:50px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;">
+                 <?php else: ?>
+                     <div style="width:50px;height:50px;background:#f3f4f6;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:1.3rem;">
+                         📦
+                     </div>
+                 <?php endif; ?>
+                 <!-- Product Info -->
+                 <div style="flex:1;min-width:0;">
+                     <div style="font-weight:600;font-size:0.95rem;">
+                         <?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>
+                     </div>
+                     <div style="font-size:0.8rem;color:#6b7280;">
+                         <span style="font-family:monospace;font-weight:600;">
+                             <?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?>
+                         </span>
+                         &nbsp;•&nbsp;<?= (int)$product['order_count'] ?> orders
+                     </div>
+                 </div>
+                 <!-- Stats -->
+                 <div style="text-align:center;padding:8px 12px;background:#f3f4f6;border-radius:6px;min-width:80px;">
+                     <div style="font-size:1.2rem;font-weight:700;color:#1f2937;">
+                         <?= number_format($totalOrdered, 0) ?>
+                     </div>
+                     <div style="font-size:0.7rem;color:#6b7280;">ordered</div>
+                 </div>
+                 <!-- Stock Status -->
+                 <div style="text-align:center;min-width:70px;">
+                     <div style="font-weight:700;font-size:1.1rem;color:<?= $stockColor ?>;">
+                         <?= number_format($stockOnHand, 0) ?>
+                     </div>
+                     <div style="font-size:0.7rem;color:#6b7280;">in stock</div>
+                 </div>
+             </div>
+         <?php endforeach; ?>
+     </div>
+ <?php endif; ?>
 </div>
 
 <?php

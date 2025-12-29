@@ -403,8 +403,8 @@ sales_portal_render_layout_start([
         </div>
 
         <div class="filter-actions">
-            <button type="submit" class="btn btn-primary">Apply Filters</button>
-            <a href="products.php" class="btn">Clear</a>
+            <button type="submit" class="btn btn-info">Apply Filters</button>
+            <a href="products.php" class="btn btn-secondary">Clear</a>
         </div>
     </form>
 </div>

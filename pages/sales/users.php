@@ -271,6 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'update_customer') {
         $phone = trim((string)($_POST['phone'] ?? ''));
         $location = trim((string)($_POST['location'] ?? ''));
         $shopType = trim((string)($_POST['shop_type'] ?? ''));
+        $password = trim((string)($_POST['password'] ?? ''));
 
         // Verify customer belongs to sales rep
         $checkStmt = $pdo->prepare("SELECT id FROM customers WHERE id = :id AND assigned_sales_rep_id = :rep_id");
@@ -309,24 +310,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'update_customer') {
                 ];
             } else {
                 try {
-                    $updateStmt = $pdo->prepare("
-                        UPDATE customers
-                        SET name = :name,
-                            phone = :phone,
-                            location = :location,
-                            shop_type = :shop_type,
-                            updated_at = NOW()
-                        WHERE id = :id AND assigned_sales_rep_id = :rep_id
-                    ");
+                    // Update customer with optional password change
+                    if ($password !== '') {
+                        $updateStmt = $pdo->prepare("
+                            UPDATE customers
+                            SET name = :name,
+                                phone = :phone,
+                                location = :location,
+                                shop_type = :shop_type,
+                                password_hash = :password,
+                                updated_at = NOW()
+                            WHERE id = :id AND assigned_sales_rep_id = :rep_id
+                        ");
 
-                    $updateStmt->execute([
-                        ':name' => $name,
-                        ':phone' => $phone !== '' ? $phone : null,
-                        ':location' => $location !== '' ? $location : null,
-                        ':shop_type' => $shopType !== '' ? $shopType : null,
-                        ':id' => $customerId,
-                        ':rep_id' => $repId,
-                    ]);
+                        $updateStmt->execute([
+                            ':name' => $name,
+                            ':phone' => $phone !== '' ? $phone : null,
+                            ':location' => $location !== '' ? $location : null,
+                            ':shop_type' => $shopType !== '' ? $shopType : null,
+                            ':password' => $password,
+                            ':id' => $customerId,
+                            ':rep_id' => $repId,
+                        ]);
+                    } else {
+                        $updateStmt = $pdo->prepare("
+                            UPDATE customers
+                            SET name = :name,
+                                phone = :phone,
+                                location = :location,
+                                shop_type = :shop_type,
+                                updated_at = NOW()
+                            WHERE id = :id AND assigned_sales_rep_id = :rep_id
+                        ");
+
+                        $updateStmt->execute([
+                            ':name' => $name,
+                            ':phone' => $phone !== '' ? $phone : null,
+                            ':location' => $location !== '' ? $location : null,
+                            ':shop_type' => $shopType !== '' ? $shopType : null,
+                            ':id' => $customerId,
+                            ':rep_id' => $repId,
+                        ]);
+                    }
 
                     $flashes[] = [
                         'type' => 'success',
@@ -1153,6 +1178,10 @@ echo '<label>Phone</label>';
 echo '<input type="text" name="phone" id="edit-phone">';
 echo '</div>';
 echo '<div class="form-group">';
+echo '<label>Password <span style="font-size: 0.85rem; color: #6b7280;">(leave blank to keep current)</span></label>';
+echo '<input type="text" name="password" id="edit-password" placeholder="Enter new password to change">';
+echo '</div>';
+echo '<div class="form-group">';
 echo '<label>Address</label>';
 echo '<input type="text" name="address" id="edit-address">';
 echo '</div>';
@@ -1217,6 +1246,7 @@ echo '      document.getElementById("edit-customer-id").value = data.id;';
 echo '      document.getElementById("edit-name").value = data.name || "";';
 echo '      document.getElementById("edit-email").value = data.email || "";';
 echo '      document.getElementById("edit-phone").value = data.phone || "";';
+echo '      document.getElementById("edit-password").value = "";'; // Always clear password field
 echo '      document.getElementById("edit-address").value = data.address || "";';
 echo '      document.getElementById("edit-city").value = data.city || "";';
 echo '      document.getElementById("edit-country").value = data.country || "";';

@@ -8,6 +8,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $pw = $_POST['password'] ?? '';
   if ($id !== '' && $pw !== '') {
     $pdo = db();
+
+    // First try to login as staff user (users table)
     $stmt = $pdo->prepare(
       "SELECT id, name, role, is_active, password_hash
        FROM users
@@ -16,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     );
     $stmt->execute([':id' => $id]);
     $u = $stmt->fetch(PDO::FETCH_ASSOC);
+
     // plain-text check (temporary, dev only)
     if ($u && (int)$u['is_active'] === 1 && $pw === $u['password_hash']) {
       $_SESSION['user'] = [
@@ -23,25 +26,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'name' => $u['name'],
         'role' => $u['role']
       ];
-
-      // Update last login timestamp for customers
-      if (empty($u['role']) || $u['role'] === 'viewer') {
-        // Check if customers table has login tracking columns
-        $checkCustomerStmt = $pdo->prepare("SELECT id FROM customers WHERE user_id = ? LIMIT 1");
-        $checkCustomerStmt->execute([$u['id']]);
-        $customer = $checkCustomerStmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($customer) {
-          // Update last login time (only if column exists)
-          try {
-            $updateLoginStmt = $pdo->prepare("UPDATE customers SET last_login_at = NOW() WHERE user_id = ?");
-            $updateLoginStmt->execute([$u['id']]);
-          } catch (PDOException $e) {
-            // Column doesn't exist yet, ignore silently
-            error_log("Last login update failed (column may not exist): " . $e->getMessage());
-          }
-        }
-      }
 
       // redirect by role
       switch ($u['role']) {
@@ -57,19 +41,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'warehouse':
           $dest = 'warehouse/dashboard.php';
           break;
-        case 'viewer':
-          $dest = 'customer/dashboard.php';
-          break;
-        case '':
-          // Empty role = customer login
-          $dest = 'customer/dashboard.php';
-          break;
         default:
           $dest = 'customer/dashboard.php';
       }
       header('Location: ' . $dest);
       exit;
     }
+
+    // If not a staff user, try customer login (customers table)
+    $customerStmt = $pdo->prepare(
+      "SELECT id, name, phone, password_hash, is_active, login_enabled
+       FROM customers
+       WHERE (phone = :id OR name = :id) AND login_enabled = 1
+       LIMIT 1"
+    );
+    $customerStmt->execute([':id' => $id]);
+    $customer = $customerStmt->fetch(PDO::FETCH_ASSOC);
+
+    // plain-text password check for customers
+    if ($customer && (int)$customer['is_active'] === 1 && $pw === $customer['password_hash']) {
+      $_SESSION['user'] = [
+        'id'   => $customer['id'],
+        'name' => $customer['name'],
+        'role' => 'customer'
+      ];
+
+      // Update last login timestamp
+      try {
+        $updateLoginStmt = $pdo->prepare("UPDATE customers SET last_login_at = NOW() WHERE id = ?");
+        $updateLoginStmt->execute([$customer['id']]);
+      } catch (PDOException $e) {
+        error_log("Last login update failed: " . $e->getMessage());
+      }
+
+      header('Location: customer/dashboard.php');
+      exit;
+    }
+
     $error = 'Invalid credentials or inactive account.';
   } else {
     $error = 'Both fields are required.';
