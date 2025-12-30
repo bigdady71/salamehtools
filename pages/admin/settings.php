@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../includes/db.php';
 require_once __DIR__ . '/../../includes/admin_page.php';
 require_once __DIR__ . '/../../includes/flash.php';
 require_once __DIR__ . '/../../includes/CacheManager.php';
+require_once __DIR__ . '/../../includes/import_products.php';
 
 require_login();
 $user = auth_user();
@@ -56,6 +57,118 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         flash('error', 'Invalid CSRF token. Please try again.');
         header('Location: ' . $_SERVER['REQUEST_URI']);
         exit;
+    }
+
+    if ($_POST['action'] === 'manual_import') {
+        try {
+            $importPath = null;
+            $uploadType = $_POST['manual_upload_type'] ?? 'file';
+
+            // Handle file upload
+            if ($uploadType === 'file' && isset($_FILES['manual_import_file']) && $_FILES['manual_import_file']['error'] === UPLOAD_ERR_OK) {
+                $uploadedFile = $_FILES['manual_import_file'];
+                $allowedTypes = ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+                $fileExt = strtolower(pathinfo($uploadedFile['name'], PATHINFO_EXTENSION));
+
+                if (in_array($uploadedFile['type'], $allowedTypes) || in_array($fileExt, ['xls', 'xlsx'])) {
+                    $importDir = __DIR__ . '/../../imports';
+                    if (!is_dir($importDir)) {
+                        mkdir($importDir, 0755, true);
+                    }
+
+                    $targetPath = $importDir . '/manual_import_' . time() . '.' . $fileExt;
+
+                    if (move_uploaded_file($uploadedFile['tmp_name'], $targetPath)) {
+                        $importPath = realpath($targetPath);
+                    } else {
+                        throw new Exception('Failed to save uploaded file.');
+                    }
+                } else {
+                    throw new Exception('Invalid file type. Please upload an Excel file (.xls or .xlsx).');
+                }
+            } else if ($uploadType === 'existing') {
+                // Use existing file from selection
+                $importPath = trim($_POST['manual_import_path'] ?? '');
+                if (empty($importPath) || !file_exists($importPath)) {
+                    throw new Exception('Please select a valid file to import.');
+                }
+            }
+
+            if (!$importPath) {
+                throw new Exception('Please upload a file or select an existing file to import.');
+            }
+
+            // Create import run record
+            $pdo->beginTransaction();
+
+            $checksum = hash_file('sha256', $importPath);
+            $insertRunStmt = $pdo->prepare("
+                INSERT INTO import_runs (kind, source_path, checksum, started_at)
+                VALUES ('products', :source_path, :checksum, NOW())
+            ");
+            $insertRunStmt->execute([
+                ':source_path' => $importPath,
+                ':checksum' => $checksum
+            ]);
+            $runId = (int)$pdo->lastInsertId();
+
+            // Run the import
+            $importResult = import_products_from_path($pdo, $importPath, $runId);
+
+            // Update import run record
+            $updateRunStmt = $pdo->prepare("
+                UPDATE import_runs
+                SET finished_at = NOW(),
+                    rows_ok = :rows_ok,
+                    rows_updated = :rows_updated,
+                    rows_skipped = :rows_skipped,
+                    ok = :ok,
+                    message = :message
+                WHERE id = :id
+            ");
+            $updateRunStmt->execute([
+                ':id' => $runId,
+                ':rows_ok' => $importResult['inserted'],
+                ':rows_updated' => $importResult['updated'],
+                ':rows_skipped' => $importResult['skipped'],
+                ':ok' => $importResult['ok'] ? 1 : 0,
+                ':message' => $importResult['message']
+            ]);
+
+            if ($importResult['ok']) {
+                $pdo->commit();
+                $successMessage = sprintf(
+                    'Import completed successfully! Added: %d, Updated: %d, Skipped: %d, Total: %d',
+                    $importResult['inserted'],
+                    $importResult['updated'],
+                    $importResult['skipped'],
+                    $importResult['total']
+                );
+                flash('success', '', [
+                    'title' => 'Manual Import Successful',
+                    'lines' => [$successMessage],
+                    'dismissible' => true
+                ]);
+            } else {
+                $pdo->rollBack();
+                $errorMessage = 'Import failed: ' . $importResult['message'];
+                if (!empty($importResult['errors'])) {
+                    $errorMessage .= ' Errors: ' . implode(', ', array_slice($importResult['errors'], 0, 3));
+                }
+                flash('error', $errorMessage);
+            }
+
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            flash('error', 'Import failed: ' . $e->getMessage());
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+        }
     }
 
     if ($_POST['action'] === 'save_settings') {
@@ -247,6 +360,37 @@ $flashes = consume_flashes();
     .btn-save:hover {
         background: #003366;
     }
+    .btn-import-now {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 14px 36px;
+        background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+        color: #ffffff;
+        border: none;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 1.05rem;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 4px 14px rgba(34, 197, 94, 0.4);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .btn-import-now:hover {
+        background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(34, 197, 94, 0.5);
+    }
+    .btn-import-now:active {
+        transform: translateY(0);
+    }
+    .btn-import-now svg {
+        transition: transform 0.3s ease;
+    }
+    .btn-import-now:hover svg {
+        transform: scale(1.1);
+    }
     .status-panel {
         background: var(--bg-panel-alt);
         border: 1px solid var(--border);
@@ -359,6 +503,36 @@ function switchTab(tab) {
     document.getElementById('upload_type').value = tab;
 }
 
+function switchManualTab(tab) {
+    // Update tab buttons in manual import section
+    const manualTabs = event.target.closest('.settings-section').querySelectorAll('.upload-tab');
+    manualTabs.forEach(t => t.classList.remove('active'));
+    event.target.classList.add('active');
+
+    // Update tab content in manual import section
+    const manualContents = ['manual-file-tab', 'manual-existing-tab'];
+    manualContents.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('active');
+    });
+    document.getElementById('manual-' + tab + '-tab').classList.add('active');
+
+    // Update hidden input
+    document.getElementById('manual_upload_type').value = tab;
+
+    // Update required attribute
+    const fileInput = document.querySelector('input[name="manual_import_file"]');
+    const selectInput = document.querySelector('select[name="manual_import_path"]');
+
+    if (tab === 'file') {
+        if (fileInput) fileInput.required = true;
+        if (selectInput) selectInput.required = false;
+    } else {
+        if (fileInput) fileInput.required = false;
+        if (selectInput) selectInput.required = true;
+    }
+}
+
 // Handle custom path toggle
 <?php if (!empty($availableFiles)): ?>
 document.addEventListener('DOMContentLoaded', function() {
@@ -393,12 +567,82 @@ document.addEventListener('DOMContentLoaded', function() {
 <div class="settings-container">
     <?php foreach ($flashes as $flash): ?>
         <div class="result-box result-<?= htmlspecialchars($flash['type'], ENT_QUOTES, 'UTF-8') ?>" style="margin-bottom: 20px;">
-            <?php if ($flash['title']): ?>
+            <?php if (isset($flash['title']) && $flash['title']): ?>
                 <strong><?= htmlspecialchars($flash['title'], ENT_QUOTES, 'UTF-8') ?></strong><br>
             <?php endif; ?>
-            <?= htmlspecialchars($flash['message'], ENT_QUOTES, 'UTF-8') ?>
+            <?php if (isset($flash['lines']) && is_array($flash['lines'])): ?>
+                <?php foreach ($flash['lines'] as $line): ?>
+                    <?= htmlspecialchars($line, ENT_QUOTES, 'UTF-8') ?><br>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <?= htmlspecialchars($flash['message'] ?? '', ENT_QUOTES, 'UTF-8') ?>
+            <?php endif; ?>
         </div>
     <?php endforeach; ?>
+
+    <!-- Manual Import Section -->
+    <div class="settings-section" style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border: 2px solid #86efac;">
+        <h2 class="section-title" style="color: #15803d; display: flex; align-items: center; gap: 10px;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            Manual Import Now
+        </h2>
+        <p class="section-subtitle" style="color: #166534;">
+            Upload and immediately process an Excel file to update products right now
+        </p>
+
+        <form method="post" action="" enctype="multipart/form-data" style="margin-bottom: 0;">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="manual_import">
+            <input type="hidden" name="manual_upload_type" id="manual_upload_type" value="file">
+
+            <div class="upload-tabs">
+                <div class="upload-tab active" onclick="switchManualTab('file')">Upload File</div>
+                <?php if (!empty($availableFiles)): ?>
+                    <div class="upload-tab" onclick="switchManualTab('existing')">Select Existing File</div>
+                <?php endif; ?>
+            </div>
+
+            <div id="manual-file-tab" class="tab-content active">
+                <div class="form-row">
+                    <label class="form-label">Choose Excel File to Import</label>
+                    <input type="file" name="manual_import_file" class="form-input" accept=".xls,.xlsx" required>
+                    <p class="form-help">
+                        Select an Excel file to upload and process immediately. The import will update all products in the database.
+                    </p>
+                </div>
+            </div>
+
+            <?php if (!empty($availableFiles)): ?>
+                <div id="manual-existing-tab" class="tab-content">
+                    <div class="form-row">
+                        <label class="form-label">Select File to Import</label>
+                        <select name="manual_import_path" class="form-input" style="font-family: 'Courier New', monospace;">
+                            <option value="">-- Select a file --</option>
+                            <?php foreach ($availableFiles as $file): ?>
+                                <option value="<?= htmlspecialchars($file, ENT_QUOTES, 'UTF-8') ?>">
+                                    <?= htmlspecialchars($file, ENT_QUOTES, 'UTF-8') ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="form-help">
+                            Select an existing Excel file from the imports directory to process immediately.
+                        </p>
+                    </div>
+                </div>
+            <?php endif; ?>
+
+            <button type="submit" class="btn-import-now">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                Import Now
+            </button>
+        </form>
+    </div>
 
     <form method="post" action="" enctype="multipart/form-data">
         <?= csrf_field() ?>

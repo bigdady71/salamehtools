@@ -5,26 +5,29 @@ declare(strict_types=1);
 /**
  * Helper utilities for rendering admin pages with a shared layout.
  */
-function admin_nav_links(): array
-{
-    return [
-        'dashboard' => ['label' => 'Dashboard', 'href' => 'dashboard.php'],
-        'users' => ['label' => 'Users', 'href' => 'users.php'],
-        'products' => ['label' => 'Products', 'href' => 'products.php'],
-        'orders' => ['label' => 'Orders', 'href' => 'orders.php'],
-        'invoices' => ['label' => 'Invoices', 'href' => 'invoices.php'],
-        'customers' => ['label' => 'Customers', 'href' => 'customers.php'],
-        'sales_reps' => ['label' => 'Sales Reps', 'href' => 'sales_reps.php'],
-        'receivables' => ['label' => 'Receivables', 'href' => 'receivables.php'],
-        'warehouse' => ['label' => 'Warehouse', 'href' => 'warehouse_stock.php'],
-        'analytics' => ['label' => 'Analytics', 'href' => 'analytics.php'],
-        'demo_filters' => ['label' => 'Filters Demo', 'href' => 'demo_filters_export.php'],
-        'stats' => ['label' => 'Statistics', 'href' => 'stats.php'],
-        'settings' => ['label' => 'Settings', 'href' => 'settings.php'],
-    ];
+if (!function_exists('admin_nav_links')) {
+    function admin_nav_links(): array
+    {
+        return [
+            'dashboard' => ['label' => 'Dashboard', 'href' => 'dashboard.php'],
+            'users' => ['label' => 'Users', 'href' => 'users.php'],
+            'products' => ['label' => 'Products', 'href' => 'products.php'],
+            'orders' => ['label' => 'Orders', 'href' => 'orders.php'],
+            'invoices' => ['label' => 'Invoices', 'href' => 'invoices.php'],
+            'customers' => ['label' => 'Customers', 'href' => 'customers.php'],
+            'sales_reps' => ['label' => 'Sales Reps', 'href' => 'sales_reps.php'],
+            'receivables' => ['label' => 'Receivables', 'href' => 'receivables.php'],
+            'warehouse' => ['label' => 'Warehouse', 'href' => 'warehouse_stock.php'],
+            'analytics' => ['label' => 'Analytics', 'href' => 'analytics.php'],
+            'demo_filters' => ['label' => 'Filters Demo', 'href' => 'demo_filters_export.php'],
+            'stats' => ['label' => 'Statistics', 'href' => 'stats.php'],
+            'settings' => ['label' => 'Settings', 'href' => 'settings.php'],
+        ];
+    }
 }
 
-function admin_render_layout_start(array $options = []): void
+if (!function_exists('admin_render_layout_start')) {
+    function admin_render_layout_start(array $options = []): void
 {
     $title = (string)($options['title'] ?? 'Admin');
     $heading = (string)($options['heading'] ?? $title);
@@ -144,11 +147,14 @@ function admin_render_layout_start(array $options = []): void
     }
 
     echo '</header>';
+    }
 }
 
-function admin_render_layout_end(): void
-{
-    echo '</main></div></body></html>';
+if (!function_exists('admin_render_layout_end')) {
+    function admin_render_layout_end(): void
+    {
+        echo '</main></div></body></html>';
+    }
 }
 
 /**
@@ -156,7 +162,8 @@ function admin_render_layout_end(): void
  *
  * @param array<int, array{type:string,message:string,title:?string,lines:array<int,string>,list:array<int,string>,dismissible:bool}> $flashes
  */
-function admin_render_flashes(array $flashes): void
+if (!function_exists('admin_render_flashes')) {
+    function admin_render_flashes(array $flashes): void
 {
     if (!$flashes) {
         return;
@@ -217,4 +224,5 @@ function admin_render_flashes(array $flashes): void
     }
 
     echo '</div>';
+    }
 }

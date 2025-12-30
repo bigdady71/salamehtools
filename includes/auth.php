@@ -3,6 +3,8 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-function auth_user() {
-    return $_SESSION['user'] ?? null;
+if (!function_exists('auth_user')) {
+    function auth_user() {
+        return $_SESSION['user'] ?? null;
+    }
 }

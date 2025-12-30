@@ -16,8 +16,9 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
  * @param int|null $run_id Optional import_runs.id for tracking
  * @return array ['ok' => bool, 'inserted' => int, 'updated' => int, 'skipped' => int, 'total' => int, 'errors' => array, 'warnings' => array, 'message' => string]
  */
-function import_products_from_path(PDO $pdo, string $path, ?int $run_id = null): array
-{
+if (!function_exists('import_products_from_path')) {
+    function import_products_from_path(PDO $pdo, string $path, ?int $run_id = null): array
+    {
     $result = [
         'ok' => false,
         'inserted' => 0,
@@ -227,4 +228,5 @@ function import_products_from_path(PDO $pdo, string $path, ?int $run_id = null):
     }
 
     return $result;
+    }
 }
