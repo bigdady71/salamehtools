@@ -171,6 +171,117 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
+    if ($_POST['action'] === 'upload_images') {
+        try {
+            $imagesDir = __DIR__ . '/../../images/products';
+            if (!is_dir($imagesDir)) {
+                mkdir($imagesDir, 0755, true);
+            }
+
+            $uploadedCount = 0;
+            $skippedCount = 0;
+            $errorCount = 0;
+            $errors = [];
+
+            // Handle multiple file uploads
+            if (isset($_FILES['product_images']) && is_array($_FILES['product_images']['name'])) {
+                $fileCount = count($_FILES['product_images']['name']);
+
+                for ($i = 0; $i < $fileCount; $i++) {
+                    if ($_FILES['product_images']['error'][$i] === UPLOAD_ERR_OK) {
+                        $fileName = $_FILES['product_images']['name'][$i];
+                        $tmpName = $_FILES['product_images']['tmp_name'][$i];
+                        $fileSize = $_FILES['product_images']['size'][$i];
+                        $fileType = $_FILES['product_images']['type'][$i];
+
+                        // Extract just the filename (in case of folder upload with path)
+                        $baseFileName = basename($fileName);
+
+                        // Validate file type
+                        $allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+                        $fileExt = strtolower(pathinfo($baseFileName, PATHINFO_EXTENSION));
+                        $allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+
+                        if (!in_array($fileType, $allowedTypes) && !in_array($fileExt, $allowedExts)) {
+                            $errors[] = "{$baseFileName}: Invalid file type (must be JPG, PNG, GIF, or WEBP)";
+                            $errorCount++;
+                            continue;
+                        }
+
+                        // Validate file size (max 5MB)
+                        if ($fileSize > 5 * 1024 * 1024) {
+                            $errors[] = "{$baseFileName}: File too large (max 5MB)";
+                            $errorCount++;
+                            continue;
+                        }
+
+                        // Extract SKU from filename (remove extension)
+                        $sku = pathinfo($baseFileName, PATHINFO_FILENAME);
+
+                        // Check if product with this SKU exists
+                        $checkStmt = $pdo->prepare("SELECT COUNT(*) FROM products WHERE sku = :sku");
+                        $checkStmt->execute([':sku' => $sku]);
+                        $exists = (int)$checkStmt->fetchColumn() > 0;
+
+                        if (!$exists) {
+                            $errors[] = "{$baseFileName}: No product found with SKU '{$sku}'";
+                            $skippedCount++;
+                            continue;
+                        }
+
+                        // Save the file with base filename only (no folder path)
+                        $targetPath = $imagesDir . '/' . $baseFileName;
+
+                        // If file exists, overwrite it
+                        if (file_exists($targetPath)) {
+                            unlink($targetPath);
+                        }
+
+                        if (move_uploaded_file($tmpName, $targetPath)) {
+                            $uploadedCount++;
+                        } else {
+                            $errors[] = "{$baseFileName}: Failed to save file";
+                            $errorCount++;
+                        }
+                    } else if ($_FILES['product_images']['error'][$i] !== UPLOAD_ERR_NO_FILE) {
+                        $errorCount++;
+                        $errors[] = "File {$i}: Upload error code " . $_FILES['product_images']['error'][$i];
+                    }
+                }
+            }
+
+            // Build success/error message
+            if ($uploadedCount > 0) {
+                $message = "Successfully uploaded {$uploadedCount} product image(s).";
+                if ($skippedCount > 0) {
+                    $message .= " Skipped {$skippedCount} (no matching product SKU).";
+                }
+                if ($errorCount > 0) {
+                    $message .= " {$errorCount} error(s) occurred.";
+                }
+
+                flash('success', '', [
+                    'title' => 'Product Images Uploaded',
+                    'lines' => [$message],
+                    'list' => !empty($errors) ? array_slice($errors, 0, 10) : [],
+                    'dismissible' => true
+                ]);
+            } else {
+                flash('error', 'No images were uploaded.', [
+                    'list' => !empty($errors) ? array_slice($errors, 0, 10) : []
+                ]);
+            }
+
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+
+        } catch (Exception $e) {
+            flash('error', 'Image upload failed: ' . $e->getMessage());
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+        }
+    }
+
     if ($_POST['action'] === 'save_settings') {
         try {
             $pdo->beginTransaction();
@@ -487,6 +598,13 @@ $flashes = consume_flashes();
     .tab-content.active {
         display: block;
     }
+    code {
+        background: rgba(0, 0, 0, 0.1);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9em;
+    }
 </style>
 
 <script>
@@ -530,6 +648,68 @@ function switchManualTab(tab) {
     } else {
         if (fileInput) fileInput.required = false;
         if (selectInput) selectInput.required = true;
+    }
+}
+
+// Update file count display
+function updateFileCount(input) {
+    const display = document.getElementById('file-count-display');
+    const count = input.files.length;
+    if (count > 0) {
+        display.textContent = `${count} file(s) selected`;
+        display.style.color = '#15803d';
+        display.style.fontWeight = '600';
+    } else {
+        display.textContent = 'Select one or more product images to upload (hold Ctrl/Cmd to select multiple files)';
+        display.style.color = '';
+        display.style.fontWeight = '';
+    }
+}
+
+// Update folder count display
+function updateFolderCount(input) {
+    const display = document.getElementById('folder-count-display');
+    const count = input.files.length;
+    if (count > 0) {
+        // Get folder name from first file path
+        const firstFile = input.files[0];
+        const folderPath = firstFile.webkitRelativePath || firstFile.name;
+        const folderName = folderPath.split('/')[0] || 'selected folder';
+        display.textContent = `${count} image(s) found in "${folderName}"`;
+        display.style.color = '#15803d';
+        display.style.fontWeight = '600';
+    } else {
+        display.textContent = 'Click to select a folder - all images inside will be uploaded';
+        display.style.color = '';
+        display.style.fontWeight = '';
+    }
+}
+
+// Switch between file/folder upload tabs for images
+function switchImageTab(tab) {
+    // Update tab buttons
+    const tabs = event.target.closest('.upload-tabs').querySelectorAll('.upload-tab');
+    tabs.forEach(t => t.classList.remove('active'));
+    event.target.classList.add('active');
+
+    // Update tab content
+    document.getElementById('image-files-tab').classList.remove('active');
+    document.getElementById('image-folder-tab').classList.remove('active');
+    document.getElementById('image-' + tab + '-tab').classList.add('active');
+
+    // Update hidden input
+    document.getElementById('image_upload_type').value = tab;
+
+    // Update required attribute
+    const filesInput = document.getElementById('product_images_files');
+    const folderInput = document.getElementById('product_images_folder');
+
+    if (tab === 'files') {
+        if (filesInput) filesInput.required = true;
+        if (folderInput) folderInput.required = false;
+    } else {
+        if (filesInput) filesInput.required = false;
+        if (folderInput) folderInput.required = true;
     }
 }
 
@@ -640,6 +820,93 @@ document.addEventListener('DOMContentLoaded', function() {
                     <polyline points="20 6 9 17 4 12"></polyline>
                 </svg>
                 Import Now
+            </button>
+        </form>
+    </div>
+
+    <!-- Product Images Upload Section -->
+    <div class="settings-section" style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 2px solid #fcd34d;">
+        <h2 class="section-title" style="color: #92400e; display: flex; align-items: center; gap: 10px;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+            Upload Product Images
+        </h2>
+        <p class="section-subtitle" style="color: #78350f;">
+            Upload product images in bulk. Images will be matched to products based on their filename (SKU)
+        </p>
+
+        <div style="background: rgba(146, 64, 14, 0.1); border: 1px solid #fcd34d; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+            <strong style="color: #92400e; display: block; margin-bottom: 8px;">📋 Important Instructions:</strong>
+            <ul style="margin: 0; padding-left: 20px; color: #78350f; font-size: 0.9rem;">
+                <li>Image filenames must match the product SKU exactly (e.g., <code>403_1.jpg</code> for SKU "403_1")</li>
+                <li>Supported formats: JPG, JPEG, PNG, GIF, WEBP</li>
+                <li>Maximum file size: 5MB per image</li>
+                <li>You can upload up to 3000 images at once (folder or multiple files)</li>
+                <li>Images with no matching product SKU will be skipped</li>
+                <li>Existing images with the same name will be <strong>automatically overwritten</strong></li>
+                <li><strong>⚠️ If uploading many images fails, restart Apache in XAMPP Control Panel</strong></li>
+            </ul>
+        </div>
+
+        <form method="post" action="" enctype="multipart/form-data" style="margin-bottom: 0;">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="upload_images">
+            <input type="hidden" name="image_upload_type" id="image_upload_type" value="files">
+
+            <div class="upload-tabs" style="margin-bottom: 20px;">
+                <div class="upload-tab active" onclick="switchImageTab('files')">Select Multiple Files</div>
+                <div class="upload-tab" onclick="switchImageTab('folder')">Upload Entire Folder</div>
+            </div>
+
+            <div id="image-files-tab" class="tab-content active">
+                <div class="form-row">
+                    <label class="form-label">Select Product Images</label>
+                    <input
+                        type="file"
+                        name="product_images[]"
+                        id="product_images_files"
+                        class="form-input"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,.jpg,.jpeg,.png,.gif,.webp"
+                        multiple
+                        required
+                        onchange="updateFileCount(this)"
+                    >
+                    <p class="form-help" id="file-count-display">
+                        Select one or more product images to upload (hold Ctrl/Cmd to select multiple files)
+                    </p>
+                </div>
+            </div>
+
+            <div id="image-folder-tab" class="tab-content">
+                <div class="form-row">
+                    <label class="form-label">Select Folder Containing Product Images</label>
+                    <input
+                        type="file"
+                        name="product_images[]"
+                        id="product_images_folder"
+                        class="form-input"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,.jpg,.jpeg,.png,.gif,.webp"
+                        multiple
+                        webkitdirectory
+                        directory
+                        onchange="updateFolderCount(this)"
+                    >
+                    <p class="form-help" id="folder-count-display">
+                        Click to select a folder - all images inside will be uploaded
+                    </p>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-import-now" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                Upload Images
             </button>
         </form>
     </div>

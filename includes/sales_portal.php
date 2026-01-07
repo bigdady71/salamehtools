@@ -31,51 +31,55 @@ function sales_portal_nav_links(): array
 
     return [
         'dashboard' => [
-            'label' => 'Dashboard',
+            'label' => '🏠 Dashboard',
             'href' => $prefix . 'dashboard.php',
         ],
+        'orders_van' => [
+            'label' => '🚚 Create New Sale',
+            'href' => $prefix . 'orders/van_stock_sales.php',
+        ],
+        'orders' => [
+            'label' => '📋 My Orders',
+            'href' => $prefix . 'orders.php',
+        ],
         'users' => [
-            'label' => 'My Customers',
+            'label' => '👥 My Customers',
             'href' => $prefix . 'users.php',
         ],
         'add_customer' => [
-            'label' => '+ Add Customer',
+            'label' => '➕ Add New Customer',
             'href' => $prefix . 'add_customer.php',
         ],
-        'products' => [
-            'label' => 'Products',
-            'href' => $prefix . 'products.php',
-        ],
         'van_stock' => [
-            'label' => 'Van Stock',
+            'label' => '📦 My Van Stock',
             'href' => $prefix . 'van_stock.php',
         ],
+        'stock_auth' => [
+            'label' => '🔐 Stock Authorizations',
+            'href' => $prefix . 'stock_adjustment_auth.php',
+        ],
         'warehouse_stock' => [
-            'label' => 'Warehouse Stock',
+            'label' => '🏭 Warehouse Stock',
             'href' => $prefix . 'warehouse_stock.php',
         ],
-        'orders' => [
-            'label' => 'My Orders',
-            'href' => $prefix . 'orders.php',
-        ],
-        'orders_van' => [
-            'label' => 'New Van Sale',
-            'href' => $prefix . 'orders/van_stock_sales.php',
-        ],
         'orders_request' => [
-            'label' => 'New Company Order',
+            'label' => '🏢 Company Order',
             'href' => $prefix . 'orders/company_order_request.php',
         ],
         'invoices' => [
-            'label' => 'Invoices',
+            'label' => '💵 Invoices',
             'href' => $prefix . 'invoices.php',
         ],
         'receivables' => [
-            'label' => 'AR/Collections',
+            'label' => '💰 Collections',
             'href' => $prefix . 'receivables.php',
         ],
+        'products' => [
+            'label' => '📦 All Products',
+            'href' => $prefix . 'products.php',
+        ],
         'analytics' => [
-            'label' => 'Analytics',
+            'label' => '📊 My Performance',
             'href' => $prefix . 'analytics.php',
         ],
     ];

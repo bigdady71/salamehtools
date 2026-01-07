@@ -436,9 +436,9 @@ $vanStockProducts = $vanStockStmt->fetchAll(PDO::FETCH_ASSOC);
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'Van Stock Sales Order',
-    'heading' => 'Create Van Stock Sale',
-    'subtitle' => 'Sell directly from your van inventory',
+    'title' => 'Create New Sale',
+    'heading' => '🚚 Create New Sale',
+    'subtitle' => 'Quick and easy way to record a sale from your van',
     'active' => 'orders_van',
     'user' => $user,
     'extra_head' => '<style>
@@ -885,13 +885,40 @@ if (!$canCreateOrder) {
 
     // Customer Selection
     echo '<div class="form-section">';
-    echo '<h3>1. Select Customer</h3>';
+    echo '<h3>Step 1: Who is the customer? <span style="color:red;">*</span></h3>';
+    echo '<p style="color: #6b7280; font-size: 0.9rem; margin: 0 0 16px 0;">Search for your customer by typing their name or phone number</p>';
     echo '<div class="form-group">';
-    echo '<label>Customer <span style="color:red;">*</span></label>';
-    echo '<div class="customer-search-wrapper">';
-    echo '<input type="text" id="customerSearch" placeholder="Search by name or phone..." autocomplete="off">';
-    echo '<button type="button" class="customer-search-clear" id="clearCustomerSearch">✕ Clear</button>';
-    echo '<span class="customer-search-icon">🔍</span>';
+
+    // Filter by Governorate
+    echo '<div style="display: flex; gap: 12px; margin-bottom: 16px;">';
+    echo '<div style="flex: 1;">';
+    echo '<label style="font-size: 0.9rem; color: #047857; margin-bottom: 4px; display: block;">Filter by Governorate</label>';
+    echo '<select id="governorateFilter" style="width: 100%; padding: 10px; border: 2px solid #d1d5db; border-radius: 8px; font-size: 1rem;">';
+    echo '<option value="">All Governorates - كل المحافظات</option>';
+    $lebanonGovernorates = [
+        'Beirut' => 'Beirut - بيروت',
+        'Mount Lebanon' => 'Mount Lebanon - جبل لبنان',
+        'North' => 'North - الشمال',
+        'South' => 'South - الجنوب',
+        'Beqaa' => 'Beqaa - البقاع',
+        'Nabatieh' => 'Nabatieh - النبطية',
+        'Akkar' => 'Akkar - عكار',
+        'Baalbek-Hermel' => 'Baalbek-Hermel - بعلبك الهرمل'
+    ];
+    foreach ($lebanonGovernorates as $value => $label) {
+        echo '<option value="', htmlspecialchars($value, ENT_QUOTES, 'UTF-8'), '">', htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), '</option>';
+    }
+    echo '</select>';
+    echo '</div>';
+    echo '</div>';
+
+    echo '<label style="font-size: 1rem; color: #047857;">Customer Name or Phone</label>';
+    echo '<div class="customer-search-wrapper" style="display: flex; gap: 8px;">';
+    echo '<div style="position: relative; flex: 1;">';
+    echo '<input type="text" id="customerSearch" placeholder="🔍 Type customer name or phone number..." autocomplete="off" style="font-size: 1rem; width: 100%; padding-right: 40px;">';
+    echo '<button type="button" class="customer-search-clear" id="clearCustomerSearch" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px 8px; display: none;">✕</button>';
+    echo '</div>';
+    echo '<button type="button" id="searchCustomerBtn" style="padding: 10px 20px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; white-space: nowrap;">🔍 Search</button>';
     echo '</div>';
     echo '<input type="hidden" name="customer_id" id="selectedCustomerId" required>';
     echo '<div class="customer-list" id="customerList" style="display:none;">';
@@ -900,13 +927,16 @@ if (!$canCreateOrder) {
         $custName = htmlspecialchars($customer['name'], ENT_QUOTES, 'UTF-8');
         $custPhone = htmlspecialchars($customer['phone'] ?? '', ENT_QUOTES, 'UTF-8');
         $custCity = htmlspecialchars($customer['city'] ?? '', ENT_QUOTES, 'UTF-8');
+        $custGov = htmlspecialchars($customer['governorate'] ?? '', ENT_QUOTES, 'UTF-8');
         echo '<div class="customer-item" data-customer-id="', $custId, '" data-customer-name="', $custName, '" ';
-        echo 'data-customer-phone="', $custPhone, '" data-customer-city="', $custCity, '">';
+        echo 'data-customer-phone="', $custPhone, '" data-customer-city="', $custCity, '" data-customer-governorate="', $custGov, '">';
         echo '<div class="customer-item-name">', $custName, '</div>';
         echo '<div class="customer-item-meta">';
         if ($custPhone) echo 'Phone: ', $custPhone;
-        if ($custPhone && $custCity) echo ' | ';
-        if ($custCity) echo 'City: ', $custCity;
+        if ($custPhone && ($custCity || $custGov)) echo ' | ';
+        if ($custGov) echo $custGov;
+        if ($custGov && $custCity) echo ', ';
+        if ($custCity) echo $custCity;
         echo '</div>';
         echo '</div>';
     }
@@ -917,18 +947,23 @@ if (!$canCreateOrder) {
 
     // Product Selection
     echo '<div class="form-section">';
-    echo '<h3>2. Select Products</h3>';
-    echo '<div class="alert-info">';
-    echo 'Click on products below to add them to your order. Only products available in your van stock are shown.';
+    echo '<h3>Step 2: What are you selling? <span style="color:red;">*</span></h3>';
+    echo '<div class="alert-info" style="background: #dbeafe; border: 2px solid #3b82f6; padding: 16px; border-radius: 10px; margin-bottom: 16px;">';
+    echo '<strong style="display: block; margin-bottom: 8px; color: #1e40af; font-size: 1rem;">📦 How to add products:</strong>';
+    echo '<ul style="margin: 0; padding-left: 20px; color: #1e40af; line-height: 1.8;">';
+    echo '<li>Type the product name or scan barcode to search</li>';
+    echo '<li>Click on any product to add it to your sale</li>';
+    echo '<li>Adjust quantity and discount if needed</li>';
+    echo '</ul>';
     echo '</div>';
     echo '<div class="products-selector">';
     echo '<div class="product-search">';
-    echo '<input type="text" id="productSearch" placeholder="Search by name, SKU, category, barcode, code, or description..." autocomplete="off">';
+    echo '<input type="text" id="productSearch" placeholder="🔍 Type product name or scan barcode..." autocomplete="off" style="font-size: 1rem;">';
     echo '<button type="button" class="product-search-clear" id="clearSearch">✕ Clear</button>';
     echo '<span class="product-search-icon">🔍</span>';
     echo '</div>';
     echo '<div class="product-list" id="productList">';
-    echo '<div class="no-results" id="noResults">No products found. Try a different search term.</div>';
+    echo '<div class="no-results" id="noResults" style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px; padding: 30px;">🔍 <strong>No products found.</strong><br><br>Try searching with a different name or barcode.</div>';
 
     foreach ($vanStockProducts as $product) {
         $prodId = (int)$product['id'];
@@ -966,53 +1001,54 @@ if (!$canCreateOrder) {
     echo '</div>';
 
     echo '<div class="selected-products" id="selectedProducts">';
-    echo '<h4>Selected Products</h4>';
+    echo '<h4 style="color: #059669; font-size: 1.1rem; margin-bottom: 12px;">✅ Products in this sale:</h4>';
     echo '<div id="selectedProductsList">';
-    echo '<p style="color:var(--muted);text-align:center;">No products selected yet. Click on products above to add them.</p>';
+    echo '<p style="color:var(--muted);text-align:center; padding: 20px; background: #f9fafb; border-radius: 8px; border: 2px dashed #e5e7eb;">No products added yet. Search and click products above to add them.</p>';
     echo '</div>';
     echo '</div>';
     echo '</div>';
 
     // Order Notes
     echo '<div class="form-section">';
-    echo '<h3>3. Order Notes (Optional)</h3>';
+    echo '<h3>Step 3: Add notes (Optional)</h3>';
+    echo '<p style="color: #6b7280; font-size: 0.9rem; margin: 0 0 12px 0;">Add any special instructions or notes about this sale</p>';
     echo '<div class="form-group">';
     echo '<label>Notes</label>';
-    echo '<textarea name="notes" placeholder="Add any additional notes about this order..."></textarea>';
+    echo '<textarea name="notes" placeholder="Example: Customer requested delivery next week, Special discount approved, etc..."></textarea>';
     echo '</div>';
     echo '</div>';
 
     echo '</div>'; // End order-form
 
     // Order Summary
-    echo '<div class="order-summary" id="orderSummary" style="display:none;">';
-    echo '<h3>Order Summary</h3>';
-    echo '<div class="summary-row">';
-    echo '<span>Items Count:</span>';
-    echo '<span id="summaryItemCount">0</span>';
+    echo '<div class="order-summary" id="orderSummary" style="display:none; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 3px solid #f59e0b; padding: 24px; border-radius: 16px; margin-bottom: 24px;">';
+    echo '<h3 style="color: #92400e; font-size: 1.4rem; margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">📊 Sale Summary</h3>';
+    echo '<div class="summary-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #fbbf24; font-size: 1rem;">';
+    echo '<span style="color: #92400e; font-weight: 500;">Number of Items:</span>';
+    echo '<span id="summaryItemCount" style="font-weight: 700; color: #92400e;">0</span>';
     echo '</div>';
-    echo '<div class="summary-row">';
-    echo '<span>Subtotal (USD):</span>';
-    echo '<span id="summarySubtotalUSD">$0.00</span>';
+    echo '<div class="summary-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #fbbf24; font-size: 1rem;">';
+    echo '<span style="color: #92400e; font-weight: 500;">Subtotal:</span>';
+    echo '<span id="summarySubtotalUSD" style="font-weight: 700; color: #92400e;">$0.00</span>';
     echo '</div>';
-    echo '<div class="summary-row">';
-    echo '<span>Total Discount:</span>';
-    echo '<span id="summaryDiscountUSD">$0.00</span>';
+    echo '<div class="summary-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #fbbf24; font-size: 1rem;">';
+    echo '<span style="color: #92400e; font-weight: 500;">Discount:</span>';
+    echo '<span id="summaryDiscountUSD" style="font-weight: 700; color: #92400e;">$0.00</span>';
     echo '</div>';
-    echo '<div class="summary-row total">';
-    echo '<span>Total (USD):</span>';
-    echo '<span id="summaryTotalUSD">$0.00</span>';
+    echo '<div class="summary-row total" style="display: flex; justify-content: space-between; padding: 16px 0; border-top: 3px solid #f59e0b; margin-top: 8px; font-size: 1.4rem;">';
+    echo '<span style="color: #78350f; font-weight: 700;">TOTAL (USD):</span>';
+    echo '<span id="summaryTotalUSD" style="font-weight: 800; color: #78350f;">$0.00</span>';
     echo '</div>';
-    echo '<div class="summary-row">';
-    echo '<span>Total (LBP):</span>';
-    echo '<span id="summaryTotalLBP">L.L. 0</span>';
+    echo '<div class="summary-row" style="display: flex; justify-content: space-between; padding: 12px 0; font-size: 1.1rem;">';
+    echo '<span style="color: #78350f; font-weight: 600;">TOTAL (LBP):</span>';
+    echo '<span id="summaryTotalLBP" style="font-weight: 700; color: #78350f;">L.L. 0</span>';
     echo '</div>';
     echo '</div>';
 
     // Payment section
-    echo '<div class="payment-section" style="margin-top: 24px; padding: 20px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;">';
-    echo '<h3 style="margin-bottom: 16px; font-size: 1rem; color: #374151;">Payment (Optional)</h3>';
-    echo '<p style="font-size: 0.875rem; color: #6b7280; margin-bottom: 16px;">Record payment received at the time of sale. You can also add payments later from the Invoices page.</p>';
+    echo '<div class="payment-section" style="margin-top: 24px; padding: 24px; background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 2px solid #059669; border-radius: 12px;">';
+    echo '<h3 style="margin-bottom: 12px; font-size: 1.2rem; color: #065f46;">💵 Did the customer pay now?</h3>';
+    echo '<p style="font-size: 0.95rem; color: #047857; margin-bottom: 16px; line-height: 1.6;"><strong>Optional:</strong> If the customer paid you cash or by card, enter the amount below. Otherwise, leave blank and record payment later.</p>';
 
     echo '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">';
     echo '<div class="form-field">';
@@ -1027,12 +1063,17 @@ if (!$canCreateOrder) {
 
     echo '<input type="hidden" name="payment_method" value="cash">';
 
-    echo '<div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 12px; font-size: 0.875rem; color: #1e40af;">';
-    echo '<strong>💡 Tip:</strong> Enter amount in either USD or LBP - it will auto-convert at the current exchange rate (9,000 LBP = $1 USD)';
+    echo '<div style="background: #eff6ff; border: 2px solid #3b82f6; border-radius: 8px; padding: 14px; font-size: 0.9rem; color: #1e40af; line-height: 1.6;">';
+    echo '<strong style="font-size: 1rem;">💡 Helpful Tip:</strong><br>';
+    echo 'Enter amount in either USD or LBP - it will automatically convert using today\'s exchange rate';
     echo '</div>';
     echo '</div>';
 
-    echo '<button type="submit" class="btn btn-success btn-block btn-lg" id="submitButton" disabled>Create Van Stock Sale</button>';
+    echo '<div id="submitHint" style="display: none; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px; padding: 16px; margin-bottom: 16px; text-align: center; font-size: 1rem; color: #92400e;">';
+    echo '⬆️ <strong>Add at least one product above to complete your sale</strong>';
+    echo '</div>';
+
+    echo '<button type="submit" class="btn btn-success btn-block btn-lg" id="submitButton" disabled style="width: 100%; padding: 18px; font-size: 1.2rem; font-weight: 700; border-radius: 12px; background: linear-gradient(135deg, #059669 0%, #047857 100%); border: none; color: white; cursor: pointer; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.4); transition: all 0.3s;">✅ Complete Sale & Print Invoice</button>';
     echo '</form>';
 }
 
@@ -1042,7 +1083,7 @@ echo 'const exchangeRate = ', $exchangeRate, ';';
 echo '';
 echo 'function addProduct(productId, productName, sku, priceUSD, priceLBP, maxStock) {';
 echo '  if (selectedProducts.find(p => p.id === productId)) {';
-echo '    alert("Product already added!");';
+echo '    alert("⚠️ This product is already in your sale!\\n\\nYou can change the quantity below if needed.");';
 echo '    return;';
 echo '  }';
 echo '  selectedProducts.push({';
@@ -1081,7 +1122,7 @@ echo '      const qty = parseFloat(value);';
 echo '      if (qty > 0 && qty <= product.maxStock) {';
 echo '        product.quantity = qty;';
 echo '      } else if (qty > product.maxStock) {';
-echo '        alert("Quantity exceeds available stock (" + product.maxStock + ")");';
+echo '        alert("⚠️ Not enough stock!\\n\\nYou only have " + product.maxStock + " units available in your van.\\n\\nPlease enter a smaller quantity.");';
 echo '        return;';
 echo '      }';
 echo '    } else if (field === "discount") {';
@@ -1105,7 +1146,7 @@ echo '';
 echo 'function renderSelectedProducts() {';
 echo '  const container = document.getElementById("selectedProductsList");';
 echo '  if (selectedProducts.length === 0) {';
-echo '    container.innerHTML = \'<p style="color:var(--muted);text-align:center;">No products selected yet. Click on products above to add them.</p>\';';
+echo '    container.innerHTML = \'<p style="color:var(--muted);text-align:center; padding: 20px; background: #f9fafb; border-radius: 8px; border: 2px dashed #e5e7eb;">📦 No products added yet.<br><strong style="color: #059669;">Search and click products above to add them to your sale.</strong></p>\';';
 echo '    return;';
 echo '  }';
 echo '  let html = "";';
@@ -1121,14 +1162,14 @@ echo '    html += `<button type="button" class="btn-remove" onclick="removeProdu
 echo '    html += `</div>`;';
 echo '    html += `<div class="selected-product-controls">`;';
 echo '    html += `<div class="control-group">`;';
-echo '    html += `<label>Quantity</label>`;';
+echo '    html += `<label style="font-size: 0.95rem; color: #047857;">📦 How many?</label>`;';
 echo '    html += `<input type="number" step="0.1" min="0.1" max="${product.maxStock}" value="${product.quantity}" `;';
-echo '    html += `onchange="updateProduct(${product.id}, \'quantity\', this.value)">`;';
+echo '    html += `onchange="updateProduct(${product.id}, \'quantity\', this.value)" style="font-size: 1.1rem; font-weight: 600;">`;';
 echo '    html += `</div>`;';
 echo '    html += `<div class="control-group">`;';
-echo '    html += `<label>Discount (%)</label>`;';
+echo '    html += `<label style="font-size: 0.95rem; color: #047857;">💰 Discount %</label>`;';
 echo '    html += `<input type="number" step="0.01" min="0" max="100" value="${product.discount}" `;';
-echo '    html += `onchange="updateProduct(${product.id}, \'discount\', this.value)">`;';
+echo '    html += `onchange="updateProduct(${product.id}, \'discount\', this.value)" placeholder="0" style="font-size: 1.1rem; font-weight: 600;">`;';
 echo '    html += `</div>`;';
 echo '    html += `</div>`;';
 echo '    html += `<div class="selected-product-subtotal">Subtotal: $${subtotal.toFixed(2)}</div>`;';
@@ -1143,15 +1184,18 @@ echo '';
 echo 'function updateSummary() {';
 echo '  const summary = document.getElementById("orderSummary");';
 echo '  const submitBtn = document.getElementById("submitButton");';
+echo '  const submitHint = document.getElementById("submitHint");';
 echo '  ';
 echo '  if (selectedProducts.length === 0) {';
 echo '    summary.style.display = "none";';
 echo '    submitBtn.disabled = true;';
+echo '    if (submitHint) submitHint.style.display = "block";';
 echo '    return;';
 echo '  }';
 echo '  ';
 echo '  summary.style.display = "block";';
 echo '  submitBtn.disabled = false;';
+echo '  if (submitHint) submitHint.style.display = "none";';
 echo '  ';
 echo '  let itemCount = selectedProducts.length;';
 echo '  let subtotalUSD = 0;';
@@ -1295,12 +1339,14 @@ echo 'function performCustomerSearch() {';
 echo '  const searchInput = document.getElementById("customerSearch");';
 echo '  const clearBtn = document.getElementById("clearCustomerSearch");';
 echo '  const customerList = document.getElementById("customerList");';
+echo '  const governorateFilter = document.getElementById("governorateFilter");';
 echo '  const search = searchInput.value.toLowerCase().trim();';
+echo '  const selectedGovernorate = governorateFilter.value.toLowerCase();';
 echo '';
 echo '  visibleCustomers = [];';
 echo '  currentCustomerHighlightIndex = -1;';
 echo '';
-echo '  clearBtn.style.display = search.length > 0 ? "block" : "none";';
+echo '  clearBtn.style.display = search.length > 0 ? "inline-block" : "none";';
 echo '';
 echo '  customerList.style.display = "block";';
 echo '  let hasResults = false;';
@@ -1308,7 +1354,11 @@ echo '';
 echo '  document.querySelectorAll(".customer-item").forEach(item => {';
 echo '    const name = item.dataset.customerName.toLowerCase();';
 echo '    const phone = (item.dataset.customerPhone || "").toLowerCase();';
-echo '    const matches = search === "" || name.includes(search) || phone.includes(search);';
+echo '    const governorate = (item.dataset.customerGovernorate || "").toLowerCase();';
+echo '    ';
+echo '    const searchMatches = search === "" || name.includes(search) || phone.includes(search);';
+echo '    const governorateMatches = selectedGovernorate === "" || governorate === selectedGovernorate;';
+echo '    const matches = searchMatches && governorateMatches;';
 echo '';
 echo '    item.classList.toggle("hidden", !matches);';
 echo '    item.classList.remove("highlighted");';
@@ -1365,6 +1415,17 @@ echo '';
 echo 'document.getElementById("customerSearch").addEventListener("input", performCustomerSearch);';
 echo '';
 echo 'document.getElementById("customerSearch").addEventListener("focus", function() {';
+echo '  performCustomerSearch();';
+echo '});';
+echo '';
+echo '// Search button click handler';
+echo 'document.getElementById("searchCustomerBtn").addEventListener("click", function() {';
+echo '  performCustomerSearch();';
+echo '  document.getElementById("customerSearch").focus();';
+echo '});';
+echo '';
+echo '// Governorate filter change handler';
+echo 'document.getElementById("governorateFilter").addEventListener("change", function() {';
 echo '  performCustomerSearch();';
 echo '});';
 echo '';

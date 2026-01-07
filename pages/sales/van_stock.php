@@ -12,6 +12,9 @@ $pdo = db();
 $action = (string)($_POST['action'] ?? $_GET['action'] ?? '');
 $flashes = [];
 
+// DISABLED: Sales reps can no longer adjust their own stock
+// Stock adjustments must be initiated by admin/warehouse and confirmed by both parties via OTP
+/*
 // Handle stock adjustment
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'adjust_stock') {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
@@ -135,6 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'adjust_stock') {
         }
     }
 }
+*/
 
 // Handle CSV export
 if ($action === 'export') {
@@ -797,6 +801,91 @@ sales_portal_render_layout_start([
             font-weight: 600;
             margin-bottom: 4px;
         }
+        .products-grid {
+            display: none;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .products-grid.active {
+            display: grid;
+        }
+        .product-card {
+            background: var(--bg-panel);
+            border-radius: 16px;
+            padding: 0;
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+            transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .product-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12);
+        }
+        .product-image {
+            width: 100%;
+            height: 220px;
+            object-fit: cover;
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            border-bottom: 1px solid var(--border);
+        }
+        .product-image-placeholder {
+            width: 100%;
+            height: 220px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            border-bottom: 1px solid var(--border);
+            font-size: 3rem;
+            color: #9ca3af;
+        }
+        .product-content {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+        }
+        .product-header h3 {
+            margin: 0 0 4px;
+            font-size: 1.15rem;
+            color: var(--text);
+        }
+        .product-header .sku-text {
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        .product-category {
+            display: inline-block;
+            padding: 4px 10px;
+            background: var(--bg-panel-alt);
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 12px;
+            max-width: fit-content;
+        }
+        .product-price {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: var(--accent);
+            margin-bottom: 12px;
+        }
+        .product-stock-info {
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+        }
+        .product-value {
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-bottom: 12px;
+        }
+        .stock-table.hidden {
+            display: none;
+        }
         @media (max-width: 1024px) {
             .content-grid {
                 grid-template-columns: 1fr;
@@ -926,15 +1015,14 @@ if ($ageFilter !== '') {
     $exportUrl .= '&age=' . urlencode($ageFilter);
 }
 echo '<a href="', htmlspecialchars($exportUrl, ENT_QUOTES, 'UTF-8'), '" class="btn-filter" style="text-decoration: none; display: inline-block;">📊 Export CSV</a>';
-echo '<button class="btn-adjust" onclick="openAdjustModal()">⚡ Adjust Stock</button>';
+// REMOVED: Sales reps can no longer adjust their own stock directly
+// echo '<button class="btn-adjust" onclick="openAdjustModal()">⚡ Adjust Stock</button>';
+echo '<button class="btn-filter" id="toggleViewBtn" onclick="toggleView()">🔲 Card View</button>';
 echo '</div>';
 echo '</div>';
 
-// Content grid
-echo '<div class="content-grid">';
-
-// Stock table
-echo '<div class="stock-table">';
+// Stock table (outside of content-grid for full width in card view)
+echo '<div class="stock-table" id="tableView">';
 
 if (!$stockItems) {
     echo '<div class="empty-state">';
@@ -1005,7 +1093,120 @@ if (!$stockItems) {
 
 echo '</div>';
 
-// Recent movements panel
+// Card View (hidden by default)
+echo '<div class="products-grid" id="cardView">';
+
+if (!$stockItems) {
+    echo '<div class="empty-state">';
+    echo '<div class="empty-state-icon">📦</div>';
+    echo '<h3>No stock items found</h3>';
+    echo '<p>Add stock adjustments to get started.</p>';
+    echo '</div>';
+} else {
+    foreach ($stockItems as $item) {
+        $productId = (int)$item['product_id'];
+        $sku = htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8');
+        $itemName = htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8');
+        $category = $item['category'] ? htmlspecialchars($item['category'], ENT_QUOTES, 'UTF-8') : 'Uncategorized';
+        $qty = (float)$item['qty_on_hand'];
+        $priceUSD = (float)$item['sale_price_usd'];
+        $valueUSD = (float)$item['value_usd'];
+        $daysInStock = (int)($item['days_in_stock'] ?? 0);
+        $createdAt = $item['created_at'] ? date('M j, Y', strtotime($item['created_at'])) : '-';
+
+        // Product image path (based on SKU) - check multiple formats
+        $imageExists = false;
+        $imagePath = '../../images/products/default.jpg';
+        $possibleExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+
+        foreach ($possibleExtensions as $ext) {
+            // Don't use urlencode - filenames match SKU exactly
+            $serverPath = __DIR__ . '/../../images/products/' . $sku . '.' . $ext;
+            if (file_exists($serverPath)) {
+                $imagePath = '../../images/products/' . $sku . '.' . $ext;
+                $imageExists = true;
+                break;
+            }
+        }
+
+        if (!$imageExists) {
+            // Use default image
+            $imagePath = '../../images/products/default.jpg';
+            $imageExists = true;
+        }
+
+        // Determine age badge
+        $ageClass = 'age-fresh';
+        $ageLabel = "{$daysInStock}d";
+        if ($daysInStock > 90) {
+            $ageClass = 'age-stale';
+            $ageLabel = "{$daysInStock}d ⚠️";
+        } elseif ($daysInStock > 60) {
+            $ageClass = 'age-old';
+            $ageLabel = "{$daysInStock}d ⚠";
+        } elseif ($daysInStock > 30) {
+            $ageClass = 'age-moderate';
+        }
+
+        // Stock status badge
+        $statusBadge = '';
+        if ($qty <= 0) {
+            $statusBadge = '<span class="badge badge-danger">Out of Stock</span>';
+        } elseif ($qty <= 5) {
+            $statusBadge = '<span class="badge badge-warning">Low Stock</span>';
+        } else {
+            $statusBadge = '<span class="badge badge-success">In Stock</span>';
+        }
+
+        echo '<div class="product-card">';
+
+        // Product Image
+        if ($imageExists) {
+            echo '<img src="', htmlspecialchars($imagePath, ENT_QUOTES, 'UTF-8'), '" alt="', $itemName, '" class="product-image" loading="lazy">';
+        } else {
+            echo '<div class="product-image-placeholder">📦</div>';
+        }
+
+        echo '<div class="product-content">';
+
+        // Product Header
+        echo '<div class="product-header">';
+        echo '<h3>', $itemName, '</h3>';
+        echo '<div class="sku-text">SKU: ', $sku, '</div>';
+        echo '</div>';
+
+        // Category
+        echo '<div class="product-category">', $category, '</div>';
+
+        // Price
+        echo '<div class="product-price">$', number_format($priceUSD, 2), '</div>';
+
+        // Stock Info
+        echo '<div class="product-stock-info">';
+        echo '<strong>Quantity:</strong> ', number_format($qty, 1), ' units<br>';
+        echo '<strong>Age:</strong> <span class="age-badge ', $ageClass, '">', $ageLabel, '</span><br>';
+        echo '<strong>Status:</strong> ', $statusBadge;
+        echo '</div>';
+
+        // Value
+        echo '<div class="product-value">';
+        echo '<strong>Total Value:</strong> $', number_format($valueUSD, 2);
+        echo '</div>';
+
+        // Added Date
+        echo '<div style="font-size: 0.8rem; color: var(--muted); margin-top: auto;">';
+        echo 'Added: ', $createdAt;
+        echo '</div>';
+
+        echo '</div>'; // End product-content
+        echo '</div>'; // End product-card
+    }
+}
+
+echo '</div>'; // End products-grid
+
+// Movements panel wrapper (shown for both views)
+echo '<div class="movements-wrapper" style="margin-top: 24px;">';
 echo '<div class="movements-panel">';
 echo '<h3>Recent Movements</h3>';
 
@@ -1038,9 +1239,8 @@ if (!$recentMovements) {
     }
 }
 
-echo '</div>';
-
-echo '</div>'; // End content-grid
+echo '</div>'; // End movements-panel
+echo '</div>'; // End movements-wrapper
 
 // Pagination
 if ($totalPages > 1) {
@@ -1106,82 +1306,73 @@ if ($totalPages > 1) {
     echo '</div>';
 }
 
-// Adjust Stock Modal
-echo '<div id="adjustModal" class="modal">';
-echo '<div class="modal-content">';
-echo '<div class="modal-header">';
-echo '<h2>Adjust Van Stock</h2>';
-echo '<button class="modal-close" onclick="closeAdjustModal()">&times;</button>';
-echo '</div>';
-echo '<form method="POST">';
-echo '<input type="hidden" name="csrf_token" value="', htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'), '">';
-echo '<input type="hidden" name="action" value="adjust_stock">';
-echo '<div class="form-group">';
-echo '<label>Product <span style="color:red;">*</span></label>';
-echo '<select name="product_id" required>';
-echo '<option value="">Select a product...</option>';
-foreach ($allProducts as $product) {
-    $prodId = (int)$product['id'];
-    $prodSku = htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8');
-    $prodName = htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8');
-    $prodCat = $product['category'] ? ' [' . htmlspecialchars($product['category'], ENT_QUOTES, 'UTF-8') . ']' : '';
-    echo '<option value="', $prodId, '">', $prodSku, ' - ', $prodName, $prodCat, '</option>';
-}
-echo '</select>';
-echo '</div>';
-echo '<div class="form-group">';
-echo '<label>Quantity Change <span style="color:red;">*</span></label>';
-echo '<input type="number" name="delta_qty" step="0.1" required placeholder="Use negative for decrease">';
-echo '<small style="color:var(--muted);font-size:0.85rem;">Positive numbers add stock, negative numbers remove stock</small>';
-echo '</div>';
-echo '<div class="form-group">';
-echo '<label>Reason <span style="color:red;">*</span></label>';
-echo '<select name="reason" required>';
-echo '<option value="">Select a reason...</option>';
-echo '<option value="load">Load from Warehouse</option>';
-echo '<option value="return">Return to Warehouse</option>';
-echo '<option value="adjustment">Manual Adjustment</option>';
-echo '<option value="transfer_in">Transfer In</option>';
-echo '<option value="transfer_out">Transfer Out</option>';
-echo '</select>';
-echo '</div>';
-echo '<div class="form-group">';
-echo '<label>Notes</label>';
-echo '<textarea name="note" placeholder="Optional notes about this adjustment..."></textarea>';
-echo '</div>';
-echo '<div class="form-actions">';
-echo '<button type="button" class="btn-cancel" onclick="closeAdjustModal()">Cancel</button>';
-echo '<button type="submit" class="btn-submit">Apply Adjustment</button>';
-echo '</div>';
-echo '</form>';
-echo '</div>';
-echo '</div>';
+// REMOVED: Adjust Stock Modal (sales reps cannot adjust their own stock)
 
-echo '<script>';
-echo 'function applyFilters() {';
-echo '  const search = document.getElementById("filter-search").value;';
-echo '  const category = document.getElementById("filter-category").value;';
-echo '  const alert = document.getElementById("filter-alert").value;';
-echo '  const age = document.getElementById("filter-age").value;';
-echo '  let url = "?page=1";';
-echo '  if (search) url += "&search=" + encodeURIComponent(search);';
-echo '  if (category) url += "&category=" + encodeURIComponent(category);';
-echo '  if (alert) url += "&alert=" + encodeURIComponent(alert);';
-echo '  if (age) url += "&age=" + encodeURIComponent(age);';
-echo '  window.location.href = url;';
-echo '}';
-echo 'function clearFilters() {';
-echo '  window.location.href = "?";';
-echo '}';
-echo 'function openAdjustModal() {';
-echo '  document.getElementById("adjustModal").classList.add("active");';
-echo '}';
-echo 'function closeAdjustModal() {';
-echo '  document.getElementById("adjustModal").classList.remove("active");';
-echo '}';
-echo 'document.getElementById("filter-search").addEventListener("keypress", function(e) {';
-echo '  if (e.key === "Enter") applyFilters();';
-echo '});';
-echo '</script>';
+?>
+<script>
+function applyFilters() {
+  const search = document.getElementById("filter-search").value;
+  const category = document.getElementById("filter-category").value;
+  const alert = document.getElementById("filter-alert").value;
+  const age = document.getElementById("filter-age").value;
+  let url = "?page=1";
+  if (search) url += "&search=" + encodeURIComponent(search);
+  if (category) url += "&category=" + encodeURIComponent(category);
+  if (alert) url += "&alert=" + encodeURIComponent(alert);
+  if (age) url += "&age=" + encodeURIComponent(age);
+  window.location.href = url;
+}
+
+function clearFilters() {
+  window.location.href = "?";
+}
+
+document.getElementById("filter-search").addEventListener("keypress", function(e) {
+  if (e.key === "Enter") applyFilters();
+});
+
+// Toggle between table and card view
+let isCardView = false;
+function toggleView() {
+  const tableView = document.getElementById("tableView");
+  const cardView = document.getElementById("cardView");
+  const toggleBtn = document.getElementById("toggleViewBtn");
+  const movementsWrapper = document.querySelector(".movements-wrapper");
+
+  if (!tableView || !cardView || !toggleBtn) {
+    console.error("Required elements not found");
+    console.log("tableView:", tableView);
+    console.log("cardView:", cardView);
+    console.log("toggleBtn:", toggleBtn);
+    return;
+  }
+
+  isCardView = !isCardView;
+
+  if (isCardView) {
+    tableView.style.display = "none";
+    cardView.classList.add("active");
+    toggleBtn.innerHTML = "📋 Table View";
+    if (movementsWrapper) {
+      movementsWrapper.style.display = "block";
+    }
+  } else {
+    tableView.style.display = "block";
+    cardView.classList.remove("active");
+    toggleBtn.innerHTML = "🔲 Card View";
+    if (movementsWrapper) {
+      movementsWrapper.style.display = "block";
+    }
+  }
+}
+
+// Debug: Log elements on page load
+window.addEventListener('DOMContentLoaded', function() {
+  console.log("Table view:", document.getElementById("tableView"));
+  console.log("Card view:", document.getElementById("cardView"));
+  console.log("Toggle button:", document.getElementById("toggleViewBtn"));
+});
+</script>
+<?php
 
 sales_portal_render_layout_end();

@@ -28,6 +28,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $name = trim((string)($_POST['name'] ?? ''));
         $phone = trim((string)($_POST['phone'] ?? ''));
         $location = trim((string)($_POST['location'] ?? ''));
+        $governorate = trim((string)($_POST['governorate'] ?? ''));
+        $city = trim((string)($_POST['city'] ?? ''));
+        $address = trim((string)($_POST['address'] ?? ''));
         $shopType = trim((string)($_POST['shop_type'] ?? ''));
         $password = trim((string)($_POST['password'] ?? ''));
         $enablePortal = isset($_POST['enable_portal']) && $_POST['enable_portal'] === '1';
@@ -50,6 +53,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             }
         }
 
+        if ($governorate === '') {
+            $errors[] = 'Governorate is required.';
+        }
+
         if ($enablePortal) {
             if ($password === '') {
                 $errors[] = 'Password is required to enable portal access.';
@@ -66,14 +73,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
                 // Insert customer with password
                 $insertStmt = $pdo->prepare("
-                    INSERT INTO customers (name, phone, location, shop_type, password_hash, assigned_sales_rep_id, login_enabled, is_active, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW())
+                    INSERT INTO customers (name, phone, location, governorate, city, address, shop_type, password_hash, assigned_sales_rep_id, login_enabled, is_active, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
                 ");
 
                 $insertStmt->execute([
                     $name,
                     $phone,
                     $location !== '' ? $location : null,
+                    $governorate !== '' ? $governorate : null,
+                    $city !== '' ? $city : null,
+                    $address !== '' ? $address : null,
                     $shopType !== '' ? $shopType : null,
                     $enablePortal && $password !== '' ? $password : null, // Store plain text password
                     $repId, // Automatically assign to current sales rep
@@ -360,17 +370,66 @@ sales_portal_render_layout_start([
                 <div class="form-help">Type of business or products they sell</div>
             </div>
 
-            <!-- Location/Address -->
-            <div class="form-group full-width">
-                <label class="form-label" for="location">Location / Address</label>
-                <textarea
-                    id="location"
-                    name="location"
-                    class="form-textarea"
-                    placeholder="Enter full address including street, area, city"
-                ><?= htmlspecialchars($_POST['location'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
-                <div class="form-help">Complete address for delivery and visits</div>
+            <!-- Governorate -->
+            <div class="form-group">
+                <label class="form-label" for="governorate">Governorate <span style="color:red;">*</span></label>
+                <select
+                    id="governorate"
+                    name="governorate"
+                    class="form-input"
+                    required
+                >
+                    <option value="">-- Select Governorate - اختر المحافظة --</option>
+                    <?php
+                    $lebanonGovernorates = [
+                        'Beirut' => 'Beirut - بيروت',
+                        'Mount Lebanon' => 'Mount Lebanon - جبل لبنان',
+                        'North' => 'North - الشمال',
+                        'South' => 'South - الجنوب',
+                        'Beqaa' => 'Beqaa - البقاع',
+                        'Nabatieh' => 'Nabatieh - النبطية',
+                        'Akkar' => 'Akkar - عكار',
+                        'Baalbek-Hermel' => 'Baalbek-Hermel - بعلبك الهرمل'
+                    ];
+                    foreach ($lebanonGovernorates as $value => $label) {
+                        $selected = (($_POST['governorate'] ?? '') === $value) ? 'selected' : '';
+                        echo '<option value="', htmlspecialchars($value, ENT_QUOTES, 'UTF-8'), '" ', $selected, '>', htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), '</option>';
+                    }
+                    ?>
+                </select>
+                <div class="form-help">Select the governorate (state) in Lebanon</div>
             </div>
+
+            <!-- City -->
+            <div class="form-group">
+                <label class="form-label" for="city">City / Town</label>
+                <input
+                    type="text"
+                    id="city"
+                    name="city"
+                    class="form-input"
+                    placeholder="e.g., Tripoli, Jounieh, Sidon"
+                    value="<?= htmlspecialchars($_POST['city'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                >
+                <div class="form-help">City or town name</div>
+            </div>
+
+            <!-- Full Address -->
+            <div class="form-group full-width">
+                <label class="form-label" for="address">Full Address</label>
+                <textarea
+                    id="address"
+                    name="address"
+                    class="form-textarea"
+                    placeholder="Enter street name, building number, floor, additional details..."
+                ><?= htmlspecialchars($_POST['address'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
+                <div class="form-help">Complete street address and details for delivery</div>
+            </div>
+
+            <!-- Location (deprecated - keep for backward compatibility) -->
+            <input type="hidden" name="location" value=""
+
+>
 
             <!-- Enable Portal Access -->
             <div class="form-group full-width">

@@ -16,6 +16,7 @@ if (!function_exists('admin_nav_links')) {
             'invoices' => ['label' => 'Invoices', 'href' => 'invoices.php'],
             'customers' => ['label' => 'Customers', 'href' => 'customers.php'],
             'sales_reps' => ['label' => 'Sales Reps', 'href' => 'sales_reps.php'],
+            'stock_adjustments' => ['label' => 'Rep Stock Auth', 'href' => 'sales_rep_stock_adjustment.php'],
             'receivables' => ['label' => 'Receivables', 'href' => 'receivables.php'],
             'warehouse' => ['label' => 'Warehouse', 'href' => 'warehouse_stock.php'],
             'analytics' => ['label' => 'Analytics', 'href' => 'analytics.php'],

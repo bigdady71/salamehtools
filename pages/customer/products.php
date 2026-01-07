@@ -495,13 +495,26 @@ customer_portal_render_layout_start([
             $minQty = (float)$product['min_quantity'];
             $description = htmlspecialchars($product['description'] ?? 'No description available.', ENT_QUOTES, 'UTF-8');
 
-            // Product image path (based on SKU)
-            $imagePath = '/images/products/' . urlencode($product['sku'] ?? 'default') . '.jpg';
-            $imageExists = file_exists(__DIR__ . '/../..' . $imagePath);
+            // Product image path (based on SKU) - check multiple formats
+            $imageExists = false;
+            $imagePath = '../../images/products/default.jpg';
+            $possibleExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+            $productSku = $product['sku'] ?? 'default';
+
+            foreach ($possibleExtensions as $ext) {
+                // Don't use urlencode - filenames match SKU exactly
+                $serverPath = __DIR__ . '/../../images/products/' . $productSku . '.' . $ext;
+                if (file_exists($serverPath)) {
+                    $imagePath = '../../images/products/' . $productSku . '.' . $ext;
+                    $imageExists = true;
+                    break;
+                }
+            }
+
             if (!$imageExists) {
-                // Try PNG
-                $imagePath = '/images/products/' . urlencode($product['sku'] ?? 'default') . '.png';
-                $imageExists = file_exists(__DIR__ . '/../..' . $imagePath);
+                // Use default image
+                $imagePath = '../../images/products/default.jpg';
+                $imageExists = true;
             }
 
             // Stock status

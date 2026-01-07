@@ -431,8 +431,37 @@ sales_portal_render_layout_start([
             $minQty = max((float)$product['min_quantity'], 5);
             $isLowStock = $qtyOnHand > 0 && $qtyOnHand <= $minQty;
             $isOutOfStock = $qtyOnHand <= 0;
+
+            // Product image path (based on SKU) - check multiple formats
+            $imageExists = false;
+            $imagePath = '../../images/products/default.jpg';
+            $possibleExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+            $productSku = $product['sku'] ?? 'default';
+
+            foreach ($possibleExtensions as $ext) {
+                $serverPath = __DIR__ . '/../../images/products/' . $productSku . '.' . $ext;
+                if (file_exists($serverPath)) {
+                    $imagePath = '../../images/products/' . $productSku . '.' . $ext;
+                    $imageExists = true;
+                    break;
+                }
+            }
+
+            if (!$imageExists) {
+                $imagePath = '../../images/products/default.jpg';
+                $imageExists = true;
+            }
         ?>
         <div class="product-card">
+            <!-- Product Image -->
+            <div style="width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; background: #ffffff; border-radius: 8px; margin-bottom: 16px; overflow: hidden;">
+                <?php if ($imageExists): ?>
+                    <img src="<?= htmlspecialchars($imagePath, ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>" style="max-width: 100%; max-height: 100%; object-fit: contain;" loading="lazy">
+                <?php else: ?>
+                    <div style="font-size: 3rem; opacity: 0.3;">📦</div>
+                <?php endif; ?>
+            </div>
+
             <div class="product-sku"><?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?></div>
 
             <div class="product-name"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
