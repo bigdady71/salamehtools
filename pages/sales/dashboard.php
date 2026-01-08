@@ -7,10 +7,11 @@ require_once __DIR__ . '/../../includes/admin_page.php';
 require_once __DIR__ . '/../../includes/sales_portal.php';
 require_once __DIR__ . '/../../includes/db.php';
 require_once __DIR__ . '/../../includes/SalesPortalDashboard.php';
+require_once __DIR__ . '/../../includes/lang.php';
 
 $user = sales_portal_bootstrap();
 $navLinks = sales_portal_nav_links();
-$title = 'Sales Dashboard';
+$title = t('dashboard.title', 'Sales Dashboard');
 $pdo = db();
 
 $dashboardData = sales_portal_dashboard_data($pdo, (int)$user['id']);
@@ -27,22 +28,22 @@ $errors = $dashboardData['errors'];
 $notices = $dashboardData['notices'];
 
 $orderStatusLabels = [
-    'on_hold' => 'On Hold',
-    'approved' => 'Approved',
-    'preparing' => 'Preparing',
-    'ready' => 'Ready for Pickup',
-    'in_transit' => 'In Transit',
-    'delivered' => 'Delivered',
-    'cancelled' => 'Cancelled',
-    'returned' => 'Returned',
+    'on_hold' => t('order_status.on_hold', 'On Hold'),
+    'approved' => t('order_status.approved', 'Approved'),
+    'preparing' => t('order_status.preparing', 'Preparing'),
+    'ready' => t('order_status.ready', 'Ready for Pickup'),
+    'in_transit' => t('order_status.in_transit', 'In Transit'),
+    'delivered' => t('order_status.delivered', 'Delivered'),
+    'cancelled' => t('order_status.cancelled', 'Cancelled'),
+    'returned' => t('order_status.returned', 'Returned'),
 ];
 
 $invoiceStatusLabels = [
-    'draft' => 'Pending Draft',
-    'pending' => 'Pending',
-    'issued' => 'Issued',
-    'paid' => 'Paid',
-    'voided' => 'Voided',
+    'draft' => t('invoice_status.draft', 'Pending Draft'),
+    'pending' => t('invoice_status.pending', 'Pending'),
+    'issued' => t('invoice_status.issued', 'Issued'),
+    'paid' => t('invoice_status.paid', 'Paid'),
+    'voided' => t('invoice_status.voided', 'Voided'),
 ];
 
 $extraHead = <<<'HTML'
@@ -178,7 +179,7 @@ HTML;
 sales_portal_render_layout_start([
     'title' => $title,
     'heading' => $title,
-    'subtitle' => 'Live view of your pipeline, invoices, deliveries, and van stock.',
+    'subtitle' => t('dashboard.subtitle', 'Live view of your pipeline, invoices, deliveries, and van stock.'),
     'user' => $user,
     'nav_links' => $navLinks,
     'active' => 'dashboard',
@@ -310,25 +311,25 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
 <section style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); border-radius: 16px; padding: 24px; margin-bottom: 24px; color: white;">
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
         <div>
-            <h2 style="margin: 0 0 8px 0; font-size: 1.4rem; font-weight: 700; color: white;">🚨 Overdue Payments Alert</h2>
-            <p style="margin: 0; opacity: 0.9; font-size: 0.95rem;">These invoices require immediate attention</p>
+            <h2 style="margin: 0 0 8px 0; font-size: 1.4rem; font-weight: 700; color: white;"><?= t('dashboard.overdue_alert_title', '🚨 Overdue Payments Alert') ?></h2>
+            <p style="margin: 0; opacity: 0.9; font-size: 0.95rem;"><?= t('dashboard.overdue_alert_subtitle', 'These invoices require immediate attention') ?></p>
         </div>
         <a href="receivables.php" style="background: rgba(255,255,255,0.2); color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.3);">
-            View AR Dashboard →
+            <?= t('dashboard.view_ar_dashboard', 'View AR Dashboard →') ?>
         </a>
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
         <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 16px; backdrop-filter: blur(10px);">
-            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;">Overdue Invoices</div>
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;"><?= t('dashboard.overdue_invoices', 'Overdue Invoices') ?></div>
             <div style="font-size: 2rem; font-weight: 700;"><?= number_format((int)$arSummary['overdue_count']) ?></div>
         </div>
         <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 16px; backdrop-filter: blur(10px);">
-            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;">Total Overdue</div>
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;"><?= t('dashboard.total_overdue', 'Total Overdue') ?></div>
             <div style="font-size: 2rem; font-weight: 700;">$<?= number_format((float)$arSummary['overdue_usd'], 0) ?></div>
         </div>
         <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 16px; backdrop-filter: blur(10px);">
-            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;">Critical (90+ days)</div>
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;"><?= t('dashboard.critical_90_days', 'Critical (90+ days)') ?></div>
             <div style="font-size: 2rem; font-weight: 700;">$<?= number_format((float)$arSummary['critical_usd'], 0) ?></div>
         </div>
     </div>
@@ -337,11 +338,11 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
         <table style="width: 100%; border-collapse: collapse;">
             <thead>
                 <tr style="border-bottom: 2px solid rgba(255,255,255,0.3);">
-                    <th style="text-align: left; padding: 8px; font-size: 0.85rem; opacity: 0.9;">Invoice</th>
-                    <th style="text-align: left; padding: 8px; font-size: 0.85rem; opacity: 0.9;">Customer</th>
-                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;">Days Overdue</th>
-                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;">Amount</th>
-                    <th style="text-align: center; padding: 8px; font-size: 0.85rem; opacity: 0.9;">Action</th>
+                    <th style="text-align: left; padding: 8px; font-size: 0.85rem; opacity: 0.9;"><?= t('dashboard.invoice', 'Invoice') ?></th>
+                    <th style="text-align: left; padding: 8px; font-size: 0.85rem; opacity: 0.9;"><?= t('dashboard.customer', 'Customer') ?></th>
+                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;"><?= t('dashboard.days_overdue', 'Days Overdue') ?></th>
+                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;"><?= t('dashboard.amount', 'Amount') ?></th>
+                    <th style="text-align: center; padding: 8px; font-size: 0.85rem; opacity: 0.9;"><?= t('dashboard.action', 'Action') ?></th>
                 </tr>
             </thead>
             <tbody>
@@ -351,7 +352,7 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
                     <td style="padding: 10px;"><?= htmlspecialchars($inv['customer_name'], ENT_QUOTES, 'UTF-8') ?></td>
                     <td style="padding: 10px; text-align: right;">
                         <span style="background: <?= $inv['days_overdue'] > 90 ? '#7f1d1d' : ($inv['days_overdue'] > 60 ? '#991b1b' : '#b91c1c') ?>; padding: 4px 10px; border-radius: 6px; font-weight: 600;">
-                            <?= (int)$inv['days_overdue'] ?> days
+                            <?= (int)$inv['days_overdue'] ?> <?= t('dashboard.days', 'days') ?>
                         </span>
                     </td>
                     <td style="padding: 10px; text-align: right; font-weight: 600; font-size: 1.05rem;">
@@ -359,7 +360,7 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
                     </td>
                     <td style="padding: 10px; text-align: center;">
                         <a href="invoices.php" style="background: rgba(255,255,255,0.9); color: #dc2626; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: 600;">
-                            Record Payment
+                            <?= t('dashboard.record_payment', 'Record Payment') ?>
                         </a>
                     </td>
                 </tr>
@@ -373,13 +374,13 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
 <!-- Sales Quota Performance -->
 <?php if ($monthlyQuota > 0 || $ytdQuota > 0): ?>
 <section style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; padding: 24px; margin-bottom: 32px; color: white;">
-    <h2 style="margin: 0 0 20px 0; font-size: 1.4rem; font-weight: 700; color: white;">🎯 Sales Quota Performance</h2>
+    <h2 style="margin: 0 0 20px 0; font-size: 1.4rem; font-weight: 700; color: white;"><?= t('dashboard.quota_performance', '🎯 Sales Quota Performance') ?></h2>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
         <!-- This Month -->
         <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 20px; backdrop-filter: blur(10px);">
-            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">This Month</div>
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;"><?= t('dashboard.this_month', 'This Month') ?></div>
             <div style="font-size: 2rem; font-weight: 700; margin-bottom: 8px;">$<?= number_format($monthlySales, 0) ?></div>
-            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 12px;">of $<?= number_format($monthlyQuota, 0) ?> quota</div>
+            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 12px;"><?= t('dashboard.of_quota', 'of') ?> $<?= number_format($monthlyQuota, 0) ?> <?= t('dashboard.quota', 'quota') ?></div>
             <div style="background: rgba(255,255,255,0.2); border-radius: 8px; height: 12px; overflow: hidden;">
                 <div style="background: <?= $quotaPercent >= 100 ? '#10b981' : ($quotaPercent >= 75 ? '#f59e0b' : '#ef4444') ?>; height: 100%; width: <?= min(100, $quotaPercent) ?>%; transition: width 0.3s;"></div>
             </div>

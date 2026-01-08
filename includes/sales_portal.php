@@ -24,6 +24,9 @@ function sales_portal_bootstrap(): array
  */
 function sales_portal_nav_links(): array
 {
+    // Load translations
+    require_once __DIR__ . '/lang.php';
+
     // Determine if we're in a subdirectory (like /pages/sales/orders/)
     $scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
     $inSubdir = strpos($scriptPath, '/pages/sales/orders/') !== false;
@@ -31,55 +34,55 @@ function sales_portal_nav_links(): array
 
     return [
         'dashboard' => [
-            'label' => '🏠 Dashboard',
+            'label' => t('nav.dashboard', '🏠 Dashboard'),
             'href' => $prefix . 'dashboard.php',
         ],
         'orders_van' => [
-            'label' => '🚚 Create New Sale',
+            'label' => t('nav.create_sale', '🚚 Create New Sale'),
             'href' => $prefix . 'orders/van_stock_sales.php',
         ],
         'orders' => [
-            'label' => '📋 My Orders',
+            'label' => t('nav.my_orders', '📋 My Orders'),
             'href' => $prefix . 'orders.php',
         ],
         'users' => [
-            'label' => '👥 My Customers',
+            'label' => t('nav.my_customers', '👥 My Customers'),
             'href' => $prefix . 'users.php',
         ],
         'add_customer' => [
-            'label' => '➕ Add New Customer',
+            'label' => t('nav.add_customer', '➕ Add New Customer'),
             'href' => $prefix . 'add_customer.php',
         ],
         'van_stock' => [
-            'label' => '📦 My Van Stock',
+            'label' => t('nav.van_stock', '📦 My Van Stock'),
             'href' => $prefix . 'van_stock.php',
         ],
         'stock_auth' => [
-            'label' => '🔐 Stock Authorizations',
+            'label' => t('nav.stock_auth', '🔐 Stock Authorizations'),
             'href' => $prefix . 'stock_adjustment_auth.php',
         ],
         'warehouse_stock' => [
-            'label' => '🏭 Warehouse Stock',
+            'label' => t('nav.warehouse_stock', '🏭 Warehouse Stock'),
             'href' => $prefix . 'warehouse_stock.php',
         ],
         'orders_request' => [
-            'label' => '🏢 Company Order',
+            'label' => t('nav.company_order', '🏢 Company Order'),
             'href' => $prefix . 'orders/company_order_request.php',
         ],
         'invoices' => [
-            'label' => '💵 Invoices',
+            'label' => t('nav.invoices', '💵 Invoices'),
             'href' => $prefix . 'invoices.php',
         ],
         'receivables' => [
-            'label' => '💰 Collections',
+            'label' => t('nav.collections', '💰 Collections'),
             'href' => $prefix . 'receivables.php',
         ],
         'products' => [
-            'label' => '📦 All Products',
+            'label' => t('nav.products', '📦 All Products'),
             'href' => $prefix . 'products.php',
         ],
         'analytics' => [
-            'label' => '📊 My Performance',
+            'label' => t('nav.performance', '📊 My Performance'),
             'href' => $prefix . 'analytics.php',
         ],
     ];
@@ -125,15 +128,30 @@ function sales_portal_render_layout_start(array $options = []): void
         }
     }
 
-    echo '<!doctype html><html lang="en"><head><meta charset="utf-8">';
+    // Load language helpers
+    require_once __DIR__ . '/lang.php';
+    $currentLang = get_user_language();
+    $direction = get_direction();
+    $otherLang = get_other_language();
+    $otherLangName = $otherLang === 'ar' ? 'العربية' : 'English';
+
+    echo '<!doctype html><html lang="', $currentLang, '" dir="', $direction, '"><head><meta charset="utf-8">';
     echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
     echo '<title>', $escTitle, '</title>';
+    if ($currentLang === 'ar') {
+        echo '<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">';
+    }
     echo $extraHead;
     echo '<link rel="stylesheet" href="../css/app.css?v=2">';
     echo '<style>';
     echo ':root{--bg:#f3f4f6;--bg-panel:#ffffff;--bg-panel-alt:#f9fafc;--text:#111827;--muted:#6b7280;';
     echo '--accent:#0ea5e9;--accent-2:#06b6d4;--border:#e5e7eb;--sales-gradient:linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);}';
-    echo '*{box-sizing:border-box;}body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,sans-serif;';
+    echo '*{box-sizing:border-box;}';
+    if ($currentLang === 'ar') {
+        echo 'body{margin:0;font-family:"Tajawal","Segoe UI",system-ui,-apple-system,sans-serif;';
+    } else {
+        echo 'body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,sans-serif;';
+    }
     echo 'background:var(--bg);color:var(--text);display:flex;min-height:100vh;}a{color:var(--accent);text-decoration:none;}';
     echo 'a:hover{text-decoration:underline;}';
     echo '.layout{display:flex;flex:1;}.sidebar{width:260px;background:var(--sales-gradient);border-right:none;padding:28px 20px;display:flex;';
@@ -147,6 +165,10 @@ function sales_portal_render_layout_start(array $options = []): void
     echo '.user-card{margin-top:auto;padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.1);';
     echo 'font-size:0.9rem;color:rgba(255,255,255,0.85);backdrop-filter:blur(10px);}';
     echo '.user-card strong{display:block;font-size:1rem;color:#ffffff;font-weight:600;}';
+    echo '.lang-switcher{margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.2);text-align:center;}';
+    echo '.lang-switcher a{display:inline-block;padding:8px 12px;background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.9);';
+    echo 'border-radius:8px;font-size:0.85rem;font-weight:600;text-decoration:none;transition:all 0.2s;border:1px solid rgba(255,255,255,0.2);}';
+    echo '.lang-switcher a:hover{background:rgba(255,255,255,0.2);color:#ffffff;}';
     echo '.main{flex:1;padding:36px;display:flex;flex-direction:column;gap:24px;margin-left:260px;}';
     echo '.page-header{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:18px;}';
     echo '.page-header h1{margin:0;font-size:2rem;}';
@@ -161,15 +183,24 @@ function sales_portal_render_layout_start(array $options = []): void
     echo 'background:#fff;border:1px solid var(--border);color:var(--text);font-weight:600;text-decoration:none;}';
     echo '.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}';
     echo '.btn-primary:hover{box-shadow:0 0 0 4px rgba(14,165,233,0.18);}';
+
+    // RTL Support
+    echo '[dir="rtl"] .sidebar{left:auto;right:0;box-shadow:-4px 0 12px rgba(0,0,0,0.08);}';
+    echo '[dir="rtl"] .main{margin-left:0;margin-right:260px;}';
+    echo '[dir="rtl"] .nav-links a:hover{transform:translateX(-4px);}';
+    echo '[dir="rtl"] .card ul{padding-left:0;padding-right:20px;}';
+    echo '[dir="rtl"] .page-header{text-align:right;}';
+
     echo '@media (max-width:900px){.layout{flex-direction:column;}.sidebar{width:auto;flex-direction:row;';
     echo 'align-items:center;justify-content:space-between;padding:18px 22px;border-right:none;border-bottom:1px solid rgba(255,255,255,0.2);position:static;overflow-y:visible;}';
     echo '.nav-links{flex-direction:row;flex-wrap:wrap;gap:6px;}.nav-links a{padding:8px 10px;}';
     echo '.user-card{margin-top:0;}';
-    echo '.main{padding:24px;margin-left:0;}}';
+    echo '.main{padding:24px;margin-left:0;}';
+    echo '[dir="rtl"] .main{margin-right:0;}}';
     echo '@media (max-width:640px){.sidebar{flex-direction:column;align-items:flex-start;gap:16px;}';
     echo '.nav-links{width:100%;}.nav-links a{width:100%;}}';
     echo '</style></head><body class="theme-light"><div class="layout"><aside class="sidebar">';
-    echo '<div class="brand">Salameh Tools<small>SALES PORTAL</small></div><nav class="nav-links">';
+    echo '<div class="brand">Salameh Tools<small>', htmlspecialchars(t('phrase.sales_portal', 'SALES PORTAL'), ENT_QUOTES, 'UTF-8'), '</small></div><nav class="nav-links">';
 
     foreach ($navItems as $slug => $item) {
         $label = htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8');
@@ -184,18 +215,25 @@ function sales_portal_render_layout_start(array $options = []): void
     if ($displayName !== null && $displayName !== '') {
         echo '<strong>', htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8'), '</strong>';
     } else {
-        echo '<strong>Sales Representative</strong>';
+        echo '<strong>', htmlspecialchars(t('phrase.sales_rep', 'Sales Representative'), ENT_QUOTES, 'UTF-8'), '</strong>';
     }
 
     if ($displayRole) {
         echo '<span>', htmlspecialchars($displayRole, ENT_QUOTES, 'UTF-8'), '</span>';
     } else {
-        echo '<span>Signed in</span>';
+        echo '<span>', htmlspecialchars(t('phrase.signed_in', 'Signed in'), ENT_QUOTES, 'UTF-8'), '</span>';
     }
+
+    // Language switcher
+    $switchLangPath = $inSubdir ? '../switch_language.php' : 'switch_language.php';
+    echo '<div class="lang-switcher">';
+    echo '<a href="', htmlspecialchars($switchLangPath, ENT_QUOTES, 'UTF-8'), '?lang=', htmlspecialchars($otherLang, ENT_QUOTES, 'UTF-8'), '">🌐 ', htmlspecialchars($otherLangName, ENT_QUOTES, 'UTF-8'), '</a>';
+    echo '</div>';
 
     // Logout button
     $logoutPath = $inSubdir ? '../../logout.php' : '../logout.php';
-    echo '<a href="', htmlspecialchars($logoutPath, ENT_QUOTES, 'UTF-8'), '" style="display: inline-block; margin-top: 12px; padding: 8px 12px; background: rgba(239, 68, 68, 0.15); color: #fca5a5; border-radius: 8px; text-align: center; font-weight: 600; font-size: 0.85rem; border: 1px solid rgba(239, 68, 68, 0.3); text-decoration: none; transition: all 0.2s;" onmouseover="this.style.background=\'rgba(239, 68, 68, 0.25)\'; this.style.color=\'#ffffff\';" onmouseout="this.style.background=\'rgba(239, 68, 68, 0.15)\'; this.style.color=\'#fca5a5\';">🚪 Logout</a>';
+    $logoutText = htmlspecialchars(t('btn.logout', '🚪 Logout'), ENT_QUOTES, 'UTF-8');
+    echo '<a href="', htmlspecialchars($logoutPath, ENT_QUOTES, 'UTF-8'), '" style="display: inline-block; margin-top: 12px; padding: 8px 12px; background: rgba(239, 68, 68, 0.15); color: #fca5a5; border-radius: 8px; text-align: center; font-weight: 600; font-size: 0.85rem; border: 1px solid rgba(239, 68, 68, 0.3); text-decoration: none; transition: all 0.2s;" onmouseover="this.style.background=\'rgba(239, 68, 68, 0.25)\'; this.style.color=\'#ffffff\';" onmouseout="this.style.background=\'rgba(239, 68, 68, 0.15)\'; this.style.color=\'#fca5a5\';">', $logoutText, '</a>';
 
     echo '</div></aside><main class="main">';
     echo '<header class="page-header"><div><h1>', $escHeading, '</h1>';

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../../includes/guard.php';
 require_once __DIR__ . '/../../../includes/sales_portal.php';
 require_once __DIR__ . '/../../../includes/counter.php';
 require_once __DIR__ . '/../../../includes/audit.php';
+require_once __DIR__ . '/../../../includes/lang.php';
 
 $user = sales_portal_bootstrap();
 $repId = (int)$user['id'];
@@ -14,6 +15,45 @@ $repId = (int)$user['id'];
 $pdo = db();
 $action = (string)($_POST['action'] ?? $_GET['action'] ?? '');
 $flashes = [];
+
+// AJAX customer search endpoint
+if (($_GET['ajax'] ?? '') === 'customer_search') {
+    $term = trim((string)($_GET['term'] ?? ''));
+    header('Content-Type: application/json');
+
+    if ($term === '') {
+        echo json_encode(['results' => []]);
+        exit;
+    }
+
+    $likeTerm = '%' . $term . '%';
+    $searchStmt = $pdo->prepare("
+        SELECT
+            c.id,
+            c.name,
+            c.phone,
+            c.location AS city
+        FROM customers c
+        WHERE (c.name LIKE :term OR (c.phone IS NOT NULL AND c.phone LIKE :term))
+          AND c.assigned_sales_rep_id = :rep_id
+          AND c.is_active = 1
+        ORDER BY c.name ASC
+        LIMIT 12
+    ");
+    $searchStmt->execute([':term' => $likeTerm, ':rep_id' => $repId]);
+    $results = [];
+    foreach ($searchStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $results[] = [
+            'id' => (int)$row['id'],
+            'name' => $row['name'],
+            'phone' => $row['phone'],
+            'city' => $row['city'] ?? null,
+        ];
+    }
+
+    echo json_encode(['results' => $results]);
+    exit;
+}
 
 // Get active exchange rate
 $exchangeRate = null;
@@ -47,8 +87,8 @@ try {
 if ($exchangeRateError || $exchangeRate === null) {
     $flashes[] = [
         'type' => 'error',
-        'title' => 'Exchange Rate Unavailable',
-        'message' => 'Cannot create orders at this time. The system exchange rate is not configured. Please contact your administrator.',
+        'title' => t('sale.error_exchange_rate_title', 'Exchange Rate Unavailable'),
+        'message' => t('sale.error_exchange_rate_msg', 'Cannot create orders at this time. The system exchange rate is not configured. Please contact your administrator.'),
         'dismissible' => false,
     ];
     $canCreateOrder = false;
@@ -61,8 +101,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
         $flashes[] = [
             'type' => 'error',
-            'title' => 'Security Error',
-            'message' => 'Invalid or expired CSRF token. Please try again.',
+            'title' => t('sale.error_csrf_title', 'Security Error'),
+            'message' => t('sale.error_csrf_msg', 'Invalid or expired CSRF token. Please try again.'),
             'dismissible' => true,
         ];
     } else {
@@ -74,19 +114,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 
         // Validate customer
         if ($customerId <= 0) {
-            $errors[] = 'Please select a customer.';
+            $errors[] = t('sale.error_select_customer', 'Please select a customer.');
         } else {
             // Verify customer is assigned to this sales rep
             $customerStmt = $pdo->prepare("SELECT id FROM customers WHERE id = :id AND assigned_sales_rep_id = :rep_id AND is_active = 1");
             $customerStmt->execute([':id' => $customerId, ':rep_id' => $repId]);
             if (!$customerStmt->fetch()) {
-                $errors[] = 'Invalid customer selected or customer not assigned to you.';
+                $errors[] = t('sale.error_invalid_customer', 'Invalid customer selected or customer not assigned to you.');
             }
         }
 
         // Validate order items
         if (!is_array($items) || count($items) === 0) {
-            $errors[] = 'Please add at least one product to the order.';
+            $errors[] = t('sale.error_add_product', 'Please add at least one product to the order.');
         } else {
             $validatedItems = [];
             foreach ($items as $item) {
@@ -99,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                 }
 
                 if ($discount < 0 || $discount > 100) {
-                    $errors[] = "Invalid discount for product ID {$productId}. Must be between 0 and 100.";
+                    $errors[] = str_replace('{id}', (string)$productId, t('sale.error_invalid_discount', 'Invalid discount for product ID {id}. Must be between 0 and 100.'));
                     continue;
                 }
 
@@ -111,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
             }
 
             if (empty($validatedItems)) {
-                $errors[] = 'No valid products in the order.';
+                $errors[] = t('sale.error_no_valid_products', 'No valid products in the order.');
             }
         }
 
@@ -145,13 +185,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     $product = $productStmt->fetch(PDO::FETCH_ASSOC);
 
                     if (!$product) {
-                        $errors[] = "Product ID {$item['product_id']} not found or inactive.";
+                        $errors[] = str_replace('{id}', (string)$item['product_id'], t('sale.error_product_not_found', 'Product ID {id} not found or inactive.'));
                         break;
                     }
 
                     $vanStock = (float)($product['qty_on_hand'] ?? 0);
                     if ($vanStock < $item['quantity']) {
-                        $errors[] = "Insufficient van stock for {$product['item_name']}. Available: {$vanStock}, Requested: {$item['quantity']}.";
+                        $errorMsg = t('sale.error_insufficient_stock', 'Insufficient van stock for {name}. Available: {available}, Requested: {requested}.');
+                        $errorMsg = str_replace('{name}', $product['item_name'], $errorMsg);
+                        $errorMsg = str_replace('{available}', (string)$vanStock, $errorMsg);
+                        $errorMsg = str_replace('{requested}', (string)$item['quantity'], $errorMsg);
+                        $errors[] = $errorMsg;
                         break;
                     }
 
@@ -179,8 +223,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     $pdo->rollBack();
                     $flashes[] = [
                         'type' => 'error',
-                        'title' => 'Validation Failed',
-                        'message' => 'Unable to create order. Please fix the errors below:',
+                        'title' => t('sale.error_validation_title', 'Validation Failed'),
+                        'message' => t('sale.error_validation_msg', 'Unable to create order. Please fix the errors below:'),
                         'list' => $errors,
                         'dismissible' => true,
                     ];
@@ -314,8 +358,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                             $pdo->rollBack();
                             $flashes[] = [
                                 'type' => 'error',
-                                'title' => 'Payment Error',
-                                'message' => 'Payment amount cannot exceed invoice total.',
+                                'title' => t('sale.error_payment_exceeds', 'Payment Error'),
+                                'message' => t('sale.error_payment_exceeds_msg', 'Payment amount cannot exceed invoice total.'),
                                 'dismissible' => true,
                             ];
                         } else {
@@ -360,15 +404,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         $successMessage .= " Payment of " . implode(' + ', $paymentParts) . " has been recorded.";
                     }
 
-                    $flashes[] = [
-                        'type' => 'success',
-                        'title' => 'Order Created Successfully',
-                        'message' => $successMessage,
-                        'dismissible' => true,
-                    ];
-
-                    // Clear the form by redirecting
-                    header('Location: ' . $_SERVER['PHP_SELF'] . '?success=1');
+                    // Redirect to print invoice page
+                    header('Location: print_invoice.php?invoice_id=' . $invoiceId);
                     exit;
                 }
             } catch (Exception $e) {
@@ -376,16 +413,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                 error_log("Failed to create van stock order: " . $e->getMessage());
                 $flashes[] = [
                     'type' => 'error',
-                    'title' => 'Database Error',
-                    'message' => 'Unable to create order. Please try again.',
+                    'title' => t('sale.error_database_title', 'Database Error'),
+                    'message' => t('sale.error_database_msg', 'Unable to create order. Please try again.'),
                     'dismissible' => true,
                 ];
             }
         } else {
             $flashes[] = [
                 'type' => 'error',
-                'title' => 'Validation Failed',
-                'message' => 'Unable to create order. Please fix the errors below:',
+                'title' => t('sale.error_validation_title', 'Validation Failed'),
+                'message' => t('sale.error_validation_msg', 'Unable to create order. Please fix the errors below:'),
                 'list' => $errors,
                 'dismissible' => true,
             ];
@@ -397,21 +434,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 if (isset($_GET['success'])) {
     $flashes[] = [
         'type' => 'success',
-        'title' => 'Order Created Successfully',
-        'message' => 'Your van stock sale has been recorded and inventory has been updated.',
+        'title' => t('sale.success_title', 'Order Created Successfully'),
+        'message' => t('sale.success_msg', 'Your van stock sale has been recorded and inventory has been updated.'),
         'dismissible' => true,
     ];
 }
 
-// Get sales rep's customers
-$customersStmt = $pdo->prepare("
-    SELECT id, name, phone, location AS city
+// Check if sales rep has any customers assigned (for AJAX search)
+$customerCountStmt = $pdo->prepare("
+    SELECT COUNT(*) as customer_count
     FROM customers
     WHERE assigned_sales_rep_id = :rep_id AND is_active = 1
-    ORDER BY name
 ");
-$customersStmt->execute([':rep_id' => $repId]);
-$customers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
+$customerCountStmt->execute([':rep_id' => $repId]);
+$hasCustomers = (int)$customerCountStmt->fetchColumn() > 0;
 
 // Get van stock products with availability
 $vanStockStmt = $pdo->prepare("
@@ -435,10 +471,12 @@ $vanStockProducts = $vanStockStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $csrfToken = csrf_token();
 
+$title = t('sale.title', 'Create New Sale');
+
 sales_portal_render_layout_start([
-    'title' => 'Create New Sale',
-    'heading' => '🚚 Create New Sale',
-    'subtitle' => 'Quick and easy way to record a sale from your van',
+    'title' => $title,
+    'heading' => '🚚 ' . $title,
+    'subtitle' => t('sale.subtitle', 'Quick and easy way to record a sale from your van'),
     'active' => 'orders_van',
     'user' => $user,
     'extra_head' => '<style>
@@ -526,49 +564,6 @@ sales_portal_render_layout_start([
             border-radius: 8px;
             background: var(--bg-panel);
             margin-top: 8px;
-        }
-        .customer-item {
-            padding: 12px;
-            border-bottom: 1px solid var(--border);
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .customer-item:hover {
-            background: var(--bg-panel-alt);
-        }
-        .customer-item:last-child {
-            border-bottom: none;
-        }
-        .customer-item.highlighted {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
-        }
-        .customer-item.hidden {
-            display: none !important;
-        }
-        .customer-item-name {
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-        .customer-item-meta {
-            font-size: 0.85rem;
-            color: var(--muted);
-        }
-        .selected-customer {
-            padding: 12px 16px;
-            background: #d1fae5;
-            border: 2px solid #059669;
-            border-radius: 8px;
-            margin-top: 10px;
-        }
-        .selected-customer-name {
-            font-weight: 600;
-            color: #065f46;
-            margin-bottom: 4px;
-        }
-        .selected-customer-info {
-            font-size: 0.9rem;
-            color: #047857;
         }
         .form-group textarea {
             resize: vertical;
@@ -856,25 +851,27 @@ if ($flashes) {
 if (!$canCreateOrder) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">⚠️</div>';
-    echo '<h3>System Configuration Required</h3>';
-    echo '<p>Orders cannot be created until the exchange rate is properly configured in the system.</p>';
-    echo '<p><a href="dashboard.php" class="btn btn-info">Return to Dashboard</a></p>';
+    echo '<h3>', t('sale.empty_config_title', 'System Configuration Required'), '</h3>';
+    echo '<p>', t('sale.empty_config_msg', 'Orders cannot be created until the exchange rate is properly configured in the system.'), '</p>';
+    echo '<p><a href="dashboard.php" class="btn btn-info">', t('sale.empty_config_btn', 'Return to Dashboard'), '</a></p>';
     echo '</div>';
     sales_portal_render_layout_end();
     exit;
-} elseif (empty($customers)) {
+} elseif (!$hasCustomers) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">👥</div>';
-    echo '<h3>No Customers Assigned</h3>';
-    echo '<p>You need to have customers assigned to you before creating van stock sales.</p>';
-    echo '<p><a href="../users.php">Go to Customers page</a> to add customers.</p>';
+    echo '<h3>', t('sale.empty_customers_title', 'No Customers Assigned'), '</h3>';
+    echo '<p>', t('sale.empty_customers_msg', 'You need to have customers assigned to you before creating van stock sales.'), '</p>';
+    echo '<p><a href="../users.php">', t('sale.empty_customers_btn', 'Go to Customers page'), '</a> to add customers.</p>';
     echo '</div>';
+    sales_portal_render_layout_end();
+    exit;
 } elseif (empty($vanStockProducts)) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">📦</div>';
-    echo '<h3>No Van Stock Available</h3>';
-    echo '<p>You need to have products in your van stock before creating sales.</p>';
-    echo '<p><a href="../van_stock.php">Go to Van Stock page</a> to add inventory.</p>';
+    echo '<h3>', t('sale.empty_stock_title', 'No Van Stock Available'), '</h3>';
+    echo '<p>', t('sale.empty_stock_msg', 'You need to have products in your van stock before creating sales.'), '</p>';
+    echo '<p><a href="../van_stock.php">', t('sale.empty_stock_btn', 'Go to Van Stock page'), '</a> to add inventory.</p>';
     echo '</div>';
 } else {
     echo '<form method="POST" id="orderForm">';
@@ -885,85 +882,41 @@ if (!$canCreateOrder) {
 
     // Customer Selection
     echo '<div class="form-section">';
-    echo '<h3>Step 1: Who is the customer? <span style="color:red;">*</span></h3>';
-    echo '<p style="color: #6b7280; font-size: 0.9rem; margin: 0 0 16px 0;">Search for your customer by typing their name or phone number</p>';
+    echo '<h3>', t('sale.step1_title', 'Step 1: Who is the customer?'), ' <span style="color:red;">*</span></h3>';
+    echo '<p style="color: #6b7280; font-size: 0.9rem; margin: 0 0 16px 0;">', t('sale.step1_subtitle', 'Search for your customer by typing their name or phone number'), '</p>';
     echo '<div class="form-group">';
-
-    // Filter by Governorate
-    echo '<div style="display: flex; gap: 12px; margin-bottom: 16px;">';
-    echo '<div style="flex: 1;">';
-    echo '<label style="font-size: 0.9rem; color: #047857; margin-bottom: 4px; display: block;">Filter by Governorate</label>';
-    echo '<select id="governorateFilter" style="width: 100%; padding: 10px; border: 2px solid #d1d5db; border-radius: 8px; font-size: 1rem;">';
-    echo '<option value="">All Governorates - كل المحافظات</option>';
-    $lebanonGovernorates = [
-        'Beirut' => 'Beirut - بيروت',
-        'Mount Lebanon' => 'Mount Lebanon - جبل لبنان',
-        'North' => 'North - الشمال',
-        'South' => 'South - الجنوب',
-        'Beqaa' => 'Beqaa - البقاع',
-        'Nabatieh' => 'Nabatieh - النبطية',
-        'Akkar' => 'Akkar - عكار',
-        'Baalbek-Hermel' => 'Baalbek-Hermel - بعلبك الهرمل'
-    ];
-    foreach ($lebanonGovernorates as $value => $label) {
-        echo '<option value="', htmlspecialchars($value, ENT_QUOTES, 'UTF-8'), '">', htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), '</option>';
-    }
-    echo '</select>';
+    echo '<label for="customerSearchInput">', t('sale.customer_name_phone', 'Customer Name or Phone'), ' <span style="color:red;">*</span></label>';
+    echo '<div style="position: relative;">';
+    echo '<input type="text" id="customerSearchInput" placeholder="', htmlspecialchars(t('sale.search_placeholder', 'Type customer name or phone number...'), ENT_QUOTES, 'UTF-8'), '" autocomplete="off" style="width: 100%; padding: 12px; border: 2px solid #d1d5db; border-radius: 8px; font-size: 1rem;">';
+    echo '<div id="customerSearchResults" style="display: none; position: absolute; z-index: 1000; background: white; border: 1px solid #d1d5db; border-radius: 8px; max-height: 300px; overflow-y: auto; width: 100%; margin-top: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"></div>';
     echo '</div>';
+    echo '<input type="hidden" name="customer_id" id="selectedCustomerId">';
+    echo '<div id="selectedCustomerDisplay" style="display:none; margin-top: 12px; padding: 12px; background: #d1fae5; border: 2px solid #059669; border-radius: 8px;">';
+    echo '  <div style="font-weight: 600; color: #065f46; margin-bottom: 4px;" id="selectedCustomerName"></div>';
+    echo '  <div style="font-size: 0.9rem; color: #047857;" id="selectedCustomerInfo"></div>';
     echo '</div>';
-
-    echo '<label style="font-size: 1rem; color: #047857;">Customer Name or Phone</label>';
-    echo '<div class="customer-search-wrapper" style="display: flex; gap: 8px;">';
-    echo '<div style="position: relative; flex: 1;">';
-    echo '<input type="text" id="customerSearch" placeholder="🔍 Type customer name or phone number..." autocomplete="off" style="font-size: 1rem; width: 100%; padding-right: 40px;">';
-    echo '<button type="button" class="customer-search-clear" id="clearCustomerSearch" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px 8px; display: none;">✕</button>';
-    echo '</div>';
-    echo '<button type="button" id="searchCustomerBtn" style="padding: 10px 20px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; white-space: nowrap;">🔍 Search</button>';
-    echo '</div>';
-    echo '<input type="hidden" name="customer_id" id="selectedCustomerId" required>';
-    echo '<div class="customer-list" id="customerList" style="display:none;">';
-    foreach ($customers as $customer) {
-        $custId = (int)$customer['id'];
-        $custName = htmlspecialchars($customer['name'], ENT_QUOTES, 'UTF-8');
-        $custPhone = htmlspecialchars($customer['phone'] ?? '', ENT_QUOTES, 'UTF-8');
-        $custCity = htmlspecialchars($customer['city'] ?? '', ENT_QUOTES, 'UTF-8');
-        $custGov = htmlspecialchars($customer['governorate'] ?? '', ENT_QUOTES, 'UTF-8');
-        echo '<div class="customer-item" data-customer-id="', $custId, '" data-customer-name="', $custName, '" ';
-        echo 'data-customer-phone="', $custPhone, '" data-customer-city="', $custCity, '" data-customer-governorate="', $custGov, '">';
-        echo '<div class="customer-item-name">', $custName, '</div>';
-        echo '<div class="customer-item-meta">';
-        if ($custPhone) echo 'Phone: ', $custPhone;
-        if ($custPhone && ($custCity || $custGov)) echo ' | ';
-        if ($custGov) echo $custGov;
-        if ($custGov && $custCity) echo ', ';
-        if ($custCity) echo $custCity;
-        echo '</div>';
-        echo '</div>';
-    }
-    echo '</div>';
-    echo '<div class="selected-customer" id="selectedCustomerDisplay" style="display:none;"></div>';
     echo '</div>';
     echo '</div>';
 
     // Product Selection
     echo '<div class="form-section">';
-    echo '<h3>Step 2: What are you selling? <span style="color:red;">*</span></h3>';
+    echo '<h3>', t('sale.step2_title', 'Step 2: What are you selling?'), ' <span style="color:red;">*</span></h3>';
     echo '<div class="alert-info" style="background: #dbeafe; border: 2px solid #3b82f6; padding: 16px; border-radius: 10px; margin-bottom: 16px;">';
-    echo '<strong style="display: block; margin-bottom: 8px; color: #1e40af; font-size: 1rem;">📦 How to add products:</strong>';
+    echo '<strong style="display: block; margin-bottom: 8px; color: #1e40af; font-size: 1rem;">', t('sale.how_to_add_products', '📦 How to add products:'), '</strong>';
     echo '<ul style="margin: 0; padding-left: 20px; color: #1e40af; line-height: 1.8;">';
-    echo '<li>Type the product name or scan barcode to search</li>';
-    echo '<li>Click on any product to add it to your sale</li>';
-    echo '<li>Adjust quantity and discount if needed</li>';
+    echo '<li>', t('sale.add_product_step1', 'Type the product name or scan barcode to search'), '</li>';
+    echo '<li>', t('sale.add_product_step2', 'Click on any product to add it to your sale'), '</li>';
+    echo '<li>', t('sale.add_product_step3', 'Adjust quantity and discount if needed'), '</li>';
     echo '</ul>';
     echo '</div>';
     echo '<div class="products-selector">';
     echo '<div class="product-search">';
-    echo '<input type="text" id="productSearch" placeholder="🔍 Type product name or scan barcode..." autocomplete="off" style="font-size: 1rem;">';
-    echo '<button type="button" class="product-search-clear" id="clearSearch">✕ Clear</button>';
+    echo '<input type="text" id="productSearch" placeholder="', htmlspecialchars(t('sale.product_search_placeholder', '🔍 Type product name or scan barcode...'), ENT_QUOTES, 'UTF-8'), '" autocomplete="off" style="font-size: 1rem;">';
+    echo '<button type="button" class="product-search-clear" id="clearSearch">', t('sale.clear_btn', '✕ Clear'), '</button>';
     echo '<span class="product-search-icon">🔍</span>';
     echo '</div>';
     echo '<div class="product-list" id="productList">';
-    echo '<div class="no-results" id="noResults" style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px; padding: 30px;">🔍 <strong>No products found.</strong><br><br>Try searching with a different name or barcode.</div>';
+    echo '<div class="no-results" id="noResults" style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px; padding: 30px;">', t('sale.no_products_found', '🔍 No products found.'), '<br><br>', t('sale.try_different_search', 'Try searching with a different name or barcode.'), '</div>';
 
     foreach ($vanStockProducts as $product) {
         $prodId = (int)$product['id'];
@@ -988,11 +941,11 @@ if (!$canCreateOrder) {
         echo '<span class="product-item-price">$', number_format($prodPriceUSD, 2), '</span>';
         echo '</div>';
         echo '<div class="product-item-meta">';
-        echo 'SKU: ', $prodSku;
+        echo t('sale.sku_label', 'SKU:'), ' ', $prodSku;
         if ($prodCategory) {
-            echo ' | Category: ', $prodCategory;
+            echo ' | ', t('sale.category_label', 'Category:'), ' ', $prodCategory;
         }
-        echo ' | <span class="product-item-stock ', $stockClass, '">Stock: ', number_format($prodStock, 1), '</span>';
+        echo ' | <span class="product-item-stock ', $stockClass, '">', t('sale.stock_label', 'Stock:'), ' ', number_format($prodStock, 1), '</span>';
         echo '</div>';
         echo '</div>';
     }
@@ -1001,20 +954,20 @@ if (!$canCreateOrder) {
     echo '</div>';
 
     echo '<div class="selected-products" id="selectedProducts">';
-    echo '<h4 style="color: #059669; font-size: 1.1rem; margin-bottom: 12px;">✅ Products in this sale:</h4>';
+    echo '<h4 style="color: #059669; font-size: 1.1rem; margin-bottom: 12px;">', t('sale.products_in_sale', '✅ Products in this sale:'), '</h4>';
     echo '<div id="selectedProductsList">';
-    echo '<p style="color:var(--muted);text-align:center; padding: 20px; background: #f9fafb; border-radius: 8px; border: 2px dashed #e5e7eb;">No products added yet. Search and click products above to add them.</p>';
+    echo '<p style="color:var(--muted);text-align:center; padding: 20px; background: #f9fafb; border-radius: 8px; border: 2px dashed #e5e7eb;">', t('sale.no_products_yet', 'No products added yet. Search and click products above to add them.'), '</p>';
     echo '</div>';
     echo '</div>';
     echo '</div>';
 
     // Order Notes
     echo '<div class="form-section">';
-    echo '<h3>Step 3: Add notes (Optional)</h3>';
-    echo '<p style="color: #6b7280; font-size: 0.9rem; margin: 0 0 12px 0;">Add any special instructions or notes about this sale</p>';
+    echo '<h3>', t('sale.step3_title', 'Step 3: Add notes (Optional)'), '</h3>';
+    echo '<p style="color: #6b7280; font-size: 0.9rem; margin: 0 0 12px 0;">', t('sale.step3_subtitle', 'Add any special instructions or notes about this sale'), '</p>';
     echo '<div class="form-group">';
-    echo '<label>Notes</label>';
-    echo '<textarea name="notes" placeholder="Example: Customer requested delivery next week, Special discount approved, etc..."></textarea>';
+    echo '<label>', t('sale.notes_label', 'Notes'), '</label>';
+    echo '<textarea name="notes" placeholder="', htmlspecialchars(t('sale.notes_placeholder', 'Example: Customer requested delivery next week, Special discount approved, etc...'), ENT_QUOTES, 'UTF-8'), '"></textarea>';
     echo '</div>';
     echo '</div>';
 
@@ -1022,41 +975,41 @@ if (!$canCreateOrder) {
 
     // Order Summary
     echo '<div class="order-summary" id="orderSummary" style="display:none; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 3px solid #f59e0b; padding: 24px; border-radius: 16px; margin-bottom: 24px;">';
-    echo '<h3 style="color: #92400e; font-size: 1.4rem; margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">📊 Sale Summary</h3>';
+    echo '<h3 style="color: #92400e; font-size: 1.4rem; margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">', t('sale.summary_title', '📊 Sale Summary'), '</h3>';
     echo '<div class="summary-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #fbbf24; font-size: 1rem;">';
-    echo '<span style="color: #92400e; font-weight: 500;">Number of Items:</span>';
+    echo '<span style="color: #92400e; font-weight: 500;">', t('sale.number_of_items', 'Number of Items:'), '</span>';
     echo '<span id="summaryItemCount" style="font-weight: 700; color: #92400e;">0</span>';
     echo '</div>';
     echo '<div class="summary-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #fbbf24; font-size: 1rem;">';
-    echo '<span style="color: #92400e; font-weight: 500;">Subtotal:</span>';
+    echo '<span style="color: #92400e; font-weight: 500;">', t('sale.subtotal', 'Subtotal:'), '</span>';
     echo '<span id="summarySubtotalUSD" style="font-weight: 700; color: #92400e;">$0.00</span>';
     echo '</div>';
     echo '<div class="summary-row" style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #fbbf24; font-size: 1rem;">';
-    echo '<span style="color: #92400e; font-weight: 500;">Discount:</span>';
+    echo '<span style="color: #92400e; font-weight: 500;">', t('sale.discount', 'Discount:'), '</span>';
     echo '<span id="summaryDiscountUSD" style="font-weight: 700; color: #92400e;">$0.00</span>';
     echo '</div>';
     echo '<div class="summary-row total" style="display: flex; justify-content: space-between; padding: 16px 0; border-top: 3px solid #f59e0b; margin-top: 8px; font-size: 1.4rem;">';
-    echo '<span style="color: #78350f; font-weight: 700;">TOTAL (USD):</span>';
+    echo '<span style="color: #78350f; font-weight: 700;">', t('sale.total_usd', 'TOTAL (USD):'), '</span>';
     echo '<span id="summaryTotalUSD" style="font-weight: 800; color: #78350f;">$0.00</span>';
     echo '</div>';
     echo '<div class="summary-row" style="display: flex; justify-content: space-between; padding: 12px 0; font-size: 1.1rem;">';
-    echo '<span style="color: #78350f; font-weight: 600;">TOTAL (LBP):</span>';
+    echo '<span style="color: #78350f; font-weight: 600;">', t('sale.total_lbp', 'TOTAL (LBP):'), '</span>';
     echo '<span id="summaryTotalLBP" style="font-weight: 700; color: #78350f;">L.L. 0</span>';
     echo '</div>';
     echo '</div>';
 
     // Payment section
     echo '<div class="payment-section" style="margin-top: 24px; padding: 24px; background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 2px solid #059669; border-radius: 12px;">';
-    echo '<h3 style="margin-bottom: 12px; font-size: 1.2rem; color: #065f46;">💵 Did the customer pay now?</h3>';
-    echo '<p style="font-size: 0.95rem; color: #047857; margin-bottom: 16px; line-height: 1.6;"><strong>Optional:</strong> If the customer paid you cash or by card, enter the amount below. Otherwise, leave blank and record payment later.</p>';
+    echo '<h3 style="margin-bottom: 12px; font-size: 1.2rem; color: #065f46;">', t('sale.payment_question', '💵 Did the customer pay now?'), '</h3>';
+    echo '<p style="font-size: 0.95rem; color: #047857; margin-bottom: 16px; line-height: 1.6;"><strong>', t('sale.payment_optional', 'Optional:'), '</strong> ', t('sale.payment_instructions', 'If the customer paid you cash or by card, enter the amount below. Otherwise, leave blank and record payment later.'), '</p>';
 
     echo '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">';
     echo '<div class="form-field">';
-    echo '<label style="display: block; font-weight: 500; margin-bottom: 6px;">Amount Paid (USD)</label>';
+    echo '<label style="display: block; font-weight: 500; margin-bottom: 6px;">', t('sale.amount_paid_usd', 'Amount Paid (USD)'), '</label>';
     echo '<input type="number" name="paid_amount_usd" id="paid_amount_usd" step="0.01" min="0" placeholder="0.00" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;" onchange="convertPaidUsdToLbp()">';
     echo '</div>';
     echo '<div class="form-field">';
-    echo '<label style="display: block; font-weight: 500; margin-bottom: 6px;">Amount Paid (LBP)</label>';
+    echo '<label style="display: block; font-weight: 500; margin-bottom: 6px;">', t('sale.amount_paid_lbp', 'Amount Paid (LBP)'), '</label>';
     echo '<input type="number" name="paid_amount_lbp" id="paid_amount_lbp" step="1" min="0" placeholder="0" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;" onchange="convertPaidLbpToUsd()">';
     echo '</div>';
     echo '</div>';
@@ -1064,16 +1017,16 @@ if (!$canCreateOrder) {
     echo '<input type="hidden" name="payment_method" value="cash">';
 
     echo '<div style="background: #eff6ff; border: 2px solid #3b82f6; border-radius: 8px; padding: 14px; font-size: 0.9rem; color: #1e40af; line-height: 1.6;">';
-    echo '<strong style="font-size: 1rem;">💡 Helpful Tip:</strong><br>';
-    echo 'Enter amount in either USD or LBP - it will automatically convert using today\'s exchange rate';
+    echo '<strong style="font-size: 1rem;">', t('sale.helpful_tip', '💡 Helpful Tip:'), '</strong><br>';
+    echo t('sale.currency_conversion_tip', 'Enter amount in either USD or LBP - it will automatically convert using today\'s exchange rate');
     echo '</div>';
     echo '</div>';
 
     echo '<div id="submitHint" style="display: none; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px; padding: 16px; margin-bottom: 16px; text-align: center; font-size: 1rem; color: #92400e;">';
-    echo '⬆️ <strong>Add at least one product above to complete your sale</strong>';
+    echo t('sale.add_product_hint', '⬆️ Add at least one product above to complete your sale');
     echo '</div>';
 
-    echo '<button type="submit" class="btn btn-success btn-block btn-lg" id="submitButton" disabled style="width: 100%; padding: 18px; font-size: 1.2rem; font-weight: 700; border-radius: 12px; background: linear-gradient(135deg, #059669 0%, #047857 100%); border: none; color: white; cursor: pointer; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.4); transition: all 0.3s;">✅ Complete Sale & Print Invoice</button>';
+    echo '<button type="submit" class="btn btn-success btn-block btn-lg" id="submitButton" disabled style="width: 100%; padding: 18px; font-size: 1.2rem; font-weight: 700; border-radius: 12px; background: linear-gradient(135deg, #059669 0%, #047857 100%); border: none; color: white; cursor: pointer; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.4); transition: all 0.3s;">', t('sale.complete_btn', '✅ Complete Sale & Print Invoice'), '</button>';
     echo '</form>';
 }
 
@@ -1081,9 +1034,25 @@ echo '<script>';
 echo 'const selectedProducts = [];';
 echo 'const exchangeRate = ', $exchangeRate, ';';
 echo '';
+echo '// Translation strings';
+echo 'const i18n = {';
+echo '  alertAlreadyAdded: ', json_encode(t('sale.alert_already_added', '⚠️ This product is already in your sale!\\n\\nYou can change the quantity below if needed.')), ',';
+echo '  alertInsufficientStock: ', json_encode(t('sale.alert_insufficient_stock', '⚠️ Not enough stock!\\n\\nYou only have {stock} units available in your van.\\n\\nPlease enter a smaller quantity.')), ',';
+echo '  noProductsYet: ', json_encode(t('sale.no_products_yet', 'No products added yet. Search and click products above to add them.')), ',';
+echo '  skuLabel: ', json_encode(t('sale.sku_label', 'SKU:')), ',';
+echo '  unitLabel: ', json_encode(t('sale.unit_label', 'Unit:')), ',';
+echo '  stockLabel: ', json_encode(t('sale.stock_label', 'Stock:')), ',';
+echo '  removeBtn: ', json_encode(t('sale.remove_btn', 'Remove')), ',';
+echo '  howMany: ', json_encode(t('sale.how_many', '📦 How many?')), ',';
+echo '  discountPercent: ', json_encode(t('sale.discount_percent', '💰 Discount %')), ',';
+echo '  subtotalLabel: ', json_encode(t('sale.subtotal_label', 'Subtotal:')), ',';
+echo '  phoneLabel: ', json_encode(t('sale.phone_label', 'Phone:')), ',';
+echo '  cityLabel: ', json_encode(t('sale.city_label', 'City:'));
+echo '};';
+echo '';
 echo 'function addProduct(productId, productName, sku, priceUSD, priceLBP, maxStock) {';
 echo '  if (selectedProducts.find(p => p.id === productId)) {';
-echo '    alert("⚠️ This product is already in your sale!\\n\\nYou can change the quantity below if needed.");';
+echo '    alert(i18n.alertAlreadyAdded);';
 echo '    return;';
 echo '  }';
 echo '  selectedProducts.push({';
@@ -1122,7 +1091,7 @@ echo '      const qty = parseFloat(value);';
 echo '      if (qty > 0 && qty <= product.maxStock) {';
 echo '        product.quantity = qty;';
 echo '      } else if (qty > product.maxStock) {';
-echo '        alert("⚠️ Not enough stock!\\n\\nYou only have " + product.maxStock + " units available in your van.\\n\\nPlease enter a smaller quantity.");';
+echo '        alert(i18n.alertInsufficientStock.replace("{stock}", product.maxStock));';
 echo '        return;';
 echo '      }';
 echo '    } else if (field === "discount") {';
@@ -1146,7 +1115,7 @@ echo '';
 echo 'function renderSelectedProducts() {';
 echo '  const container = document.getElementById("selectedProductsList");';
 echo '  if (selectedProducts.length === 0) {';
-echo '    container.innerHTML = \'<p style="color:var(--muted);text-align:center; padding: 20px; background: #f9fafb; border-radius: 8px; border: 2px dashed #e5e7eb;">📦 No products added yet.<br><strong style="color: #059669;">Search and click products above to add them to your sale.</strong></p>\';';
+echo '    container.innerHTML = `<p style="color:var(--muted);text-align:center; padding: 20px; background: #f9fafb; border-radius: 8px; border: 2px dashed #e5e7eb;">${i18n.noProductsYet}</p>`;';
 echo '    return;';
 echo '  }';
 echo '  let html = "";';
@@ -1157,22 +1126,22 @@ echo '    const safeSku = escapeHtml(product.sku);';
 echo '    html += `<div class="selected-product">`;';
 echo '    html += `<div class="selected-product-header">`;';
 echo '    html += `<div><div class="selected-product-name">${safeName}</div>`;';
-echo '    html += `<div style="font-size:0.85rem;color:var(--muted);">SKU: ${safeSku} | Unit: $${product.priceUSD.toFixed(2)} | Stock: ${product.maxStock}</div></div>`;';
-echo '    html += `<button type="button" class="btn-remove" onclick="removeProduct(${product.id})">Remove</button>`;';
+echo '    html += `<div style="font-size:0.85rem;color:var(--muted);">${i18n.skuLabel} ${safeSku} | ${i18n.unitLabel} $${product.priceUSD.toFixed(2)} | ${i18n.stockLabel} ${product.maxStock}</div></div>`;';
+echo '    html += `<button type="button" class="btn-remove" onclick="removeProduct(${product.id})">${i18n.removeBtn}</button>`;';
 echo '    html += `</div>`;';
 echo '    html += `<div class="selected-product-controls">`;';
 echo '    html += `<div class="control-group">`;';
-echo '    html += `<label style="font-size: 0.95rem; color: #047857;">📦 How many?</label>`;';
+echo '    html += `<label style="font-size: 0.95rem; color: #047857;">${i18n.howMany}</label>`;';
 echo '    html += `<input type="number" step="0.1" min="0.1" max="${product.maxStock}" value="${product.quantity}" `;';
 echo '    html += `onchange="updateProduct(${product.id}, \'quantity\', this.value)" style="font-size: 1.1rem; font-weight: 600;">`;';
 echo '    html += `</div>`;';
 echo '    html += `<div class="control-group">`;';
-echo '    html += `<label style="font-size: 0.95rem; color: #047857;">💰 Discount %</label>`;';
+echo '    html += `<label style="font-size: 0.95rem; color: #047857;">${i18n.discountPercent}</label>`;';
 echo '    html += `<input type="number" step="0.01" min="0" max="100" value="${product.discount}" `;';
 echo '    html += `onchange="updateProduct(${product.id}, \'discount\', this.value)" placeholder="0" style="font-size: 1.1rem; font-weight: 600;">`;';
 echo '    html += `</div>`;';
 echo '    html += `</div>`;';
-echo '    html += `<div class="selected-product-subtotal">Subtotal: $${subtotal.toFixed(2)}</div>`;';
+echo '    html += `<div class="selected-product-subtotal">${i18n.subtotalLabel} $${subtotal.toFixed(2)}</div>`;';
 echo '    html += `<input type="hidden" name="items[${product.id}][product_id]" value="${product.id}">`;';
 echo '    html += `<input type="hidden" name="items[${product.id}][quantity]" value="${product.quantity}">`;';
 echo '    html += `<input type="hidden" name="items[${product.id}][discount]" value="${product.discount}">`;';
@@ -1331,146 +1300,185 @@ echo '});';
 echo '';
 echo 'document.getElementById("productSearch").focus();';
 echo '';
-echo '// Customer search functionality';
-echo 'let currentCustomerHighlightIndex = -1;';
-echo 'let visibleCustomers = [];';
-echo '';
-echo 'function performCustomerSearch() {';
-echo '  const searchInput = document.getElementById("customerSearch");';
-echo '  const clearBtn = document.getElementById("clearCustomerSearch");';
-echo '  const customerList = document.getElementById("customerList");';
-echo '  const governorateFilter = document.getElementById("governorateFilter");';
-echo '  const search = searchInput.value.toLowerCase().trim();';
-echo '  const selectedGovernorate = governorateFilter.value.toLowerCase();';
-echo '';
-echo '  visibleCustomers = [];';
-echo '  currentCustomerHighlightIndex = -1;';
-echo '';
-echo '  clearBtn.style.display = search.length > 0 ? "inline-block" : "none";';
-echo '';
-echo '  customerList.style.display = "block";';
-echo '  let hasResults = false;';
-echo '';
-echo '  document.querySelectorAll(".customer-item").forEach(item => {';
-echo '    const name = item.dataset.customerName.toLowerCase();';
-echo '    const phone = (item.dataset.customerPhone || "").toLowerCase();';
-echo '    const governorate = (item.dataset.customerGovernorate || "").toLowerCase();';
+echo '// Customer autocomplete search - PRODUCTION VERSION';
+echo '(function() {';
+echo '  const searchInput = document.getElementById("customerSearchInput");';
+echo '  const suggestionsBox = document.getElementById("customerSearchResults");';
+echo '  const customerIdInput = document.getElementById("selectedCustomerId");';
+echo '  const selectedDisplay = document.getElementById("selectedCustomerDisplay");';
+echo '  const selectedName = document.getElementById("selectedCustomerName");';
+echo '  const selectedInfo = document.getElementById("selectedCustomerInfo");';
+echo '  ';
+echo '  if (!searchInput || !suggestionsBox || !customerIdInput) return;';
+echo '  ';
+echo '  let suggestions = [];';
+echo '  let activeIndex = -1;';
+echo '  let searchTimer = null;';
+echo '  ';
+echo '  function clearSuggestions() {';
+echo '    suggestions = [];';
+echo '    suggestionsBox.innerHTML = "";';
+echo '    suggestionsBox.style.display = "none";';
+echo '    activeIndex = -1;';
+echo '  }';
+echo '  ';
+echo '  function setActiveSuggestion(index) {';
+echo '    const items = suggestionsBox.querySelectorAll(".suggestion-item");';
+echo '    items.forEach(function(item, idx) {';
+echo '      if (idx === index) {';
+echo '        item.style.background = "#f3f4f6";';
+echo '      } else {';
+echo '        item.style.background = "white";';
+echo '      }';
+echo '    });';
+echo '    activeIndex = index;';
+echo '  }';
+echo '  ';
+echo '  function renderSuggestions(items) {';
+echo '    suggestionsBox.innerHTML = "";';
+echo '    if (!items || items.length === 0) {';
+echo '      const noResults = document.createElement("div");';
+echo '      noResults.style.cssText = "padding: 12px; color: #6b7280; text-align: center;";';
+echo '      noResults.textContent = "No customers found";';
+echo '      suggestionsBox.appendChild(noResults);';
+echo '      suggestionsBox.style.display = "block";';
+echo '      return;';
+echo '    }';
 echo '    ';
-echo '    const searchMatches = search === "" || name.includes(search) || phone.includes(search);';
-echo '    const governorateMatches = selectedGovernorate === "" || governorate === selectedGovernorate;';
-echo '    const matches = searchMatches && governorateMatches;';
-echo '';
-echo '    item.classList.toggle("hidden", !matches);';
-echo '    item.classList.remove("highlighted");';
-echo '';
-echo '    if (matches) {';
-echo '      hasResults = true;';
-echo '      visibleCustomers.push(item);';
+echo '    suggestions = items;';
+echo '    items.forEach(function(item, index) {';
+echo '      const div = document.createElement("div");';
+echo '      div.className = "suggestion-item";';
+echo '      div.style.cssText = "padding: 12px; cursor: pointer; border-bottom: 1px solid #e5e7eb;";';
+echo '      div.dataset.index = index;';
+echo '      ';
+echo '      const nameDiv = document.createElement("div");';
+echo '      nameDiv.style.fontWeight = "600";';
+echo '      nameDiv.textContent = item.name;';
+echo '      div.appendChild(nameDiv);';
+echo '      ';
+echo '      if (item.phone || item.city) {';
+echo '        const metaDiv = document.createElement("div");';
+echo '        metaDiv.style.cssText = "font-size: 0.85rem; color: #6b7280;";';
+echo '        let metaText = "";';
+echo '        if (item.phone) metaText += item.phone;';
+echo '        if (item.phone && item.city) metaText += " | ";';
+echo '        if (item.city) metaText += item.city;';
+echo '        metaDiv.textContent = metaText;';
+echo '        div.appendChild(metaDiv);';
+echo '      }';
+echo '      ';
+echo '      div.addEventListener("mousedown", function(e) {';
+echo '        e.preventDefault();';
+echo '        selectSuggestion(item);';
+echo '      });';
+echo '      ';
+echo '      div.addEventListener("mouseenter", function() {';
+echo '        setActiveSuggestion(index);';
+echo '      });';
+echo '      ';
+echo '      suggestionsBox.appendChild(div);';
+echo '    });';
+echo '    ';
+echo '    suggestionsBox.style.display = "block";';
+echo '    activeIndex = -1;';
+echo '  }';
+echo '  ';
+echo '  function selectSuggestion(item) {';
+echo '    customerIdInput.value = item.id;';
+echo '    searchInput.value = item.name;';
+echo '    ';
+echo '    selectedName.textContent = item.name;';
+echo '    let info = "";';
+echo '    if (item.phone) info += item.phone;';
+echo '    if (item.phone && item.city) info += " | ";';
+echo '    if (item.city) info += item.city;';
+echo '    selectedInfo.textContent = info;';
+echo '    selectedDisplay.style.display = "block";';
+echo '    ';
+echo '    clearSuggestions();';
+echo '    ';
+echo '    const productSearch = document.getElementById("productSearch");';
+echo '    if (productSearch) {';
+echo '      productSearch.scrollIntoView({ behavior: "smooth", block: "start" });';
+echo '    }';
+echo '  }';
+echo '  ';
+echo '  function fetchSuggestions(term) {';
+echo '    if (term.length < 2) {';
+echo '      clearSuggestions();';
+echo '      return;';
+echo '    }';
+echo '    ';
+echo '    const url = "?ajax=customer_search&term=" + encodeURIComponent(term);';
+echo '    ';
+echo '    fetch(url, { credentials: "same-origin" })';
+echo '      .then(function(response) {';
+echo '        if (!response.ok) throw new Error("Network error");';
+echo '        return response.json();';
+echo '      })';
+echo '      .then(function(data) {';
+echo '        if (data.results && Array.isArray(data.results)) {';
+echo '          renderSuggestions(data.results);';
+echo '        } else {';
+echo '          clearSuggestions();';
+echo '        }';
+echo '      })';
+echo '      .catch(function(error) {';
+echo '        console.error("Customer search error:", error);';
+echo '        const errorDiv = document.createElement("div");';
+echo '        errorDiv.style.cssText = "padding: 12px; color: #ef4444; text-align: center;";';
+echo '        errorDiv.textContent = "Error loading customers";';
+echo '        suggestionsBox.innerHTML = "";';
+echo '        suggestionsBox.appendChild(errorDiv);';
+echo '        suggestionsBox.style.display = "block";';
+echo '      });';
+echo '  }';
+echo '  ';
+echo '  searchInput.addEventListener("input", function(e) {';
+echo '    const value = e.target.value.trim();';
+echo '    customerIdInput.value = "";';
+echo '    selectedDisplay.style.display = "none";';
+echo '    ';
+echo '    clearTimeout(searchTimer);';
+echo '    searchTimer = setTimeout(function() {';
+echo '      fetchSuggestions(value);';
+echo '    }, 250);';
+echo '  });';
+echo '  ';
+echo '  searchInput.addEventListener("keydown", function(e) {';
+echo '    if (suggestionsBox.style.display === "none") return;';
+echo '    ';
+echo '    if (e.key === "ArrowDown") {';
+echo '      e.preventDefault();';
+echo '      const nextIndex = activeIndex + 1 >= suggestions.length ? 0 : activeIndex + 1;';
+echo '      setActiveSuggestion(nextIndex);';
+echo '    } else if (e.key === "ArrowUp") {';
+echo '      e.preventDefault();';
+echo '      const prevIndex = activeIndex - 1 < 0 ? suggestions.length - 1 : activeIndex - 1;';
+echo '      setActiveSuggestion(prevIndex);';
+echo '    } else if (e.key === "Enter") {';
+echo '      if (activeIndex >= 0 && suggestions[activeIndex]) {';
+echo '        e.preventDefault();';
+echo '        selectSuggestion(suggestions[activeIndex]);';
+echo '      }';
+echo '    } else if (e.key === "Escape") {';
+echo '      clearSuggestions();';
 echo '    }';
 echo '  });';
-echo '';
-echo '  if (visibleCustomers.length > 0) {';
-echo '    highlightCustomer(0);';
-echo '  }';
-echo '}';
-echo '';
-echo 'function highlightCustomer(index) {';
-echo '  visibleCustomers.forEach(item => item.classList.remove("highlighted"));';
-echo '  if (index >= 0 && index < visibleCustomers.length) {';
-echo '    currentCustomerHighlightIndex = index;';
-echo '    visibleCustomers[index].classList.add("highlighted");';
-echo '    visibleCustomers[index].scrollIntoView({ behavior: "smooth", block: "nearest" });';
-echo '  }';
-echo '}';
-echo '';
-echo 'function selectHighlightedCustomer() {';
-echo '  if (currentCustomerHighlightIndex >= 0 && currentCustomerHighlightIndex < visibleCustomers.length) {';
-echo '    const item = visibleCustomers[currentCustomerHighlightIndex];';
-echo '    selectCustomer(item);';
-echo '  }';
-echo '}';
-echo '';
-echo 'function selectCustomer(item) {';
-echo '  const customerId = item.dataset.customerId;';
-echo '  const customerName = item.dataset.customerName;';
-echo '  const customerPhone = item.dataset.customerPhone || "";';
-echo '  const customerCity = item.dataset.customerCity || "";';
-echo '';
-echo '  document.getElementById("selectedCustomerId").value = customerId;';
-echo '  document.getElementById("customerSearch").value = customerName;';
-echo '  document.getElementById("customerList").style.display = "none";';
-echo '';
-echo '  let displayHtml = "<div class=\"selected-customer-name\">" + customerName + "</div>";';
-echo '  displayHtml += "<div class=\"selected-customer-info\">";';
-echo '  if (customerPhone) displayHtml += "Phone: " + customerPhone;';
-echo '  if (customerPhone && customerCity) displayHtml += " | ";';
-echo '  if (customerCity) displayHtml += "City: " + customerCity;';
-echo '  displayHtml += "</div>";';
-echo '';
-echo '  const displayDiv = document.getElementById("selectedCustomerDisplay");';
-echo '  displayDiv.innerHTML = displayHtml;';
-echo '  displayDiv.style.display = "block";';
-echo '}';
-echo '';
-echo 'document.getElementById("customerSearch").addEventListener("input", performCustomerSearch);';
-echo '';
-echo 'document.getElementById("customerSearch").addEventListener("focus", function() {';
-echo '  performCustomerSearch();';
-echo '});';
-echo '';
-echo '// Search button click handler';
-echo 'document.getElementById("searchCustomerBtn").addEventListener("click", function() {';
-echo '  performCustomerSearch();';
-echo '  document.getElementById("customerSearch").focus();';
-echo '});';
-echo '';
-echo '// Governorate filter change handler';
-echo 'document.getElementById("governorateFilter").addEventListener("change", function() {';
-echo '  performCustomerSearch();';
-echo '});';
-echo '';
-echo 'document.getElementById("customerSearch").addEventListener("keydown", function(e) {';
-echo '  if (e.key === "ArrowDown") {';
-echo '    e.preventDefault();';
-echo '    if (currentCustomerHighlightIndex < visibleCustomers.length - 1) highlightCustomer(currentCustomerHighlightIndex + 1);';
-echo '  } else if (e.key === "ArrowUp") {';
-echo '    e.preventDefault();';
-echo '    if (currentCustomerHighlightIndex > 0) highlightCustomer(currentCustomerHighlightIndex - 1);';
-echo '  } else if (e.key === "Enter") {';
-echo '    e.preventDefault();';
-echo '    selectHighlightedCustomer();';
-echo '  } else if (e.key === "Escape") {';
-echo '    e.preventDefault();';
-echo '    this.value = "";';
-echo '    document.getElementById("customerList").style.display = "none";';
-echo '    document.getElementById("clearCustomerSearch").style.display = "none";';
-echo '  }';
-echo '});';
-echo '';
-echo 'document.getElementById("clearCustomerSearch").addEventListener("click", function() {';
-echo '  document.getElementById("customerSearch").value = "";';
-echo '  document.getElementById("selectedCustomerId").value = "";';
-echo '  document.getElementById("customerList").style.display = "none";';
-echo '  document.getElementById("selectedCustomerDisplay").style.display = "none";';
-echo '  this.style.display = "none";';
-echo '  document.getElementById("customerSearch").focus();';
-echo '});';
-echo '';
-echo 'document.querySelectorAll(".customer-item").forEach(item => {';
-echo '  item.addEventListener("click", function() {';
-echo '    selectCustomer(this);';
+echo '  ';
+echo '  searchInput.addEventListener("focus", function() {';
+echo '    if (suggestions.length > 0) {';
+echo '      suggestionsBox.style.display = "block";';
+echo '    }';
 echo '  });';
-echo '});';
-echo '';
-echo '// Hide customer list when clicking outside';
-echo 'document.addEventListener("click", function(e) {';
-echo '  const customerSearch = document.getElementById("customerSearch");';
-echo '  const customerList = document.getElementById("customerList");';
-echo '  const clearBtn = document.getElementById("clearCustomerSearch");';
-echo '  if (e.target !== customerSearch && e.target !== clearBtn && !customerList.contains(e.target)) {';
-echo '    customerList.style.display = "none";';
-echo '  }';
-echo '});';
+echo '  ';
+echo '  document.addEventListener("click", function(e) {';
+echo '    if (e.target !== searchInput && !suggestionsBox.contains(e.target)) {';
+echo '      clearSuggestions();';
+echo '    }';
+echo '  });';
+echo '})();';
 echo '';
 echo '// Payment currency conversion functions';
 echo 'function convertPaidUsdToLbp() {';
