@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../../includes/bootstrap.php';
-require_once __DIR__ . '/../../../includes/sales_portal.php';
-require_once __DIR__ . '/../../../includes/db.php';
+require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/sales_portal.php';
+require_once __DIR__ . '/../../includes/db.php';
 
 $user = sales_portal_bootstrap();
 $pdo = db();

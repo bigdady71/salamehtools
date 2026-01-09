@@ -39,7 +39,7 @@ function sales_portal_nav_links(): array
         ],
         'orders_van' => [
             'label' => t('nav.create_sale', '🚚 Create New Sale'),
-            'href' => $prefix . 'orders/van_stock_sales.php',
+            'href' => $prefix . 'van_stock_sales.php',
         ],
         'orders' => [
             'label' => t('nav.my_orders', '📋 My Orders'),
@@ -67,7 +67,7 @@ function sales_portal_nav_links(): array
         ],
         'orders_request' => [
             'label' => t('nav.company_order', '🏢 Company Order'),
-            'href' => $prefix . 'orders/company_order_request.php',
+            'href' => $prefix . 'company_order_request.php',
         ],
         'invoices' => [
             'label' => t('nav.invoices', '💵 Invoices'),

@@ -813,8 +813,8 @@ sales_portal_render_layout_start([
     <h3 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 12px; color: #111827;">No Orders Found</h3>
     <p style="color: #6b7280; margin-bottom: 32px; font-size: 1.05rem;">Try adjusting your filters or create a new order to get started.</p>
     <div style="display: flex; gap: 12px; justify-content: center;">
-        <a href="orders/van_stock_sales.php" class="btn btn-success">🚚 New Van Stock Sale</a>
-        <a href="orders/company_order_request.php" class="btn btn-info">🏢 New Company Order</a>
+        <a href="van_stock_sales.php" class="btn btn-success">🚚 New Van Stock Sale</a>
+        <a href="company_order_request.php" class="btn btn-info">🏢 New Company Order</a>
     </div>
 </div>
 <?php endif; ?>

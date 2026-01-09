@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../../bootstrap.php';
-require_once __DIR__ . '/../../../includes/guard.php';
-require_once __DIR__ . '/../../../includes/sales_portal.php';
-require_once __DIR__ . '/../../../includes/counter.php';
+require_once __DIR__ . '/../../bootstrap.php';
+require_once __DIR__ . '/../../includes/guard.php';
+require_once __DIR__ . '/../../includes/sales_portal.php';
+require_once __DIR__ . '/../../includes/counter.php';
 
 $user = sales_portal_bootstrap();
 $repId = (int)$user['id'];
