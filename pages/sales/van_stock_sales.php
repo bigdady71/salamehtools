@@ -49,6 +49,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'search_customers') {
     exit;
 }
 
+// Handle AJAX product search
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'search_products') {
+    header('Content-Type: application/json');
+
+    $query = trim((string)($_GET['q'] ?? ''));
+
+    if (strlen($query) < 1) {
+        echo json_encode(['results' => []]);
+        exit;
+    }
+
+    try {
+        $searchPattern = '%' . $query . '%';
+        $stmt = $pdo->prepare("
+            SELECT
+                p.id,
+                p.sku,
+                p.item_name,
+                p.topcat as category,
+                p.barcode,
+                p.code_clean,
+                p.sale_price_usd,
+                s.qty_on_hand
+            FROM s_stock s
+            JOIN products p ON p.id = s.product_id
+            WHERE s.salesperson_id = :rep_id
+              AND s.qty_on_hand > 0
+              AND p.is_active = 1
+              AND (
+                  p.item_name LIKE :pattern
+                  OR p.sku LIKE :pattern
+                  OR p.barcode LIKE :pattern
+                  OR p.code_clean LIKE :pattern
+                  OR p.topcat LIKE :pattern
+              )
+            ORDER BY p.item_name
+            LIMIT 20
+        ");
+        $stmt->execute([
+            ':rep_id' => $repId,
+            ':pattern' => $searchPattern
+        ]);
+
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['results' => $results]);
+    } catch (PDOException $e) {
+        error_log("Product search failed: " . $e->getMessage());
+        echo json_encode(['results' => [], 'error' => 'Search failed']);
+    }
+    exit;
+}
+
 $flashes = [];
 
 // Get active exchange rate
@@ -207,10 +259,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     $unitPriceUSD = (float)$product['sale_price_usd'];
                     $unitPriceLBP = $unitPriceUSD * $exchangeRate;
 
-                    // Apply discount
-                    $discountMultiplier = 1 - ($item['discount'] / 100);
-                    $lineUSD = $unitPriceUSD * $item['quantity'] * $discountMultiplier;
-                    $lineLBP = $unitPriceLBP * $item['quantity'] * $discountMultiplier;
+                    // Calculate line totals (no discount)
+                    $lineUSD = $unitPriceUSD * $item['quantity'];
+                    $lineLBP = $unitPriceLBP * $item['quantity'];
 
                     $totalUSD += $lineUSD;
                     $totalLBP += $lineLBP;
@@ -220,7 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         'quantity' => $item['quantity'],
                         'unit_price_usd' => $unitPriceUSD,
                         'unit_price_lbp' => $unitPriceLBP,
-                        'discount_percent' => $item['discount'],
+                        'discount_percent' => 0,
                     ];
                 }
 
@@ -243,10 +294,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     $orderStmt = $pdo->prepare("
                         INSERT INTO orders (
                             order_number, order_type, status, customer_id, sales_rep_id, exchange_rate_id,
-                            total_usd, total_lbp, notes, invoice_ready, created_at, updated_at
+                            total_usd, total_lbp, notes, invoice_ready
                         ) VALUES (
                             :order_number, 'van_sale', 'delivered', :customer_id, :sales_rep_id, :exchange_rate_id,
-                            :total_usd, :total_lbp, :notes, 1, NOW(), NOW()
+                            :total_usd, :total_lbp, :notes, 1
                         )
                     ");
                     $orderStmt->execute([
@@ -294,79 +345,105 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     // Update van stock and create stock movements
                     $stockUpdateStmt = $pdo->prepare("
                         UPDATE s_stock
-                        SET qty_on_hand = qty_on_hand - :quantity,
-                            updated_at = NOW()
-                        WHERE salesperson_id = :rep_id AND product_id = :product_id
+                        SET qty_on_hand = qty_on_hand - :quantity
+                        WHERE salesperson_id = :rep_id
+                          AND product_id = :product_id
+                          AND qty_on_hand >= :quantity
                     ");
 
                     $stockMovementStmt = $pdo->prepare("
-                        INSERT INTO s_stock_movements (
-                            salesperson_id, product_id, movement_type, quantity, reference_type, reference_id, notes, created_at
-                        ) VALUES (
-                            :rep_id, :product_id, 'sale', :quantity, 'order', :order_id, :notes, NOW()
-                        )
+                        INSERT INTO s_stock_movements (salesperson_id, product_id, delta_qty, reason, note, created_at)
+                        VALUES (:rep_id, :product_id, :delta_qty, :reason, :note, NOW())
                     ");
 
                     foreach ($itemsWithPrices as $item) {
-                        // Deduct from van stock
+                        // Deduct from van stock with additional safety check
                         $stockUpdateStmt->execute([
                             ':quantity' => $item['quantity'],
                             ':rep_id' => $repId,
                             ':product_id' => $item['product_id'],
                         ]);
 
-                        // Log stock movement
+                        // Verify the update actually happened
+                        if ($stockUpdateStmt->rowCount() === 0) {
+                            throw new Exception("Unable to update stock for product ID {$item['product_id']}. Stock may have changed or is insufficient.");
+                        }
+
+                        // Log stock movement (negative delta for outgoing sale)
                         $stockMovementStmt->execute([
                             ':rep_id' => $repId,
                             ':product_id' => $item['product_id'],
-                            ':quantity' => -$item['quantity'], // Negative for outgoing
-                            ':order_id' => $orderId,
-                            ':notes' => "Van sale order {$orderNumber}",
+                            ':delta_qty' => -$item['quantity'],
+                            ':reason' => 'sale',
+                            ':note' => "Van sale order {$orderNumber}",
                         ]);
                     }
 
-                    // Generate invoice
-                    $invoiceNumber = generate_invoice_number($pdo);
-                    $invoiceStatus = $paymentAmountUSD >= $totalUSD ? 'paid' : 'issued';
+                    // Generate invoice with retry logic for duplicate handling
+                    $invoiceCreated = false;
+                    $maxRetries = 3;
+                    $invoiceId = null;
 
-                    $invoiceStmt = $pdo->prepare("
-                        INSERT INTO invoices (
-                            invoice_number, order_id, customer_id, total_usd, total_lbp,
-                            amount_paid_usd, amount_paid_lbp, status, issued_at, created_at
-                        ) VALUES (
-                            :invoice_number, :order_id, :customer_id, :total_usd, :total_lbp,
-                            :amount_paid_usd, :amount_paid_lbp, :status, NOW(), NOW()
-                        )
-                    ");
-                    $invoiceStmt->execute([
-                        ':invoice_number' => $invoiceNumber,
-                        ':order_id' => $orderId,
-                        ':customer_id' => $customerId,
-                        ':total_usd' => $totalUSD,
-                        ':total_lbp' => $totalLBP,
-                        ':amount_paid_usd' => $paymentAmountUSD,
-                        ':amount_paid_lbp' => $paymentAmountUSD * $exchangeRate,
-                        ':status' => $invoiceStatus,
-                    ]);
+                    for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                        try {
+                            $invoiceNumber = generate_invoice_number($pdo);
+                            $invoiceStatus = $paymentAmountUSD >= $totalUSD ? 'paid' : 'issued';
 
-                    $invoiceId = (int)$pdo->lastInsertId();
+                            $invoiceStmt = $pdo->prepare("
+                                INSERT INTO invoices (
+                                    invoice_number, order_id, sales_rep_id, status, total_usd, total_lbp
+                                ) VALUES (
+                                    :invoice_number, :order_id, :sales_rep_id, :status, :total_usd, :total_lbp
+                                )
+                            ");
+                            $invoiceStmt->execute([
+                                ':invoice_number' => $invoiceNumber,
+                                ':order_id' => $orderId,
+                                ':sales_rep_id' => $repId,
+                                ':status' => $invoiceStatus,
+                                ':total_usd' => $totalUSD,
+                                ':total_lbp' => $totalLBP,
+                            ]);
+
+                            $invoiceId = (int)$pdo->lastInsertId();
+                            $invoiceCreated = true;
+                            break;
+                        } catch (PDOException $e) {
+                            // If duplicate key error, retry with new invoice number
+                            if ($e->getCode() === '23000' && strpos($e->getMessage(), 'invoice_number') !== false) {
+                                if ($attempt < $maxRetries) {
+                                    // Small delay before retry
+                                    usleep(100000); // 100ms
+                                    continue;
+                                } else {
+                                    throw new Exception('Failed to generate unique invoice number after ' . $maxRetries . ' attempts. Please contact support.');
+                                }
+                            }
+                            throw $e;
+                        }
+                    }
+
+                    if (!$invoiceCreated || !$invoiceId) {
+                        throw new Exception('Failed to create invoice.');
+                    }
 
                     // Create payment record if payment was provided
                     if ($paymentAmountUSD > 0) {
                         $paymentStmt = $pdo->prepare("
                             INSERT INTO payments (
-                                invoice_id, customer_id, amount_usd, amount_lbp,
-                                payment_method, payment_date, created_at
+                                invoice_id, method, amount_usd, amount_lbp,
+                                received_by_user_id, received_at, created_at
                             ) VALUES (
-                                :invoice_id, :customer_id, :amount_usd, :amount_lbp,
-                                'cash', NOW(), NOW()
+                                :invoice_id, :method, :amount_usd, :amount_lbp,
+                                :received_by, NOW(), NOW()
                             )
                         ");
                         $paymentStmt->execute([
                             ':invoice_id' => $invoiceId,
-                            ':customer_id' => $customerId,
+                            ':method' => 'cash',
                             ':amount_usd' => $paymentAmountUSD,
                             ':amount_lbp' => $paymentAmountUSD * $exchangeRate,
+                            ':received_by' => $repId,
                         ]);
                     }
 
@@ -398,27 +475,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
     }
 }
 
-// Get van stock products (only products with qty > 0)
-$vanStockStmt = $pdo->prepare("
-    SELECT
-        p.id,
-        p.sku,
-        p.item_name,
-        p.topcat as category,
-        p.description,
-        p.barcode,
-        p.code_clean,
-        p.sale_price_usd,
-        s.qty_on_hand
+// Check if rep has any van stock (for display purposes)
+$hasStockStmt = $pdo->prepare("
+    SELECT COUNT(*) as stock_count
     FROM s_stock s
     JOIN products p ON p.id = s.product_id
     WHERE s.salesperson_id = :rep_id
       AND s.qty_on_hand > 0
       AND p.is_active = 1
-    ORDER BY p.item_name
 ");
-$vanStockStmt->execute([':rep_id' => $repId]);
-$products = $vanStockStmt->fetchAll(PDO::FETCH_ASSOC);
+$hasStockStmt->execute([':rep_id' => $repId]);
+$hasStock = ((int)$hasStockStmt->fetchColumn()) > 0;
 
 $csrfToken = csrf_token();
 
@@ -876,7 +943,7 @@ if (!$canCreateOrder) {
     echo '<p>The sales system is temporarily unavailable due to missing exchange rate configuration.</p>';
     echo '<p>Please contact your administrator to resolve this issue.</p>';
     echo '</div>';
-} elseif (empty($products)) {
+} elseif (!$hasStock) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">📦</div>';
     echo '<h3>No Products in Van Stock</h3>';
@@ -915,39 +982,18 @@ if (!$canCreateOrder) {
         <!-- Step 2: Product Selection -->
         <div class="form-section">
             <h3><span class="step-badge">2</span> Select Products</h3>
-            <div class="product-search">
-                <input
-                    type="text"
-                    id="productSearch"
-                    class="form-control"
-                    placeholder="Search products by name, SKU, barcode, or category..."
-                >
-            </div>
-            <div class="product-list" id="productList">
-                <?php foreach ($products as $product): ?>
-                    <div class="product-item<?= (float)$product['qty_on_hand'] <= 5 ? ' low-stock' : '' ?>"
-                         data-product-id="<?= (int)$product['id'] ?>"
-                         data-product-name="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                         data-product-price="<?= (float)$product['sale_price_usd'] ?>"
-                         data-product-stock="<?= (float)$product['qty_on_hand'] ?>"
-                         data-search-text="<?= htmlspecialchars(strtolower($product['item_name'] . ' ' . $product['sku'] . ' ' . $product['category'] . ' ' . ($product['barcode'] ?? '') . ' ' . ($product['code_clean'] ?? '')), ENT_QUOTES, 'UTF-8') ?>">
-                        <div class="product-info">
-                            <div class="product-name"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
-                            <div class="product-meta">
-                                SKU: <?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?>
-                                <?php if (!empty($product['category'])): ?>
-                                    | <?= htmlspecialchars($product['category'], ENT_QUOTES, 'UTF-8') ?>
-                                <?php endif; ?>
-                            </div>
-                            <div class="stock-badge<?= (float)$product['qty_on_hand'] <= 5 ? ' low' : '' ?>">
-                                Stock: <?= number_format((float)$product['qty_on_hand'], 2) ?>
-                            </div>
-                        </div>
-                        <div class="product-price">
-                            <div class="price-usd">$<?= number_format((float)$product['sale_price_usd'], 2) ?></div>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
+            <div class="form-group">
+                <label for="productSearch">Search by name, SKU, barcode, or category</label>
+                <div class="customer-search-wrapper">
+                    <input
+                        type="text"
+                        id="productSearch"
+                        class="form-control"
+                        placeholder="Type at least 1 character to search..."
+                        autocomplete="off"
+                    >
+                    <div id="productDropdown" class="autocomplete-dropdown" style="display: none;"></div>
+                </div>
             </div>
 
             <div id="selectedProducts" class="selected-products" style="display: none;">
@@ -976,14 +1022,6 @@ if (!$canCreateOrder) {
             <div class="summary-row">
                 <span>Number of items:</span>
                 <span id="summaryItemCount">0</span>
-            </div>
-            <div class="summary-row">
-                <span>Subtotal:</span>
-                <span id="summarySubtotal">$0.00</span>
-            </div>
-            <div class="summary-row">
-                <span>Total Discount:</span>
-                <span id="summaryDiscount">$0.00</span>
             </div>
             <div class="summary-row total">
                 <span>TOTAL (USD):</span>
@@ -1113,45 +1151,81 @@ if (!$canCreateOrder) {
             return div.innerHTML;
         }
 
-        // Product search
+        // Product search autocomplete
         const productSearch = document.getElementById('productSearch');
-        const productItems = document.querySelectorAll('.product-item');
+        const productDropdown = document.getElementById('productDropdown');
+        let productDebounceTimer = null;
 
         productSearch.addEventListener('input', function() {
-            const query = this.value.toLowerCase().trim();
+            const query = this.value.trim();
 
-            productItems.forEach(item => {
-                const searchText = item.dataset.searchText;
-                if (query === '' || searchText.includes(query)) {
-                    item.style.display = 'flex';
-                } else {
-                    item.style.display = 'none';
-                }
-            });
+            clearTimeout(productDebounceTimer);
+
+            if (query.length < 1) {
+                productDropdown.style.display = 'none';
+                return;
+            }
+
+            productDebounceTimer = setTimeout(() => {
+                fetch(`?action=search_products&q=${encodeURIComponent(query)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.results && data.results.length > 0) {
+                            productDropdown.innerHTML = data.results.map(product => {
+                                const isLowStock = parseFloat(product.qty_on_hand) <= 5;
+                                const stockClass = isLowStock ? ' style="background: #fef9c3;"' : '';
+                                return `
+                                    <div class="autocomplete-item product-result" data-product-id="${product.id}" data-product-name="${escapeHtml(product.item_name)}" data-product-price="${product.sale_price_usd}" data-product-stock="${product.qty_on_hand}"${stockClass}>
+                                        <strong>${escapeHtml(product.item_name)}</strong>
+                                        <small>SKU: ${escapeHtml(product.sku)} | Stock: ${parseFloat(product.qty_on_hand).toFixed(2)} | $${parseFloat(product.sale_price_usd).toFixed(2)}</small>
+                                    </div>
+                                `;
+                            }).join('');
+                            productDropdown.style.display = 'block';
+
+                            // Add click handlers
+                            document.querySelectorAll('.product-result').forEach(item => {
+                                item.addEventListener('click', function() {
+                                    const productId = this.dataset.productId;
+                                    const productName = this.dataset.productName;
+                                    const productPrice = parseFloat(this.dataset.productPrice);
+                                    const productStock = parseFloat(this.dataset.productStock);
+
+                                    if (!selectedProducts[productId]) {
+                                        selectedProducts[productId] = {
+                                            name: productName,
+                                            price: productPrice,
+                                            stock: productStock,
+                                            quantity: 1,
+                                            discount: 0
+                                        };
+
+                                        renderSelectedProducts();
+                                        updateOrderSummary();
+                                        productSearch.value = '';
+                                        productDropdown.style.display = 'none';
+                                    } else {
+                                        alert('This product is already added to the sale.');
+                                    }
+                                });
+                            });
+                        } else {
+                            productDropdown.innerHTML = '<div class="autocomplete-item" style="cursor: default;">No products found in van stock</div>';
+                            productDropdown.style.display = 'block';
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Product search failed:', err);
+                        productDropdown.style.display = 'none';
+                    });
+            }, 300);
         });
 
-        // Product selection
-        productItems.forEach(item => {
-            item.addEventListener('click', function() {
-                const productId = this.dataset.productId;
-                const productName = this.dataset.productName;
-                const productPrice = parseFloat(this.dataset.productPrice);
-                const productStock = parseFloat(this.dataset.productStock);
-
-                if (!selectedProducts[productId]) {
-                    selectedProducts[productId] = {
-                        name: productName,
-                        price: productPrice,
-                        stock: productStock,
-                        quantity: 1,
-                        discount: 0
-                    };
-
-                    this.classList.add('selected');
-                    renderSelectedProducts();
-                    updateOrderSummary();
-                }
-            });
+        // Close product dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!productSearch.contains(e.target) && !productDropdown.contains(e.target)) {
+                productDropdown.style.display = 'none';
+            }
         });
 
         function renderSelectedProducts() {
@@ -1167,7 +1241,7 @@ if (!$canCreateOrder) {
 
             container.innerHTML = Object.keys(selectedProducts).map(productId => {
                 const product = selectedProducts[productId];
-                const subtotal = product.price * product.quantity * (1 - product.discount / 100);
+                const subtotal = product.price * product.quantity;
 
                 return `
                     <div class="selected-product" data-product-id="${productId}">
@@ -1183,25 +1257,13 @@ if (!$canCreateOrder) {
                                     class="quantity-input"
                                     data-product-id="${productId}"
                                     value="${product.quantity}"
-                                    min="0.01"
+                                    min="1"
                                     max="${product.stock}"
                                     step="1"
                                 >
                                 <input type="hidden" name="items[${productId}][product_id]" value="${productId}">
                                 <input type="hidden" name="items[${productId}][quantity]" value="${product.quantity}" class="quantity-hidden-${productId}">
-                            </div>
-                            <div class="control-group">
-                                <label>Discount %</label>
-                                <input
-                                    type="number"
-                                    class="discount-input"
-                                    data-product-id="${productId}"
-                                    value="${product.discount}"
-                                    min="0"
-                                    max="100"
-                                    step="0.1"
-                                >
-                                <input type="hidden" name="items[${productId}][discount]" value="${product.discount}" class="discount-hidden-${productId}">
+                                <input type="hidden" name="items[${productId}][discount]" value="0">
                             </div>
                         </div>
                         <div class="subtotal">Subtotal: $${subtotal.toFixed(2)}</div>
@@ -1213,10 +1275,13 @@ if (!$canCreateOrder) {
             document.querySelectorAll('.quantity-input').forEach(input => {
                 input.addEventListener('input', function() {
                     const productId = this.dataset.productId;
-                    const value = parseFloat(this.value) || 0;
+                    const value = parseFloat(this.value) || 1;
                     const maxStock = selectedProducts[productId].stock;
 
-                    if (value > maxStock) {
+                    if (value < 1) {
+                        this.value = 1;
+                        selectedProducts[productId].quantity = 1;
+                    } else if (value > maxStock) {
                         alert(`Maximum available stock is ${maxStock}`);
                         this.value = maxStock;
                         selectedProducts[productId].quantity = maxStock;
@@ -1229,22 +1294,10 @@ if (!$canCreateOrder) {
                     updateOrderSummary();
                 });
             });
-
-            document.querySelectorAll('.discount-input').forEach(input => {
-                input.addEventListener('input', function() {
-                    const productId = this.dataset.productId;
-                    const value = parseFloat(this.value) || 0;
-                    selectedProducts[productId].discount = Math.max(0, Math.min(100, value));
-                    document.querySelector(`.discount-hidden-${productId}`).value = selectedProducts[productId].discount;
-                    renderSelectedProducts();
-                    updateOrderSummary();
-                });
-            });
         }
 
         function removeProduct(productId) {
             delete selectedProducts[productId];
-            document.querySelector(`.product-item[data-product-id="${productId}"]`)?.classList.remove('selected');
             renderSelectedProducts();
             updateOrderSummary();
         }
@@ -1260,23 +1313,16 @@ if (!$canCreateOrder) {
             summary.classList.add('show');
 
             let itemCount = 0;
-            let subtotal = 0;
-            let totalDiscount = 0;
+            let totalUSD = 0;
 
             Object.values(selectedProducts).forEach(product => {
                 itemCount += 1;
-                const lineSubtotal = product.price * product.quantity;
-                const lineDiscount = lineSubtotal * (product.discount / 100);
-                subtotal += lineSubtotal;
-                totalDiscount += lineDiscount;
+                totalUSD += product.price * product.quantity;
             });
 
-            const totalUSD = subtotal - totalDiscount;
             const totalLBP = totalUSD * exchangeRate;
 
             document.getElementById('summaryItemCount').textContent = itemCount;
-            document.getElementById('summarySubtotal').textContent = '$' + subtotal.toFixed(2);
-            document.getElementById('summaryDiscount').textContent = '$' + totalDiscount.toFixed(2);
             document.getElementById('summaryTotalUSD').textContent = '$' + totalUSD.toFixed(2);
             document.getElementById('summaryTotalLBP').textContent = 'L.L. ' + totalLBP.toLocaleString('en-US', {maximumFractionDigits: 0});
         }

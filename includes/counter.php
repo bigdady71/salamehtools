@@ -52,9 +52,18 @@ function get_next_counter(PDO $pdo, string $counterName): int
  */
 function generate_order_number(PDO $pdo): string
 {
-    $number = get_next_counter($pdo, 'order_number');
-    return 'ORD-' . str_pad((string)$number, 6, '0', STR_PAD_LEFT);
+    $stmt = $pdo->prepare("
+        UPDATE order_counters
+        SET last_number = LAST_INSERT_ID(last_number + 1)
+        WHERE id = 1
+    ");
+    $stmt->execute();
+
+    $next = (int)$pdo->lastInsertId();
+
+    return 'ORD-' . str_pad((string)$next, 6, '0', STR_PAD_LEFT);
 }
+
 
 /**
  * Generates a formatted invoice number using atomic counter.

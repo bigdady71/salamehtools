@@ -182,7 +182,85 @@ try {
     }
 
     // ============================================================
-    // 3. SALES FUNNEL METRICS
+    // 3. EXPENSE TRACKING
+    // ============================================================
+    $expensesStmt = $pdo->prepare("
+        SELECT
+            COUNT(*) as expense_count,
+            COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount ELSE 0 END), 0) as total_expenses_usd,
+            COALESCE(SUM(CASE WHEN currency = 'LBP' THEN amount ELSE 0 END), 0) as total_expenses_lbp
+        FROM sales_rep_expenses
+        WHERE sales_rep_id = :rep_id
+        AND expense_date >= :from
+        AND expense_date <= DATE(:to)
+        AND status = 'approved'
+    ");
+
+    // Current period
+    $expensesStmt->execute([
+        'rep_id' => $salesRepId,
+        'from' => $dateFrom,
+        'to' => $dateTo
+    ]);
+    $expenses = $expensesStmt->fetch(PDO::FETCH_ASSOC);
+
+    // Cast to proper types
+    $expenses['expense_count'] = (int)$expenses['expense_count'];
+    $expenses['total_expenses_usd'] = (float)$expenses['total_expenses_usd'];
+    $expenses['total_expenses_lbp'] = (float)$expenses['total_expenses_lbp'];
+
+    // Comparison period
+    $expensesStmt->execute([
+        'rep_id' => $salesRepId,
+        'from' => $comparisonFrom,
+        'to' => $comparisonTo
+    ]);
+    $expensesComparison = $expensesStmt->fetch(PDO::FETCH_ASSOC);
+
+    // Cast to proper types
+    $expensesComparison['expense_count'] = (int)$expensesComparison['expense_count'];
+    $expensesComparison['total_expenses_usd'] = (float)$expensesComparison['total_expenses_usd'];
+
+    // Calculate growth
+    $expensesGrowth = 0;
+    if ($expensesComparison['total_expenses_usd'] > 0) {
+        $expensesGrowth = (($expenses['total_expenses_usd'] - $expensesComparison['total_expenses_usd']) / $expensesComparison['total_expenses_usd']) * 100;
+    }
+
+    // Calculate net profit (revenue - expenses)
+    $netProfit = $revenue['total_revenue_usd'] - $expenses['total_expenses_usd'];
+    $netProfitMargin = $revenue['total_revenue_usd'] > 0 ? ($netProfit / $revenue['total_revenue_usd']) * 100 : 0;
+
+    // Get expense breakdown by category
+    $expensesByCategoryStmt = $pdo->prepare("
+        SELECT
+            category,
+            COUNT(*) as count,
+            COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount ELSE 0 END), 0) as total_usd
+        FROM sales_rep_expenses
+        WHERE sales_rep_id = :rep_id
+        AND expense_date >= :from
+        AND expense_date <= DATE(:to)
+        AND status = 'approved'
+        GROUP BY category
+        ORDER BY total_usd DESC
+    ");
+    $expensesByCategoryStmt->execute([
+        'rep_id' => $salesRepId,
+        'from' => $dateFrom,
+        'to' => $dateTo
+    ]);
+    $expensesByCategory = $expensesByCategoryStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Cast to proper types
+    foreach ($expensesByCategory as &$expCat) {
+        $expCat['count'] = (int)$expCat['count'];
+        $expCat['total_usd'] = (float)$expCat['total_usd'];
+    }
+    unset($expCat);
+
+    // ============================================================
+    // 4. SALES FUNNEL METRICS
     // ============================================================
     $funnelStmt = $pdo->prepare("
         SELECT
@@ -472,6 +550,11 @@ try {
     $topCustomers = [];
     $receivables = ['current_30' => 0, 'days_31_60' => 0, 'days_61_90' => 0, 'over_90' => 0, 'total_outstanding' => 0];
     $dailyTrends = [];
+    $expenses = ['expense_count' => 0, 'total_expenses_usd' => 0, 'total_expenses_lbp' => 0];
+    $expensesGrowth = 0;
+    $netProfit = 0;
+    $netProfitMargin = 0;
+    $expensesByCategory = [];
     $alerts = [[
         'type' => 'danger',
         'title' => 'Error Loading Analytics',
@@ -1027,7 +1110,49 @@ function toggleCustomDates() {
             </div>
         <?php endif; ?>
     </div>
+
+    <div class="metric-card expenses">
+        <div class="metric-label">💵 Total Expenses</div>
+        <div class="metric-value">$<?= number_format($expenses['total_expenses_usd'], 2) ?></div>
+        <div class="metric-sub"><?= number_format($expenses['expense_count']) ?> expenses</div>
+        <?php if ($expensesGrowth != 0): ?>
+            <div class="metric-growth <?= $expensesGrowth > 0 ? 'negative' : 'positive' ?>">
+                <?= $expensesGrowth > 0 ? '↑' : '↓' ?> <?= number_format(abs($expensesGrowth), 1) ?>% vs previous period
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <div class="metric-card profit">
+        <div class="metric-label">💎 Net Profit</div>
+        <div class="metric-value" style="color: <?= $netProfit >= 0 ? '#10b981' : '#ef4444' ?>">$<?= number_format($netProfit, 2) ?></div>
+        <div class="metric-sub">Margin: <?= number_format($netProfitMargin, 1) ?>%</div>
+        <div style="font-size: 0.75rem; color: #6b7280; margin-top: 8px;">
+            Revenue - Expenses
+        </div>
+    </div>
 </div>
+
+<!-- Expense Breakdown -->
+<?php if (!empty($expensesByCategory)): ?>
+<div class="data-section">
+    <h2 style="margin: 0 0 20px; font-size: 1.25rem; font-weight: 700;">💰 Expense Breakdown by Category</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+        <?php foreach ($expensesByCategory as $expCat): ?>
+            <div style="background: #f9fafb; padding: 16px; border-radius: 10px; border: 1px solid #e5e7eb;">
+                <div style="font-size: 0.85rem; color: #6b7280; margin-bottom: 6px; text-transform: capitalize;">
+                    <?= htmlspecialchars($expCat['category'], ENT_QUOTES, 'UTF-8') ?>
+                </div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 4px;">
+                    $<?= number_format($expCat['total_usd'], 2) ?>
+                </div>
+                <div style="font-size: 0.75rem; color: #9ca3af;">
+                    <?= number_format($expCat['count']) ?> transaction<?= $expCat['count'] != 1 ? 's' : '' ?>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Sales Funnel -->
 <div class="funnel-section">

@@ -106,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                 $validatedItems[] = [
                     'product_id' => $productId,
                     'quantity' => $quantity,
-                    'discount' => $discount,
+                    'discount' => 0,
                 ];
             }
 
@@ -155,10 +155,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     $unitPriceUSD = (float)$product['sale_price_usd'];
                     $unitPriceLBP = $unitPriceUSD * $exchangeRate; // Calculate LBP from USD
 
-                    // Apply discount
-                    $discountMultiplier = 1 - ($item['discount'] / 100);
-                    $lineUSD = $unitPriceUSD * $item['quantity'] * $discountMultiplier;
-                    $lineLBP = $unitPriceLBP * $item['quantity'] * $discountMultiplier;
+                    // Calculate line totals (no discount)
+                    $lineUSD = $unitPriceUSD * $item['quantity'];
+                    $lineLBP = $unitPriceLBP * $item['quantity'];
 
                     $totalUSD += $lineUSD;
                     $totalLBP += $lineLBP;
@@ -168,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         'quantity' => $item['quantity'],
                         'unit_price_usd' => $unitPriceUSD,
                         'unit_price_lbp' => $unitPriceLBP,
-                        'discount_percent' => $item['discount'],
+                        'discount_percent' => 0,
                     ];
                 }
 
@@ -900,14 +899,6 @@ if (empty($customers)) {
     echo '<span>Items Count:</span>';
     echo '<span id="summaryItemCount">0</span>';
     echo '</div>';
-    echo '<div class="summary-row">';
-    echo '<span>Subtotal (USD):</span>';
-    echo '<span id="summarySubtotalUSD">$0.00</span>';
-    echo '</div>';
-    echo '<div class="summary-row">';
-    echo '<span>Total Discount:</span>';
-    echo '<span id="summaryDiscountUSD">$0.00</span>';
-    echo '</div>';
     echo '<div class="summary-row total">';
     echo '<span>Total (USD):</span>';
     echo '<span id="summaryTotalUSD">$0.00</span>';
@@ -967,11 +958,6 @@ echo '        if (qty > product.warehouseStock) {';
 echo '          console.warn("Requested quantity exceeds warehouse stock - order will require approval");';
 echo '        }';
 echo '      }';
-echo '    } else if (field === "discount") {';
-echo '      const disc = parseFloat(value);';
-echo '      if (disc >= 0 && disc <= 100) {';
-echo '        product.discount = disc;';
-echo '      }';
 echo '    }';
 echo '    renderSelectedProducts();';
 echo '    updateSummary();';
@@ -993,7 +979,7 @@ echo '    return;';
 echo '  }';
 echo '  let html = "";';
 echo '  selectedProducts.forEach(product => {';
-echo '    const subtotal = product.priceUSD * product.quantity * (1 - product.discount / 100);';
+echo '    const subtotal = product.priceUSD * product.quantity;';
 echo '    const stockWarning = product.quantity > product.warehouseStock ? " (⚠️ Exceeds warehouse stock)" : "";';
 echo '    const safeName = escapeHtml(product.name);';
 echo '    const safeSku = escapeHtml(product.sku);';
@@ -1009,16 +995,11 @@ echo '    html += `<label>Quantity</label>`;';
 echo '    html += `<input type="number" step="0.1" min="0.1" value="${product.quantity}" `;';
 echo '    html += `onchange="updateProduct(${product.id}, \'quantity\', this.value)">`;';
 echo '    html += `</div>`;';
-echo '    html += `<div class="control-group">`;';
-echo '    html += `<label>Discount (%)</label>`;';
-echo '    html += `<input type="number" step="0.01" min="0" max="100" value="${product.discount}" `;';
-echo '    html += `onchange="updateProduct(${product.id}, \'discount\', this.value)">`;';
-echo '    html += `</div>`;';
 echo '    html += `</div>`;';
 echo '    html += `<div class="selected-product-subtotal">Subtotal: $${subtotal.toFixed(2)}</div>`;';
 echo '    html += `<input type="hidden" name="items[${product.id}][product_id]" value="${product.id}">`;';
 echo '    html += `<input type="hidden" name="items[${product.id}][quantity]" value="${product.quantity}">`;';
-echo '    html += `<input type="hidden" name="items[${product.id}][discount]" value="${product.discount}">`;';
+echo '    html += `<input type="hidden" name="items[${product.id}][discount]" value="0">`;';
 echo '    html += `</div>`;';
 echo '  });';
 echo '  container.innerHTML = html;';
@@ -1038,26 +1019,15 @@ echo '  summary.style.display = "block";';
 echo '  submitBtn.disabled = false;';
 echo '  ';
 echo '  let itemCount = selectedProducts.length;';
-echo '  let subtotalUSD = 0;';
-echo '  let discountUSD = 0;';
 echo '  let totalUSD = 0;';
 echo '  let totalLBP = 0;';
 echo '  ';
 echo '  selectedProducts.forEach(product => {';
-echo '    const lineSubtotal = product.priceUSD * product.quantity;';
-echo '    const lineDiscount = lineSubtotal * (product.discount / 100);';
-echo '    const lineTotal = lineSubtotal - lineDiscount;';
-echo '    const lineTotalLBP = product.priceLBP * product.quantity * (1 - product.discount / 100);';
-echo '    ';
-echo '    subtotalUSD += lineSubtotal;';
-echo '    discountUSD += lineDiscount;';
-echo '    totalUSD += lineTotal;';
-echo '    totalLBP += lineTotalLBP;';
+echo '    totalUSD += product.priceUSD * product.quantity;';
+echo '    totalLBP += product.priceLBP * product.quantity;';
 echo '  });';
 echo '  ';
 echo '  document.getElementById("summaryItemCount").textContent = itemCount;';
-echo '  document.getElementById("summarySubtotalUSD").textContent = "$" + subtotalUSD.toFixed(2);';
-echo '  document.getElementById("summaryDiscountUSD").textContent = "$" + discountUSD.toFixed(2);';
 echo '  document.getElementById("summaryTotalUSD").textContent = "$" + totalUSD.toFixed(2);';
 echo '  document.getElementById("summaryTotalLBP").textContent = "L.L. " + totalLBP.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");';
 echo '}';

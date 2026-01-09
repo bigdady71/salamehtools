@@ -557,6 +557,7 @@ $now = new DateTimeImmutable('now');
                 <a href="customers.php">Customers</a>
                 <a href="sales_reps.php">Sales Reps</a>
                 <a href="receivables.php">Receivables</a>
+                <a href="expenses.php">💰 Expenses</a>
                 <a href="warehouse_stock.php">Warehouse</a>
                 <a href="analytics.php">Analytics</a>
                 <a href="stats.php">Statistics</a>

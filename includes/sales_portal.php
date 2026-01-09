@@ -77,6 +77,10 @@ function sales_portal_nav_links(): array
             'label' => t('nav.collections', '💰 Collections'),
             'href' => $prefix . 'receivables.php',
         ],
+        'expenses' => [
+            'label' => t('nav.expenses', '💵 My Expenses'),
+            'href' => $prefix . 'expenses.php',
+        ],
         'products' => [
             'label' => t('nav.products', '📦 All Products'),
             'href' => $prefix . 'products.php',

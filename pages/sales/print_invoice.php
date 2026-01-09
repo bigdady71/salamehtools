@@ -53,8 +53,6 @@ $itemsStmt = $pdo->prepare("
         oi.unit_price_usd,
         oi.unit_price_lbp,
         oi.discount_percent,
-        oi.subtotal_usd,
-        oi.subtotal_lbp,
         p.item_name,
         p.sku
     FROM order_items oi
@@ -64,6 +62,16 @@ $itemsStmt = $pdo->prepare("
 ");
 $itemsStmt->execute([':invoice_id' => $invoiceId]);
 $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Calculate subtotals for each item
+foreach ($items as &$item) {
+    $itemSubtotal = $item['unit_price_usd'] * $item['quantity'];
+    $item['subtotal_usd'] = $itemSubtotal * (1 - $item['discount_percent'] / 100);
+
+    $itemSubtotalLbp = $item['unit_price_lbp'] * $item['quantity'];
+    $item['subtotal_lbp'] = $itemSubtotalLbp * (1 - $item['discount_percent'] / 100);
+}
+unset($item); // Break reference
 
 // Calculate totals
 $subtotal = 0;
@@ -347,7 +355,6 @@ $finalTotal = $invoice['total_usd'];
                     <th>الصنف</th>
                     <th>الكمية</th>
                     <th>السعر</th>
-                    <th>الخصم</th>
                     <th>الإجمالي</th>
                 </tr>
             </thead>
@@ -359,10 +366,9 @@ $finalTotal = $invoice['total_usd'];
                         <br>
                         <small style="color: #666;">SKU: <?= htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') ?></small>
                     </td>
-                    <td><?= number_format($item['quantity'], 2) ?></td>
-                    <td>$<?= number_format($item['unit_price_usd'], 2) ?></td>
-                    <td><?= number_format($item['discount_percent'], 0) ?>%</td>
-                    <td><strong>$<?= number_format($item['subtotal_usd'], 2) ?></strong></td>
+                    <td><?= number_format((float)$item['quantity'], 2) ?></td>
+                    <td>$<?= number_format((float)$item['unit_price_usd'], 2) ?></td>
+                    <td><strong>$<?= number_format((float)$item['subtotal_usd'], 2) ?></strong></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
@@ -372,21 +378,13 @@ $finalTotal = $invoice['total_usd'];
 
         <!-- Totals -->
         <div class="totals">
-            <div class="total-row">
-                <span>المجموع الفرعي:</span>
-                <span>$<?= number_format($subtotal, 2) ?></span>
-            </div>
-            <div class="total-row">
-                <span>الخصم:</span>
-                <span>-$<?= number_format($totalDiscount, 2) ?></span>
-            </div>
             <div class="total-row final">
                 <span>المجموع الكلي:</span>
-                <span>$<?= number_format($finalTotal, 2) ?> USD</span>
+                <span>$<?= number_format((float)$finalTotal, 2) ?> USD</span>
             </div>
             <div class="total-row" style="font-size: 14px; color: #666; margin-top: 5px;">
                 <span>بالليرة اللبنانية:</span>
-                <span><?= number_format($invoice['total_lbp'], 0) ?> ل.ل.</span>
+                <span><?= number_format((float)$invoice['total_lbp'], 0) ?> ل.ل.</span>
             </div>
         </div>
 
@@ -400,6 +398,7 @@ $finalTotal = $invoice['total_usd'];
         <div class="footer">
             شكراً لتعاملكم معنا - SALAMEH TOOLS<br>
             طبع بتاريخ: <?= date('d/m/Y H:i') ?>
+            <p>you can also visite our website on <br> www.salameh-tools.com</p>
         </div>
     </div>
 
