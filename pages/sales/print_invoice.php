@@ -26,14 +26,21 @@ $invoiceStmt = $pdo->prepare("
         i.total_lbp,
         o.order_number,
         o.notes,
+        o.customer_id,
         c.name AS customer_name,
         c.phone AS customer_phone,
         c.location AS customer_city,
-        u.name AS sales_rep_name
+        u.name AS sales_rep_name,
+        COALESCE(pay.paid_usd, 0) as paid_usd
     FROM invoices i
     JOIN orders o ON i.order_id = o.id
     JOIN customers c ON o.customer_id = c.id
     JOIN users u ON o.sales_rep_id = u.id
+    LEFT JOIN (
+        SELECT invoice_id, SUM(amount_usd) as paid_usd
+        FROM payments
+        GROUP BY invoice_id
+    ) pay ON pay.invoice_id = i.id
     WHERE i.id = :invoice_id AND o.sales_rep_id = :rep_id
 ");
 $invoiceStmt->execute([
@@ -45,6 +52,29 @@ $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
 if (!$invoice) {
     die('Invoice not found or access denied');
 }
+
+// Calculate invoice payment status
+$invoiceTotal = (float)$invoice['total_usd'];
+$invoicePaid = (float)$invoice['paid_usd'];
+$invoiceRemaining = $invoiceTotal - $invoicePaid;
+$isFullyPaid = $invoiceRemaining < 0.01;
+
+// Get total customer outstanding balance (all unpaid invoices)
+$customerBalanceStmt = $pdo->prepare("
+    SELECT COALESCE(SUM(i.total_usd - COALESCE(pay.paid_usd, 0)), 0) as total_balance
+    FROM invoices i
+    INNER JOIN orders o ON o.id = i.order_id
+    LEFT JOIN (
+        SELECT invoice_id, SUM(amount_usd) as paid_usd
+        FROM payments
+        GROUP BY invoice_id
+    ) pay ON pay.invoice_id = i.id
+    WHERE o.customer_id = :customer_id
+      AND i.status IN ('issued', 'paid')
+      AND (i.total_usd - COALESCE(pay.paid_usd, 0)) > 0.01
+");
+$customerBalanceStmt->execute([':customer_id' => $invoice['customer_id']]);
+$customerTotalBalance = (float)$customerBalanceStmt->fetchColumn();
 
 // Fetch invoice items
 $itemsStmt = $pdo->prepare("
@@ -387,6 +417,33 @@ $finalTotal = $invoice['total_usd'];
                 <span><?= number_format((float)$invoice['total_lbp'], 0) ?> ل.ل.</span>
             </div>
         </div>
+
+        <!-- Payment Status Section -->
+        <?php if ($invoicePaid > 0 || !$isFullyPaid || $customerTotalBalance > 0.01): ?>
+        <div class="divider"></div>
+        <div class="payment-status" style="margin-top: 15px;">
+            <?php if ($invoicePaid > 0): ?>
+            <div class="total-row" style="font-size: 15px;">
+                <span>المبلغ المدفوع:</span>
+                <span style="font-weight: 600;">$<?= number_format($invoicePaid, 2) ?></span>
+            </div>
+            <?php endif; ?>
+
+            <?php if (!$isFullyPaid): ?>
+            <div class="total-row" style="font-size: 15px; padding: 8px 10px; margin-top: 8px; border: 1px solid #000;">
+                <span>المتبقي على الحساب:</span>
+                <span style="font-weight: 700;">$<?= number_format($invoiceRemaining, 2) ?></span>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($customerTotalBalance > 0.01): ?>
+            <div class="total-row" style="font-size: 14px; padding: 10px; margin-top: 12px; border: 2px solid #000;">
+                <span>إجمالي المستحق على العميل:</span>
+                <span style="font-weight: 700;">$<?= number_format($customerTotalBalance, 2) ?></span>
+            </div>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
 
         <?php if ($invoice['notes']): ?>
         <div class="notes">

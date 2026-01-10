@@ -120,7 +120,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                 $pdo->beginTransaction();
 
                 // Generate order number atomically (race-condition safe)
-                $orderNumber = generate_order_number($pdo);
+                // Format: {customerId}-{salespersonId}-{sequence}
+                $orderNumber = generate_order_number($pdo, $customerId, $repId);
 
                 // Calculate totals and verify products exist
                 $totalUSD = 0;

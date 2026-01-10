@@ -164,7 +164,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
         $customerId = (int)($_POST['customer_id'] ?? 0);
         $notes = trim((string)($_POST['notes'] ?? ''));
         $items = $_POST['items'] ?? [];
-        $paymentAmountUSD = (float)($_POST['payment_amount_usd'] ?? 0);
+        $paymentAmountUSD = (float)($_POST['payment_usd'] ?? 0);
+        $paymentAmountLBP = (float)($_POST['payment_lbp'] ?? 0);
 
         $errors = [];
 
@@ -211,17 +212,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
             }
         }
 
-        // Validate payment amount
-        if ($paymentAmountUSD < 0) {
+        // Validate payment amounts
+        if ($paymentAmountUSD < 0 || $paymentAmountLBP < 0) {
             $errors[] = 'Payment amount cannot be negative.';
         }
+
+        // Convert LBP payment to USD equivalent for total payment calculation
+        $paymentLBPinUSD = $exchangeRate > 0 ? $paymentAmountLBP / $exchangeRate : 0;
+        $totalPaymentUSD = $paymentAmountUSD + $paymentLBPinUSD;
 
         if (!$errors) {
             try {
                 $pdo->beginTransaction();
 
                 // Generate order number atomically (race-condition safe)
-                $orderNumber = generate_order_number($pdo);
+                // Format: {customerId}-{salespersonId}-{sequence}
+                $orderNumber = generate_order_number($pdo, $customerId, $repId);
 
                 // Calculate totals and verify van stock availability
                 $totalUSD = 0;
@@ -276,7 +282,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                 }
 
                 // Validate payment doesn't exceed total
-                if ($paymentAmountUSD > $totalUSD) {
+                if ($totalPaymentUSD > $totalUSD + 0.01) {
                     $errors[] = 'Payment amount cannot exceed order total.';
                 }
 
@@ -386,8 +392,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 
                     for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
                         try {
-                            $invoiceNumber = generate_invoice_number($pdo);
-                            $invoiceStatus = $paymentAmountUSD >= $totalUSD ? 'paid' : 'issued';
+                            $invoiceNumber = generate_invoice_number($pdo, $customerId, $repId);
+                            $invoiceStatus = $totalPaymentUSD >= $totalUSD ? 'paid' : 'issued';
 
                             $invoiceStmt = $pdo->prepare("
                                 INSERT INTO invoices (
@@ -427,8 +433,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         throw new Exception('Failed to create invoice.');
                     }
 
-                    // Create payment record if payment was provided
-                    if ($paymentAmountUSD > 0) {
+                    // Create payment record if payment was provided (USD or LBP)
+                    if ($paymentAmountUSD > 0 || $paymentAmountLBP > 0) {
                         $paymentStmt = $pdo->prepare("
                             INSERT INTO payments (
                                 invoice_id, method, amount_usd, amount_lbp,
@@ -438,11 +444,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                                 :received_by, NOW(), NOW()
                             )
                         ");
+                        // Store total payment in USD equivalent, and LBP separately
                         $paymentStmt->execute([
                             ':invoice_id' => $invoiceId,
                             ':method' => 'cash',
-                            ':amount_usd' => $paymentAmountUSD,
-                            ':amount_lbp' => $paymentAmountUSD * $exchangeRate,
+                            ':amount_usd' => $totalPaymentUSD,
+                            ':amount_lbp' => $paymentAmountLBP + ($paymentAmountUSD * $exchangeRate),
                             ':received_by' => $repId,
                         ]);
                     }
@@ -522,24 +529,25 @@ sales_portal_render_layout_start([
         }
 
         .form-section h3 {
-            margin: 0 0 16px;
-            font-size: 1.2rem;
-            color: var(--text);
+            margin: 0 0 20px;
+            font-size: 1.4rem;
+            color: #000;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 12px;
+            font-weight: 700;
         }
 
         .step-badge {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 28px;
-            height: 28px;
-            background: var(--accent);
+            width: 36px;
+            height: 36px;
+            background: #059669;
             color: white;
             border-radius: 50%;
-            font-size: 0.85rem;
+            font-size: 1.1rem;
             font-weight: 700;
         }
 
@@ -549,23 +557,26 @@ sales_portal_render_layout_start([
 
         .form-group label {
             display: block;
-            font-weight: 600;
-            margin-bottom: 6px;
-            font-size: 0.9rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+            color: #000;
         }
 
         .form-control {
             width: 100%;
-            padding: 12px;
-            border: 2px solid var(--border);
-            border-radius: 8px;
-            font-size: 16px; /* Prevent zoom on mobile */
+            padding: 16px;
+            border: 2px solid #333;
+            border-radius: 10px;
+            font-size: 18px; /* Larger for easier reading */
             transition: border-color 0.2s;
+            color: #000;
         }
 
         .form-control:focus {
             outline: none;
-            border-color: var(--accent);
+            border-color: #059669;
+            box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.2);
         }
 
         .customer-search-wrapper {
@@ -800,12 +811,13 @@ sales_portal_render_layout_start([
         }
 
         .order-summary {
-            background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
-            color: white;
-            padding: 24px;
-            border-radius: 12px;
+            background: #f0f9ff;
+            color: #000;
+            padding: 28px;
+            border-radius: 16px;
             margin-top: 24px;
             display: none;
+            border: 3px solid #0ea5e9;
         }
 
         .order-summary.show {
@@ -813,36 +825,40 @@ sales_portal_render_layout_start([
         }
 
         .order-summary h4 {
-            margin: 0 0 16px;
-            font-size: 1.3rem;
+            margin: 0 0 20px;
+            font-size: 1.5rem;
+            color: #000;
+            font-weight: 700;
         }
 
         .summary-row {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 0.95rem;
+            margin-bottom: 12px;
+            font-size: 1.1rem;
+            color: #000;
         }
 
         .summary-row.total {
-            font-size: 1.3rem;
+            font-size: 1.5rem;
             font-weight: 700;
-            padding-top: 12px;
-            border-top: 2px solid rgba(255,255,255,0.3);
-            margin-top: 12px;
+            padding-top: 16px;
+            border-top: 3px solid #0ea5e9;
+            margin-top: 16px;
+            color: #000;
         }
 
         .payment-section {
-            background: var(--bg-panel-alt);
-            padding: 20px;
-            border-radius: 8px;
-            margin-top: 16px;
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            margin-top: 20px;
         }
 
         .payment-inputs {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 12px;
+            gap: 16px;
         }
 
         @media (max-width: 480px) {
@@ -853,19 +869,20 @@ sales_portal_render_layout_start([
 
         .btn-submit {
             width: 100%;
-            padding: 16px;
-            background: white;
-            color: var(--accent);
+            padding: 20px;
+            background: #059669;
+            color: white;
             border: none;
-            border-radius: 10px;
-            font-size: 1.1rem;
+            border-radius: 12px;
+            font-size: 1.4rem;
             font-weight: 700;
             cursor: pointer;
-            margin-top: 20px;
+            margin-top: 24px;
             transition: all 0.2s;
         }
 
         .btn-submit:hover {
+            background: #047857;
             transform: translateY(-2px);
             box-shadow: 0 8px 16px rgba(0,0,0,0.2);
         }
@@ -873,6 +890,7 @@ sales_portal_render_layout_start([
         .btn-submit:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+            background: #9ca3af;
         }
 
         .flash {
@@ -959,9 +977,9 @@ if (!$canCreateOrder) {
 
         <!-- Step 1: Customer Selection -->
         <div class="form-section">
-            <h3><span class="step-badge">1</span> Select Customer</h3>
+            <h3><span class="step-badge">1</span> اختر الزبون / Select Customer</h3>
             <div class="form-group">
-                <label for="customerSearch">Search by name or phone</label>
+                <label for="customerSearch">ابحث بالاسم او رقم الهاتف</label>
                 <div class="customer-search-wrapper">
                     <input
                         type="text"
@@ -981,9 +999,9 @@ if (!$canCreateOrder) {
 
         <!-- Step 2: Product Selection -->
         <div class="form-section">
-            <h3><span class="step-badge">2</span> Select Products</h3>
+            <h3><span class="step-badge">2</span> اختر المنتجات / Select Products</h3>
             <div class="form-group">
-                <label for="productSearch">Search by name, SKU, barcode, or category</label>
+                <label for="productSearch">ابحث بالاسم، الكود، الباركود، او الفئة</label>
                 <div class="customer-search-wrapper">
                     <input
                         type="text"
@@ -1004,57 +1022,60 @@ if (!$canCreateOrder) {
 
         <!-- Step 3: Notes -->
         <div class="form-section">
-            <h3><span class="step-badge">3</span> Additional Notes (Optional)</h3>
+            <h3><span class="step-badge">3</span> ملاحظات / Notes (اختياري)</h3>
             <div class="form-group">
                 <textarea
                     name="notes"
                     id="notes"
                     class="form-control"
                     rows="3"
-                    placeholder="Add any special instructions or comments about this sale..."
+                    placeholder="اضف اي ملاحظات عن هذه البيعة..."
                 ></textarea>
             </div>
         </div>
 
         <!-- Order Summary & Payment -->
         <div id="orderSummary" class="order-summary">
-            <h4>Order Summary</h4>
+            <h4>ملخص الطلب / Order Summary</h4>
             <div class="summary-row">
-                <span>Number of items:</span>
+                <span>عدد المنتجات:</span>
                 <span id="summaryItemCount">0</span>
             </div>
             <div class="summary-row total">
-                <span>TOTAL (USD):</span>
+                <span>المجموع بالدولار:</span>
                 <span id="summaryTotalUSD">$0.00</span>
             </div>
             <div class="summary-row">
-                <span>TOTAL (LBP):</span>
+                <span>المجموع بالليرة:</span>
                 <span id="summaryTotalLBP">L.L. 0</span>
             </div>
 
-            <div class="payment-section">
-                <h4 style="margin: 0 0 12px; font-size: 1rem;">Payment (Optional)</h4>
-                <p style="font-size: 0.85rem; margin: 0 0 12px; opacity: 0.9;">Enter payment if customer pays on-site</p>
+            <div class="payment-section" style="background: white; border: 3px solid #000; border-radius: 12px;">
+                <h4 style="margin: 0 0 16px; font-size: 1.3rem; color: #000; font-weight: 700;">الدفع / Payment</h4>
+                <p style="font-size: 1rem; margin: 0 0 16px; color: #333;">ادخل المبلغ المدفوع (دولار او ليرة او كلاهما)</p>
                 <div class="payment-inputs">
                     <div class="form-group" style="margin: 0;">
-                        <label for="paymentUSD" style="color: white; opacity: 0.9;">Amount USD</label>
+                        <label for="paymentUSD" style="color: #000; font-size: 1.1rem; font-weight: 700;">دولار USD $</label>
                         <input
                             type="number"
                             id="paymentUSD"
-                            name="payment_amount_usd"
+                            name="payment_usd"
                             class="form-control"
+                            style="font-size: 1.3rem; padding: 16px; border: 2px solid #000; font-weight: 600;"
                             step="0.01"
                             min="0"
                             placeholder="0.00"
                         >
                     </div>
                     <div class="form-group" style="margin: 0;">
-                        <label for="paymentLBP" style="color: white; opacity: 0.9;">Amount LBP</label>
+                        <label for="paymentLBP" style="color: #000; font-size: 1.1rem; font-weight: 700;">ليرة LBP ل.ل.</label>
                         <input
                             type="number"
                             id="paymentLBP"
+                            name="payment_lbp"
                             class="form-control"
-                            step="1"
+                            style="font-size: 1.3rem; padding: 16px; border: 2px solid #000; font-weight: 600;"
+                            step="1000"
                             min="0"
                             placeholder="0"
                         >
@@ -1063,7 +1084,7 @@ if (!$canCreateOrder) {
             </div>
 
             <button type="submit" class="btn-submit" id="submitBtn">
-                Complete Sale & Print Invoice
+                اتمام البيع وطباعة الفاتورة
             </button>
         </div>
     </form>
@@ -1327,19 +1348,9 @@ if (!$canCreateOrder) {
             document.getElementById('summaryTotalLBP').textContent = 'L.L. ' + totalLBP.toLocaleString('en-US', {maximumFractionDigits: 0});
         }
 
-        // Payment currency conversion
+        // Payment fields - independent inputs for split payment
         const paymentUSD = document.getElementById('paymentUSD');
         const paymentLBP = document.getElementById('paymentLBP');
-
-        paymentUSD.addEventListener('input', function() {
-            const usd = parseFloat(this.value) || 0;
-            paymentLBP.value = Math.round(usd * exchangeRate);
-        });
-
-        paymentLBP.addEventListener('input', function() {
-            const lbp = parseFloat(this.value) || 0;
-            paymentUSD.value = (lbp / exchangeRate).toFixed(2);
-        });
 
         // Form validation
         document.getElementById('salesForm').addEventListener('submit', function(e) {
@@ -1361,7 +1372,7 @@ if (!$canCreateOrder) {
 
             // Disable submit button to prevent double submission
             document.getElementById('submitBtn').disabled = true;
-            document.getElementById('submitBtn').textContent = 'Processing...';
+            document.getElementById('submitBtn').textContent = 'جاري المعالجة...';
         });
     </script>
     <?php

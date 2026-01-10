@@ -282,6 +282,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
+    if ($_POST['action'] === 'drop_stock_trigger') {
+        try {
+            // Drop the trigger that prevents negative stock
+            $pdo->exec("DROP TRIGGER IF EXISTS prevent_negative_s_stock");
+            flash('success', '', [
+                'title' => 'Trigger Removed',
+                'lines' => ['The prevent_negative_s_stock trigger has been successfully removed.', 'Stock validation is now handled by the application.'],
+                'dismissible' => true
+            ]);
+        } catch (Exception $e) {
+            flash('error', 'Failed to remove trigger: ' . $e->getMessage());
+        }
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+
+    if ($_POST['action'] === 'reset_order_counter') {
+        try {
+            // Get the highest order number currently in the database
+            $maxOrderStmt = $pdo->query("SELECT MAX(CAST(SUBSTRING_INDEX(order_number, '-', -1) AS UNSIGNED)) as max_num FROM orders");
+            $maxOrder = (int)($maxOrderStmt->fetchColumn() ?: 0);
+
+            // Update the counter to be at least the max order number
+            $pdo->prepare("UPDATE counters SET current_value = :value WHERE name = 'order_number'")->execute([':value' => $maxOrder]);
+
+            flash('success', '', [
+                'title' => 'Order Counter Reset',
+                'lines' => ["Order counter has been reset to {$maxOrder}.", 'The next order will use number ' . ($maxOrder + 1) . '.'],
+                'dismissible' => true
+            ]);
+        } catch (Exception $e) {
+            flash('error', 'Failed to reset counter: ' . $e->getMessage());
+        }
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+
     if ($_POST['action'] === 'save_settings') {
         try {
             $pdo->beginTransaction();
@@ -909,6 +946,63 @@ document.addEventListener('DOMContentLoaded', function() {
                 Upload Images
             </button>
         </form>
+    </div>
+
+    <!-- Database Fixes Section -->
+    <div class="settings-section" style="background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%); border: 2px solid #f87171;">
+        <h2 class="section-title" style="color: #b91c1c; display: flex; align-items: center; gap: 10px;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+            </svg>
+            Database Fixes
+        </h2>
+        <p class="section-subtitle" style="color: #991b1b;">
+            Tools to fix common database issues. Use with caution.
+        </p>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+            <!-- Drop Stock Trigger -->
+            <div style="background: rgba(255,255,255,0.7); border-radius: 12px; padding: 20px; border: 1px solid #fca5a5;">
+                <h3 style="margin: 0 0 8px; font-size: 1rem; color: #b91c1c;">Remove Stock Trigger</h3>
+                <p style="font-size: 0.85rem; color: #7f1d1d; margin: 0 0 16px;">
+                    Removes the <code>prevent_negative_s_stock</code> database trigger that blocks sales even when stock is available.
+                    This fixes the "s_stock would go negative" error.
+                </p>
+                <form method="post" action="" style="margin: 0;" onsubmit="return confirm('Are you sure you want to remove the stock trigger?');">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="drop_stock_trigger">
+                    <button type="submit" class="btn-import-now" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4); padding: 10px 20px; font-size: 0.9rem;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                        Remove Trigger
+                    </button>
+                </form>
+            </div>
+
+            <!-- Reset Order Counter -->
+            <div style="background: rgba(255,255,255,0.7); border-radius: 12px; padding: 20px; border: 1px solid #fca5a5;">
+                <h3 style="margin: 0 0 8px; font-size: 1rem; color: #b91c1c;">Reset Order Counter</h3>
+                <p style="font-size: 0.85rem; color: #7f1d1d; margin: 0 0 16px;">
+                    Resets the order number counter to match the highest existing order number.
+                    This fixes "Duplicate entry" errors when creating new orders.
+                </p>
+                <form method="post" action="" style="margin: 0;" onsubmit="return confirm('Are you sure you want to reset the order counter?');">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="reset_order_counter">
+                    <button type="submit" class="btn-import-now" style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); box-shadow: 0 4px 14px rgba(249, 115, 22, 0.4); padding: 10px 20px; font-size: 0.9rem;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+                            <path d="M21 2v6h-6"></path>
+                            <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+                            <path d="M3 22v-6h6"></path>
+                            <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+                        </svg>
+                        Reset Counter
+                    </button>
+                </form>
+            </div>
+        </div>
     </div>
 
     <form method="post" action="" enctype="multipart/form-data">
