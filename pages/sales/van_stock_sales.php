@@ -302,7 +302,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                             order_number, order_type, status, customer_id, sales_rep_id, exchange_rate_id,
                             total_usd, total_lbp, notes, invoice_ready
                         ) VALUES (
-                            :order_number, 'van_sale', 'delivered', :customer_id, :sales_rep_id, :exchange_rate_id,
+                            :order_number, 'van_stock_sale', 'delivered', :customer_id, :sales_rep_id, :exchange_rate_id,
                             :total_usd, :total_lbp, :notes, 1
                         )
                     ");
