@@ -96,6 +96,11 @@ function warehouse_portal_nav_links(): array
             'href' => 'stock_movements.php',
             'icon' => '🔄',
         ],
+        'stock_returns' => [
+            'label' => 'Stock Returns',
+            'href' => 'stock_returns.php',
+            'icon' => '↩️',
+        ],
         'low_stock' => [
             'label' => 'Low Stock Alerts',
             'href' => 'low_stock.php',

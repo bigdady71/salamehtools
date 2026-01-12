@@ -57,9 +57,17 @@ function sales_portal_nav_links(): array
             'label' => t('nav.van_stock', '📦 My Van Stock'),
             'href' => $prefix . 'van_stock.php',
         ],
+        'accept_orders' => [
+            'label' => t('nav.accept_orders', '📥 Accept Orders'),
+            'href' => $prefix . 'accept_orders.php',
+        ],
         'stock_auth' => [
             'label' => t('nav.stock_auth', '🔐 Stock Authorizations'),
-            'href' => $prefix . 'stock_adjustment_auth.php',
+            'href' => $prefix . 'van_loading_auth.php',
+        ],
+        'stock_return' => [
+            'label' => t('nav.stock_return', '↩️ Stock Return'),
+            'href' => $prefix . 'stock_return.php',
         ],
         'warehouse_stock' => [
             'label' => t('nav.warehouse_stock', '🏭 Warehouse Stock'),

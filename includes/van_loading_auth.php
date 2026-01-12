@@ -256,10 +256,10 @@ function process_van_loading(PDO $pdo, string $loadingId): bool
                 ':product_id' => $productId,
             ]);
 
-            // Add to van stock
+            // Add to van stock (s_stock table)
             $existingStmt = $pdo->prepare("
-                SELECT id FROM van_stock_items
-                WHERE sales_rep_id = :sales_rep_id AND product_id = :product_id
+                SELECT id FROM s_stock
+                WHERE salesperson_id = :sales_rep_id AND product_id = :product_id
             ");
             $existingStmt->execute([
                 ':sales_rep_id' => $salesRepId,
@@ -269,9 +269,9 @@ function process_van_loading(PDO $pdo, string $loadingId): bool
 
             if ($existing) {
                 $updateVanStmt = $pdo->prepare("
-                    UPDATE van_stock_items
-                    SET quantity = quantity + :quantity, loaded_at = NOW()
-                    WHERE sales_rep_id = :sales_rep_id AND product_id = :product_id
+                    UPDATE s_stock
+                    SET qty_on_hand = qty_on_hand + :quantity, updated_at = NOW()
+                    WHERE salesperson_id = :sales_rep_id AND product_id = :product_id
                 ");
                 $updateVanStmt->execute([
                     ':quantity' => $quantity,
@@ -280,8 +280,8 @@ function process_van_loading(PDO $pdo, string $loadingId): bool
                 ]);
             } else {
                 $insertVanStmt = $pdo->prepare("
-                    INSERT INTO van_stock_items (sales_rep_id, product_id, quantity, loaded_at)
-                    VALUES (:sales_rep_id, :product_id, :quantity, NOW())
+                    INSERT INTO s_stock (salesperson_id, product_id, qty_on_hand, created_at, updated_at)
+                    VALUES (:sales_rep_id, :product_id, :quantity, NOW(), NOW())
                 ");
                 $insertVanStmt->execute([
                     ':sales_rep_id' => $salesRepId,
@@ -289,6 +289,19 @@ function process_van_loading(PDO $pdo, string $loadingId): bool
                     ':quantity' => $quantity,
                 ]);
             }
+
+            // Log van stock movement (s_stock_movements table)
+            $vanMovementStmt = $pdo->prepare("
+                INSERT INTO s_stock_movements (salesperson_id, product_id, delta_qty, reason, note, created_at)
+                VALUES (:sales_rep_id, :product_id, :delta_qty, :reason, :note, NOW())
+            ");
+            $vanMovementStmt->execute([
+                ':sales_rep_id' => $salesRepId,
+                ':product_id' => $productId,
+                ':delta_qty' => $quantity,
+                ':reason' => 'load',
+                ':note' => 'Van loading via OTP auth (loading:' . substr($loadingId, 0, 16) . ')',
+            ]);
 
             // Log warehouse movement
             $movementStmt = $pdo->prepare("

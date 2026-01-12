@@ -5,9 +5,13 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/warehouse_portal.php';
 require_once __DIR__ . '/../../includes/stock_functions.php';
-
+require_once __DIR__ . '/../../includes/OrderLifecycle.php';
 $user = warehouse_portal_bootstrap();
 $pdo = db();
+
+// Initialize OrderLifecycle with user context
+$lifecycle = new OrderLifecycle($pdo);
+$lifecycle->setUser((int)$user['id'], 'warehouse');
 
 // Handle OTP verification from warehouse side
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'verify_otp_warehouse') {
@@ -81,104 +85,124 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit;
 }
 
-// Handle mark as prepared
+// Handle mark as prepared (ready for handover)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'mark_prepared') {
     $orderId = (int)($_POST['order_id'] ?? 0);
 
     if ($orderId > 0) {
-        try {
-            $pdo->beginTransaction();
+        // Use lifecycle class - stock check is done inside, NO stock deduction
+        $result = $lifecycle->markAsReady($orderId);
 
-            // Check stock availability first
-            $stockCheck = checkStockAvailability($pdo, $orderId);
+        if ($result['success']) {
+            // Generate OTP codes for secure handoff
+            $warehouseOtp = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+            $salesRepOtp = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+            $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
 
-            if (!$stockCheck['available']) {
-                $pdo->rollBack();
-                $shortageList = [];
-                foreach ($stockCheck['shortage'] as $item) {
-                    $shortageList[] = "{$item['sku']} ({$item['name']}): need {$item['needed']}, have {$item['available']}";
-                }
-                $_SESSION['error'] = 'Insufficient stock for this order: ' . implode('; ', $shortageList);
-                header('Location: orders.php');
-                exit;
-            }
-
-            // Update order status to 'ready'
-            $updateStmt = $pdo->prepare("
-                UPDATE orders
-                SET status = 'ready', updated_at = NOW()
-                WHERE id = ? AND status IN ('pending', 'on_hold', 'approved', 'preparing')
-            ");
-            $updateStmt->execute([$orderId]);
-
-            if ($updateStmt->rowCount() > 0) {
-                // Get order details for notification
-                $orderDetailsStmt = $pdo->prepare("
-                    SELECT o.order_number, o.sales_rep_id, c.name as customer_name
-                    FROM orders o
-                    LEFT JOIN customers c ON c.id = o.customer_id
-                    WHERE o.id = ?
+            // Store OTP codes
+            try {
+                $otpStmt = $pdo->prepare("
+                    INSERT INTO order_transfer_otps (order_id, warehouse_otp, sales_rep_otp, expires_at)
+                    VALUES (?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        warehouse_otp = VALUES(warehouse_otp),
+                        sales_rep_otp = VALUES(sales_rep_otp),
+                        expires_at = VALUES(expires_at),
+                        warehouse_verified_at = NULL,
+                        sales_rep_verified_at = NULL,
+                        warehouse_verified_by = NULL,
+                        sales_rep_verified_by = NULL
                 ");
-                $orderDetailsStmt->execute([$orderId]);
-                $orderDetails = $orderDetailsStmt->fetch(PDO::FETCH_ASSOC);
+                $otpStmt->execute([$orderId, $warehouseOtp, $salesRepOtp, $expiresAt]);
+            } catch (Exception $otpEx) {
+                error_log("Failed to generate OTP: " . $otpEx->getMessage());
+            }
 
-                // Generate OTP codes for secure handoff
-                $warehouseOtp = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-                $salesRepOtp = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-                $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
+            // Get order details for notification
+            $orderDetailsStmt = $pdo->prepare("
+                SELECT o.order_number, o.sales_rep_id, c.name as customer_name
+                FROM orders o
+                LEFT JOIN customers c ON c.id = o.customer_id
+                WHERE o.id = ?
+            ");
+            $orderDetailsStmt->execute([$orderId]);
+            $orderDetails = $orderDetailsStmt->fetch(PDO::FETCH_ASSOC);
 
-                // Store OTP codes
+            // Create notification for sales rep
+            if ($orderDetails && $orderDetails['sales_rep_id']) {
                 try {
-                    $otpStmt = $pdo->prepare("
-                        INSERT INTO order_transfer_otps (order_id, warehouse_otp, sales_rep_otp, expires_at)
-                        VALUES (?, ?, ?, ?)
-                        ON DUPLICATE KEY UPDATE
-                            warehouse_otp = VALUES(warehouse_otp),
-                            sales_rep_otp = VALUES(sales_rep_otp),
-                            expires_at = VALUES(expires_at),
-                            warehouse_verified_at = NULL,
-                            sales_rep_verified_at = NULL,
-                            warehouse_verified_by = NULL,
-                            sales_rep_verified_by = NULL
+                    $notificationStmt = $pdo->prepare("
+                        INSERT INTO notifications (user_id, type, payload, created_at)
+                        VALUES (?, 'order_ready', ?, NOW())
                     ");
-                    $otpStmt->execute([$orderId, $warehouseOtp, $salesRepOtp, $expiresAt]);
-                } catch (Exception $otpEx) {
-                    error_log("Failed to generate OTP: " . $otpEx->getMessage());
+                    $payload = json_encode([
+                        'order_id' => $orderId,
+                        'order_number' => $orderDetails['order_number'],
+                        'customer_name' => $orderDetails['customer_name'],
+                        'message' => 'Order ' . $orderDetails['order_number'] . ' for ' . $orderDetails['customer_name'] . ' is ready for pickup'
+                    ]);
+                    $notificationStmt->execute([$orderDetails['sales_rep_id'], $payload]);
+                } catch (Exception $notifException) {
+                    error_log("Failed to create notification: " . $notifException->getMessage());
                 }
-
-                // Commit the status update
-                $pdo->commit();
-
-                // Create notification for sales rep
-                if ($orderDetails && $orderDetails['sales_rep_id']) {
-                    try {
-                        $notificationStmt = $pdo->prepare("
-                            INSERT INTO notifications (user_id, type, payload, created_at)
-                            VALUES (?, 'order_ready', ?, NOW())
-                        ");
-                        $payload = json_encode([
-                            'order_id' => $orderId,
-                            'order_number' => $orderDetails['order_number'],
-                            'customer_name' => $orderDetails['customer_name'],
-                            'message' => 'Order ' . $orderDetails['order_number'] . ' for ' . $orderDetails['customer_name'] . ' is ready for pickup - OTP verification required'
-                        ]);
-                        $notificationStmt->execute([$orderDetails['sales_rep_id'], $payload]);
-                    } catch (Exception $notifException) {
-                        error_log("Failed to create notification: " . $notifException->getMessage());
-                    }
-                }
-
-                $_SESSION['success'] = 'Order marked as ready! OTP codes generated. Both parties must verify to complete stock transfer.';
-
-            } else {
-                $pdo->rollBack();
-                $_SESSION['error'] = 'Could not update order status. Order may already be prepared.';
             }
-        } catch (Exception $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            $_SESSION['error'] = 'Error: ' . $e->getMessage();
+
+            $_SESSION['success'] = 'Order marked as ready for handover! Stock will be transferred when sales rep accepts.';
+        } else {
+            $_SESSION['error'] = $result['message'];
+        }
+    }
+
+    header('Location: orders.php');
+    exit;
+}
+
+// Handle put on hold
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'put_on_hold') {
+    $orderId = (int)($_POST['order_id'] ?? 0);
+    $reason = trim($_POST['hold_reason'] ?? '');
+
+    if ($orderId > 0) {
+        $result = $lifecycle->putOnHold($orderId, $reason ?: 'Insufficient stock');
+        if ($result['success']) {
+            $_SESSION['success'] = 'Order placed on hold.';
+        } else {
+            $_SESSION['error'] = $result['message'];
+        }
+    }
+
+    header('Location: orders.php');
+    exit;
+}
+
+// Handle cancel order
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'cancel_order') {
+    $orderId = (int)($_POST['order_id'] ?? 0);
+    $reason = trim($_POST['cancel_reason'] ?? '');
+
+    if ($orderId > 0) {
+        $result = $lifecycle->cancelOrder($orderId, $reason ?: 'Cancelled by warehouse');
+        if ($result['success']) {
+            $_SESSION['success'] = 'Order has been cancelled.';
+        } else {
+            $_SESSION['error'] = $result['message'];
+        }
+    }
+
+    header('Location: orders.php');
+    exit;
+}
+
+// Handle resume from hold
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'resume_order') {
+    $orderId = (int)($_POST['order_id'] ?? 0);
+
+    if ($orderId > 0) {
+        $result = $lifecycle->resumeOrder($orderId);
+        if ($result['success']) {
+            $_SESSION['success'] = 'Order resumed from hold.';
+        } else {
+            $_SESSION['error'] = $result['message'];
         }
     }
 
@@ -198,9 +222,11 @@ $params = [];
 if ($statusFilter === 'to_prepare') {
     $where[] = "o.status IN ('pending', 'on_hold', 'approved', 'preparing')";
 } elseif ($statusFilter === 'ready') {
-    $where[] = "o.status = 'ready'";
+    $where[] = "o.status IN ('ready', 'ready_for_handover')";
+} elseif ($statusFilter === 'handed') {
+    $where[] = "o.status = 'handed_to_sales_rep'";
 } else {
-    $where[] = "o.status IN ('pending', 'on_hold', 'approved', 'preparing', 'ready')";
+    $where[] = "o.status IN ('pending', 'on_hold', 'approved', 'preparing', 'ready', 'ready_for_handover', 'handed_to_sales_rep')";
 }
 
 if ($salesRepFilter > 0) {
@@ -276,6 +302,10 @@ $statusLabels = [
     'approved' => 'Approved',
     'preparing' => 'Preparing',
     'ready' => 'Ready',
+    'ready_for_handover' => 'Ready for Handover',
+    'handed_to_sales_rep' => 'With Sales Rep',
+    'completed' => 'Completed',
+    'cancelled' => 'Cancelled',
 ];
 
 $statusStyles = [
@@ -284,6 +314,10 @@ $statusStyles = [
     'approved' => 'background:#dbeafe;color:#1e40af;',
     'preparing' => 'background:#fef3c7;color:#92400e;',
     'ready' => 'background:#d1fae5;color:#065f46;',
+    'ready_for_handover' => 'background:#d1fae5;color:#065f46;',
+    'handed_to_sales_rep' => 'background:#dbeafe;color:#1e40af;',
+    'completed' => 'background:#bbf7d0;color:#166534;',
+    'cancelled' => 'background:#fee2e2;color:#991b1b;',
 ];
 
 // Display flash messages
@@ -326,7 +360,8 @@ if (isset($_SESSION['error'])) {
                 <label style="display:block;font-weight:500;margin-bottom:8px;font-size:0.9rem;">Order Status</label>
                 <select name="status" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;">
                     <option value="to_prepare" <?= $statusFilter === 'to_prepare' ? 'selected' : '' ?>>To Prepare</option>
-                    <option value="ready" <?= $statusFilter === 'ready' ? 'selected' : '' ?>>Ready for Shipment</option>
+                    <option value="ready" <?= $statusFilter === 'ready' ? 'selected' : '' ?>>Ready for Handover</option>
+                    <option value="handed" <?= $statusFilter === 'handed' ? 'selected' : '' ?>>With Sales Rep</option>
                     <option value="all" <?= $statusFilter === 'all' ? 'selected' : '' ?>>All</option>
                 </select>
             </div>
@@ -402,9 +437,9 @@ if (isset($_SESSION['error'])) {
         $itemsStmt->execute([$order['id']]);
         $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Check if order has OTP (status = ready)
+        // Check if order has OTP (status = ready or ready_for_handover)
         $otpData = null;
-        if ($order['status'] === 'ready') {
+        if (in_array($order['status'], ['ready', 'ready_for_handover'])) {
             $otpStmt = $pdo->prepare("
                 SELECT * FROM order_transfer_otps
                 WHERE order_id = ? AND expires_at > NOW()
@@ -420,7 +455,7 @@ if (isset($_SESSION['error'])) {
             <div style="border-bottom:2px solid #000;padding:12px 16px;background:#f9f9f9;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <div style="display:flex;gap:20px;align-items:center;font-size:0.9rem;">
-                        <strong style="font-size:1.1rem;"><?= htmlspecialchars($order['order_number'] ?? 'ORD-' . str_pad($order['id'], 6, '0', STR_PAD_LEFT), ENT_QUOTES, 'UTF-8') ?></strong>
+                        <strong style="font-size:1.1rem;"><?= htmlspecialchars($order['order_number'] ?? 'ORD-' . str_pad((string)$order['id'], 6, '0', STR_PAD_LEFT), ENT_QUOTES, 'UTF-8') ?></strong>
                         <?php if ($order['sales_rep_name']): ?>
                             <span>Rep: <?= htmlspecialchars($order['sales_rep_name'], ENT_QUOTES, 'UTF-8') ?></span>
                         <?php endif; ?>
@@ -505,8 +540,8 @@ if (isset($_SESSION['error'])) {
             </table>
 
             <!-- Actions -->
-            <div style="padding:16px;background:#f9f9f9;border-top:1px solid #000;display:flex;justify-content:space-between;align-items:center;">
-                <div style="display:flex;gap:10px;">
+            <div style="padding:16px;background:#f9f9f9;border-top:1px solid #000;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
                     <button type="button" onclick="checkStock(<?= $order['id'] ?>)" style="padding:8px 16px;background:#fff;border:1px solid #000;cursor:pointer;font-weight:600;">
                         CHECK STOCK
                     </button>
@@ -514,16 +549,40 @@ if (isset($_SESSION['error'])) {
                        style="padding:8px 16px;background:#fff;border:1px solid #000;text-decoration:none;color:#000;font-weight:600;display:inline-block;">
                         PRINT
                     </a>
+                    <button type="button" onclick="showOrderHistory(<?= $order['id'] ?>)" style="padding:8px 16px;background:#6366f1;color:#fff;border:none;cursor:pointer;font-weight:600;">
+                        HISTORY
+                    </button>
+                    <?php if (!in_array($order['status'], ['ready', 'ready_for_handover', 'handed_to_sales_rep', 'completed', 'cancelled'])): ?>
+                        <?php if ($order['status'] === 'on_hold'): ?>
+                            <!-- Resume from hold -->
+                            <form method="POST" style="display:inline;">
+                                <input type="hidden" name="action" value="resume_order">
+                                <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
+                                <button type="submit" style="padding:8px 16px;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-weight:600;">
+                                    RESUME
+                                </button>
+                            </form>
+                        <?php else: ?>
+                            <!-- Put on hold -->
+                            <button type="button" onclick="showHoldModal(<?= $order['id'] ?>)" style="padding:8px 16px;background:#f59e0b;color:#fff;border:none;cursor:pointer;font-weight:600;">
+                                HOLD
+                            </button>
+                        <?php endif; ?>
+                        <!-- Cancel -->
+                        <button type="button" onclick="showCancelModal(<?= $order['id'] ?>)" style="padding:8px 16px;background:#dc2626;color:#fff;border:none;cursor:pointer;font-weight:600;">
+                            CANCEL
+                        </button>
+                    <?php endif; ?>
                 </div>
-                <?php if ($order['status'] !== 'ready'): ?>
-                    <form method="POST" style="display:inline;" onsubmit="return confirm('Mark this order as ready for shipment?');">
+                <?php if (!in_array($order['status'], ['ready', 'ready_for_handover', 'handed_to_sales_rep', 'completed', 'cancelled'])): ?>
+                    <form method="POST" style="display:inline;" onsubmit="return confirm('Mark this order as ready for handover? Stock will NOT be deducted until sales rep accepts.');">
                         <input type="hidden" name="action" value="mark_prepared">
                         <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
                         <button type="submit" style="padding:10px 24px;background:#000;color:#fff;border:none;cursor:pointer;font-weight:600;font-size:0.95rem;">
                             MARK AS READY
                         </button>
                     </form>
-                <?php else: ?>
+                <?php elseif (in_array($order['status'], ['ready', 'ready_for_handover'])): ?>
                     <?php if ($otpData): ?>
                         <?php
                         $warehouseVerified = $otpData['warehouse_verified_at'] !== null;
@@ -577,6 +636,79 @@ if (isset($_SESSION['error'])) {
     <?php endforeach; ?>
 <?php endif; ?>
 
+<!-- Hold Order Modal -->
+<div id="holdModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+        <h3 style="margin:0 0 16px;font-size:1.2rem;">Put Order On Hold</h3>
+        <form method="POST" id="holdForm">
+            <input type="hidden" name="action" value="put_on_hold">
+            <input type="hidden" name="order_id" id="holdOrderId" value="">
+            <div style="margin-bottom:16px;">
+                <label style="display:block;font-weight:600;margin-bottom:8px;">Reason (optional):</label>
+                <select name="hold_reason" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:1rem;">
+                    <option value="Insufficient stock">Insufficient stock</option>
+                    <option value="Awaiting customer confirmation">Awaiting customer confirmation</option>
+                    <option value="Payment pending">Payment pending</option>
+                    <option value="Delivery date not confirmed">Delivery date not confirmed</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div style="display:flex;gap:12px;justify-content:flex-end;">
+                <button type="button" onclick="closeHoldModal()" style="padding:10px 20px;background:#6b7280;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
+                    Cancel
+                </button>
+                <button type="submit" style="padding:10px 20px;background:#f59e0b;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
+                    Put On Hold
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Cancel Order Modal -->
+<div id="cancelModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+        <h3 style="margin:0 0 16px;font-size:1.2rem;color:#dc2626;">Cancel Order</h3>
+        <p style="margin:0 0 16px;color:#666;">Are you sure you want to cancel this order? This action cannot be undone.</p>
+        <form method="POST" id="cancelForm">
+            <input type="hidden" name="action" value="cancel_order">
+            <input type="hidden" name="order_id" id="cancelOrderId" value="">
+            <div style="margin-bottom:16px;">
+                <label style="display:block;font-weight:600;margin-bottom:8px;">Reason:</label>
+                <select name="cancel_reason" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:1rem;">
+                    <option value="Insufficient stock - cannot fulfill">Insufficient stock - cannot fulfill</option>
+                    <option value="Customer requested cancellation">Customer requested cancellation</option>
+                    <option value="Duplicate order">Duplicate order</option>
+                    <option value="Invalid order details">Invalid order details</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div style="display:flex;gap:12px;justify-content:flex-end;">
+                <button type="button" onclick="closeCancelModal()" style="padding:10px 20px;background:#6b7280;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
+                    Go Back
+                </button>
+                <button type="submit" style="padding:10px 20px;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
+                    Cancel Order
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Order History Modal -->
+<div id="historyModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;overflow-y:auto;">
+    <div style="background:#fff;border-radius:8px;padding:24px;max-width:700px;width:95%;margin:20px auto;box-shadow:0 4px 20px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="margin:0;font-size:1.2rem;">Order History</h3>
+            <button type="button" onclick="closeHistoryModal()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#666;">&times;</button>
+        </div>
+
+        <div id="historyContent">
+            <p style="text-align:center;color:#666;padding:20px;">Loading...</p>
+        </div>
+    </div>
+</div>
+
 <script>
 function checkStock(orderId) {
     // Get all input fields in the order
@@ -609,6 +741,172 @@ function checkStock(orderId) {
 
     alert(message);
 }
+
+function showHoldModal(orderId) {
+    document.getElementById('holdOrderId').value = orderId;
+    document.getElementById('holdModal').style.display = 'flex';
+}
+
+function closeHoldModal() {
+    document.getElementById('holdModal').style.display = 'none';
+}
+
+function showCancelModal(orderId) {
+    document.getElementById('cancelOrderId').value = orderId;
+    document.getElementById('cancelModal').style.display = 'flex';
+}
+
+function closeCancelModal() {
+    document.getElementById('cancelModal').style.display = 'none';
+}
+
+// Close modals when clicking outside
+document.getElementById('holdModal').addEventListener('click', function(e) {
+    if (e.target === this) closeHoldModal();
+});
+document.getElementById('cancelModal').addEventListener('click', function(e) {
+    if (e.target === this) closeCancelModal();
+});
+document.getElementById('historyModal').addEventListener('click', function(e) {
+    if (e.target === this) closeHistoryModal();
+});
+
+function showOrderHistory(orderId) {
+    const modal = document.getElementById('historyModal');
+    const content = document.getElementById('historyContent');
+
+    content.innerHTML = '<p style="text-align:center;color:#666;padding:20px;">Loading... </p>';
+    modal.style.display = 'flex';
+
+    fetch('../../api/order_history.php?order_id=' + orderId)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                content.innerHTML = '<p style="color:#dc2626;text-align:center;">' + data.error + '</p>';
+                return;
+            }
+
+            let html = '';
+
+            // Action History Section
+            html += '<div style="margin-bottom:24px;">';
+            html += '<h4 style="margin:0 0 12px;font-size:1rem;color:#374151;">Action History</h4>';
+
+            if (data.history && data.history.length > 0) {
+                html += '<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">';
+                data.history.forEach((item, idx) => {
+                    const bgColor = idx % 2 === 0 ? '#fff' : '#f9fafb';
+                    const actionColors = {
+                        'created': '#22c55e',
+                        'put_on_hold': '#f59e0b',
+                        'resumed': '#3b82f6',
+                        'cancelled': '#dc2626',
+                        'marked_ready': '#22c55e',
+                        'accepted_by_rep': '#22c55e',
+                        'completed': '#22c55e',
+                        'status_changed': '#6366f1'
+                    };
+                    const actionColor = actionColors[item.action] || '#6b7280';
+
+                    html += '<div style="padding:12px;background:' + bgColor + ';border-bottom:1px solid #e5e7eb;">';
+                    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">';
+                    html += '<div>';
+                    html += '<span style="display:inline-block;padding:4px 8px;background:' + actionColor + ';color:#fff;border-radius:4px;font-size:0.75rem;font-weight:600;text-transform:uppercase;">' + item.action.replace(/_/g, ' ') + '</span>';
+
+                    if (item.from_status && item.to_status) {
+                        html += '<span style="margin-left:8px;font-size:0.85rem;color:#6b7280;">' + item.from_status + ' → ' + item.to_status + '</span>';
+                    }
+
+                    html += '</div>';
+                    html += '<div style="text-align:right;font-size:0.8rem;color:#9ca3af;">' + item.formatted_time + '</div>';
+                    html += '</div>';
+
+                    html += '<div style="margin-top:6px;font-size:0.85rem;color:#374151;">';
+                    html += 'By: <strong>' + item.performed_by + '</strong> (' + item.role + ')';
+                    html += '</div>';
+
+                    if (item.reason) {
+                        html += '<div style="margin-top:4px;font-size:0.85rem;color:#6b7280;">Reason: ' + item.reason + '</div>';
+                    }
+
+                    html += '</div>';
+                });
+                html += '</div>';
+            } else {
+                html += '<p style="color:#6b7280;font-size:0.9rem;">No action history recorded yet.</p>';
+            }
+            html += '</div>';
+
+            // Stock Movements Section
+            html += '<div>';
+            html += '<h4 style="margin:0 0 12px;font-size:1rem;color:#374151;">Stock Movements</h4>';
+
+            if (data.movements && data.movements.length > 0) {
+                html += '<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">';
+                data.movements.forEach((move, idx) => {
+                    const bgColor = idx % 2 === 0 ? '#fff' : '#f9fafb';
+                    html += '<div style="padding:12px;background:' + bgColor + ';border-bottom:1px solid #e5e7eb;">';
+                    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">';
+                    html += '<div>';
+                    html += '<strong>' + move.product + '</strong>';
+                    html += '<span style="margin-left:8px;font-weight:600;color:#22c55e;">×' + move.quantity + '</span>';
+                    html += '</div>';
+                    html += '<div style="text-align:right;font-size:0.8rem;color:#9ca3af;">' + move.formatted_time + '</div>';
+                    html += '</div>';
+                    html += '<div style="margin-top:4px;font-size:0.85rem;color:#6b7280;">';
+                    html += move.from + ' → ' + move.to;
+                    html += '</div>';
+                    html += '<div style="margin-top:4px;font-size:0.8rem;color:#9ca3af;">';
+                    html += 'Warehouse: ' + move.warehouse_before + ' → ' + move.warehouse_after;
+                    html += ' | Van: ' + move.sales_rep_before + ' → ' + move.sales_rep_after;
+                    html += '</div>';
+                    html += '</div>';
+                });
+                html += '</div>';
+            } else {
+                html += '<p style="color:#6b7280;font-size:0.9rem;">No stock movements recorded yet. Stock is transferred when sales rep accepts the order.</p>';
+            }
+            html += '</div>';
+
+            content.innerHTML = html;
+        })
+        .catch(err => {
+            content.innerHTML = '<p style="color:#dc2626;text-align:center;">Failed to load history: ' + err.message + '</p>';
+        });
+}
+
+function closeHistoryModal() {
+    document.getElementById('historyModal').style.display = 'none';
+}
+
+// Double-click prevention for all forms
+document.querySelectorAll('form').forEach(form => {
+    form.addEventListener('submit', function(e) {
+        const submitBtn = form.querySelector('button[type="submit"]');
+        if (submitBtn) {
+            // Prevent double submission
+            if (submitBtn.dataset.submitting === 'true') {
+                e.preventDefault();
+                return false;
+            }
+            submitBtn.dataset.submitting = 'true';
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = '0.7';
+
+            // Store original text and show loading
+            const originalText = submitBtn.textContent;
+            submitBtn.textContent = 'Processing...';
+
+            // Re-enable after 10 seconds (fallback for failed submissions)
+            setTimeout(() => {
+                submitBtn.dataset.submitting = 'false';
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = '1';
+                submitBtn.textContent = originalText;
+            }, 10000);
+        }
+    });
+});
 </script>
 
 <?php
