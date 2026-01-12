@@ -161,7 +161,7 @@ class OrderLifecycle {
      */
     public function getOrderItems(int $orderId): array {
         $stmt = $this->pdo->prepare("
-            SELECT oi.*, p.name as product_name, p.quantity_on_hand as warehouse_stock
+            SELECT oi.*, p.item_name as product_name, p.quantity_on_hand as warehouse_stock
             FROM order_items oi
             JOIN products p ON oi.product_id = p.id
             WHERE oi.order_id = :order_id
@@ -750,7 +750,7 @@ class OrderLifecycle {
         $stmt = $this->pdo->prepare("
             SELECT
                 im.*,
-                p.name as product_name,
+                p.item_name as product_name,
                 u.name as performed_by_name
             FROM inventory_movements im
             LEFT JOIN products p ON im.product_id = p.id

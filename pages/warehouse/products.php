@@ -322,6 +322,7 @@ warehouse_portal_render_layout_start([
                             Adjust Stock
                         </a>
                     </div>
+                </div>
             <?php endforeach; ?>
         </div>
     <?php endif; ?>

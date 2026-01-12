@@ -61,6 +61,10 @@ function sales_portal_nav_links(): array
             'label' => t('nav.accept_orders', '📥 Accept Orders'),
             'href' => $prefix . 'accept_orders.php',
         ],
+        'notifications' => [
+            'label' => t('nav.notifications', '🔔 Notifications'),
+            'href' => $prefix . 'notifications.php',
+        ],
         'stock_auth' => [
             'label' => t('nav.stock_auth', '🔐 Stock Authorizations'),
             'href' => $prefix . 'van_loading_auth.php',

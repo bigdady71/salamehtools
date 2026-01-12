@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/warehouse_portal.php';
 require_once __DIR__ . '/../../includes/stock_functions.php';
 require_once __DIR__ . '/../../includes/OrderLifecycle.php';
-$user = warehouse_portal_bootstrap();
+    $user = warehouse_portal_bootstrap();
 $pdo = db();
 
 // Initialize OrderLifecycle with user context
@@ -21,7 +21,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($orderId > 0 && $salesRepOtpInput !== '') {
         try {
             $pdo->beginTransaction();
-
             // Get OTP record
             $otpStmt = $pdo->prepare("
                 SELECT * FROM order_transfer_otps
