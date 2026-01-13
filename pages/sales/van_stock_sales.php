@@ -969,7 +969,7 @@ if (!$canCreateOrder) {
     echo '<p>Please request stock from the warehouse to start making sales.</p>';
     echo '</div>';
 } else {
-    ?>
+?>
     <form method="POST" action="" id="salesForm" class="order-form">
         <input type="hidden" name="action" value="create_order">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
@@ -986,8 +986,7 @@ if (!$canCreateOrder) {
                         id="customerSearch"
                         class="form-control"
                         placeholder="Type at least 1 character to search..."
-                        autocomplete="off"
-                    >
+                        autocomplete="off">
                     <div id="autocompleteDropdown" class="autocomplete-dropdown" style="display: none;"></div>
                 </div>
                 <div id="customerSelected" class="customer-selected">
@@ -1008,8 +1007,7 @@ if (!$canCreateOrder) {
                         id="productSearch"
                         class="form-control"
                         placeholder="Type at least 1 character to search..."
-                        autocomplete="off"
-                    >
+                        autocomplete="off">
                     <div id="productDropdown" class="autocomplete-dropdown" style="display: none;"></div>
                 </div>
             </div>
@@ -1029,8 +1027,7 @@ if (!$canCreateOrder) {
                     id="notes"
                     class="form-control"
                     rows="3"
-                    placeholder="اضف اي ملاحظات عن هذه البيعة..."
-                ></textarea>
+                    placeholder="اضف اي ملاحظات عن هذه البيعة..."></textarea>
             </div>
         </div>
 
@@ -1064,8 +1061,7 @@ if (!$canCreateOrder) {
                             style="font-size: 1.3rem; padding: 16px; border: 2px solid #000; font-weight: 600;"
                             step="0.01"
                             min="0"
-                            placeholder="0.00"
-                        >
+                            placeholder="0.00">
                     </div>
                     <div class="form-group" style="margin: 0;">
                         <label for="paymentLBP" style="color: #000; font-size: 1.1rem; font-weight: 700;">ليرة LBP ل.ل.</label>
@@ -1077,8 +1073,7 @@ if (!$canCreateOrder) {
                             style="font-size: 1.3rem; padding: 16px; border: 2px solid #000; font-weight: 600;"
                             step="1000"
                             min="0"
-                            placeholder="0"
-                        >
+                            placeholder="0">
                     </div>
                 </div>
             </div>
@@ -1163,7 +1158,10 @@ if (!$canCreateOrder) {
             customerSelected.classList.add('show');
 
             // Scroll to products section
-            document.getElementById('productSearch').scrollIntoView({ behavior: 'smooth', block: 'center' });
+            document.getElementById('productSearch').scrollIntoView({
+                behavior: 'smooth',
+                block: 'center'
+            });
         }
 
         function escapeHtml(text) {
@@ -1345,12 +1343,60 @@ if (!$canCreateOrder) {
 
             document.getElementById('summaryItemCount').textContent = itemCount;
             document.getElementById('summaryTotalUSD').textContent = '$' + totalUSD.toFixed(2);
-            document.getElementById('summaryTotalLBP').textContent = 'L.L. ' + totalLBP.toLocaleString('en-US', {maximumFractionDigits: 0});
+            document.getElementById('summaryTotalLBP').textContent = 'L.L. ' + totalLBP.toLocaleString('en-US', {
+                maximumFractionDigits: 0
+            });
         }
 
         // Payment fields - independent inputs for split payment
         const paymentUSD = document.getElementById('paymentUSD');
         const paymentLBP = document.getElementById('paymentLBP');
+
+        // Calculate remaining amounts in both directions
+        function updateRemainingPayments() {
+            let totalUSD = 0;
+            Object.values(selectedProducts).forEach(product => {
+                totalUSD += product.price * product.quantity;
+            });
+
+            const totalLBP = totalUSD * exchangeRate;
+            const paidUSD = parseFloat(paymentUSD.value) || 0;
+            const paidLBP = parseFloat(paymentLBP.value) || 0;
+
+            // Convert paid amounts to USD equivalent
+            const paidLBPinUSD = paidLBP / exchangeRate;
+            const totalPaidUSD = paidUSD + paidLBPinUSD;
+            const remainingUSD = totalUSD - totalPaidUSD;
+
+            // Update LBP placeholder (show remaining after USD payment)
+            if (paidUSD > 0 && remainingUSD > 0) {
+                const remainingLBP = Math.ceil(remainingUSD * exchangeRate);
+                paymentLBP.placeholder = remainingLBP.toLocaleString('en-US') + ' (المتبقي)';
+            } else if (totalPaidUSD >= totalUSD && totalUSD > 0) {
+                paymentLBP.placeholder = '0 (مدفوع بالكامل)';
+            } else {
+                paymentLBP.placeholder = '0';
+            }
+
+            // Update USD placeholder (show remaining after LBP payment)
+            if (paidLBP > 0 && remainingUSD > 0) {
+                paymentUSD.placeholder = remainingUSD.toFixed(2) + ' (المتبقي)';
+            } else if (totalPaidUSD >= totalUSD && totalUSD > 0) {
+                paymentUSD.placeholder = '0.00 (مدفوع بالكامل)';
+            } else {
+                paymentUSD.placeholder = '0.00';
+            }
+        }
+
+        paymentUSD.addEventListener('input', updateRemainingPayments);
+        paymentLBP.addEventListener('input', updateRemainingPayments);
+
+        // Also update when products change - wrap the original updateOrderSummary
+        const originalUpdateOrderSummary = updateOrderSummary;
+        updateOrderSummary = function() {
+            originalUpdateOrderSummary();
+            updateRemainingPayments();
+        };
 
         // Form validation
         document.getElementById('salesForm').addEventListener('submit', function(e) {
@@ -1375,7 +1421,7 @@ if (!$canCreateOrder) {
             document.getElementById('submitBtn').textContent = 'جاري المعالجة...';
         });
     </script>
-    <?php
+<?php
 }
 
 sales_portal_render_layout_end();
