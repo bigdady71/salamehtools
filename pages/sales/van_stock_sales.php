@@ -169,15 +169,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 
         $errors = [];
 
-        // Validate customer
+        // Validate customer and get their credit balance
+        $customerCreditLBP = 0;
         if ($customerId <= 0) {
             $errors[] = 'Please select a customer.';
         } else {
-            // Verify customer is assigned to this sales rep
-            $customerStmt = $pdo->prepare("SELECT id FROM customers WHERE id = :id AND assigned_sales_rep_id = :rep_id AND is_active = 1");
+            // Verify customer is assigned to this sales rep and get credit balance
+            $customerStmt = $pdo->prepare("SELECT id, COALESCE(account_balance_lbp, 0) as credit_lbp FROM customers WHERE id = :id AND assigned_sales_rep_id = :rep_id AND is_active = 1");
             $customerStmt->execute([':id' => $customerId, ':rep_id' => $repId]);
-            if (!$customerStmt->fetch()) {
+            $customerData = $customerStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$customerData) {
                 $errors[] = 'Invalid customer selected or customer not assigned to you.';
+            } else {
+                $customerCreditLBP = (float)$customerData['credit_lbp'];
             }
         }
 
@@ -281,10 +285,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     ];
                 }
 
-                // Validate payment doesn't exceed total
-                if ($totalPaymentUSD > $totalUSD + 0.01) {
-                    $errors[] = 'Payment amount cannot exceed order total.';
-                }
+                // Calculate customer credit in USD equivalent
+                $customerCreditUSD = $exchangeRate > 0 ? $customerCreditLBP / $exchangeRate : 0;
+
+                // Total available payment = cash payment + customer credit
+                $totalAvailableUSD = $totalPaymentUSD + $customerCreditUSD;
+
+                // Calculate how much credit to use (up to the invoice total)
+                $creditUsedUSD = min($customerCreditUSD, $totalUSD);
+                $creditUsedLBP = $creditUsedUSD * $exchangeRate;
+
+                // Calculate overpayment (if cash payment exceeds remaining after credit)
+                $remainingAfterCredit = max(0, $totalUSD - $creditUsedUSD);
+                $overpaymentUSD = max(0, $totalPaymentUSD - $remainingAfterCredit);
 
                 if ($errors) {
                     $pdo->rollBack();
@@ -340,8 +353,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 
                     // Create initial order status (delivered - on-site sale)
                     $statusStmt = $pdo->prepare("
-                        INSERT INTO order_status_events (order_id, status, actor_user_id, note, created_at)
-                        VALUES (:order_id, 'delivered', :actor_id, 'Van stock sale completed on-site', NOW())
+                        INSERT INTO order_status_events (order_id, status, actor_user_id)
+                        VALUES (:order_id, 'delivered', :actor_id)
                     ");
                     $statusStmt->execute([
                         ':order_id' => $orderId,
@@ -393,7 +406,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
                         try {
                             $invoiceNumber = generate_invoice_number($pdo, $customerId, $repId);
-                            $invoiceStatus = $totalPaymentUSD >= $totalUSD ? 'paid' : 'issued';
+                            // Invoice is paid if cash payment + credit used covers the total
+                            $totalPaidWithCredit = $totalPaymentUSD + $creditUsedUSD;
+                            $invoiceStatus = $totalPaidWithCredit >= $totalUSD ? 'paid' : 'issued';
 
                             $invoiceStmt = $pdo->prepare("
                                 INSERT INTO invoices (
@@ -433,24 +448,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         throw new Exception('Failed to create invoice.');
                     }
 
-                    // Create payment record if payment was provided (USD or LBP)
-                    if ($paymentAmountUSD > 0 || $paymentAmountLBP > 0) {
+                    // Calculate how much cash payment applies to THIS invoice (capped at remaining after credit)
+                    // Any excess is overpayment that goes to customer credit
+                    $cashPaymentForInvoiceUSD = min($totalPaymentUSD, $remainingAfterCredit);
+                    $cashPaymentForInvoiceLBP = $cashPaymentForInvoiceUSD * $exchangeRate;
+
+                    // Create payment record for cash payment if provided (USD or LBP)
+                    // Only record up to the invoice amount - overpayment goes to customer credit
+                    if ($cashPaymentForInvoiceUSD > 0.01) {
                         $paymentStmt = $pdo->prepare("
                             INSERT INTO payments (
                                 invoice_id, method, amount_usd, amount_lbp,
-                                received_by_user_id, received_at, created_at
+                                received_by_user_id, received_at
                             ) VALUES (
                                 :invoice_id, :method, :amount_usd, :amount_lbp,
-                                :received_by, NOW(), NOW()
+                                :received_by, NOW()
                             )
                         ");
-                        // Store total payment in USD equivalent, and LBP separately
                         $paymentStmt->execute([
                             ':invoice_id' => $invoiceId,
                             ':method' => 'cash',
-                            ':amount_usd' => $totalPaymentUSD,
-                            ':amount_lbp' => $paymentAmountLBP + ($paymentAmountUSD * $exchangeRate),
+                            ':amount_usd' => $cashPaymentForInvoiceUSD,
+                            ':amount_lbp' => $cashPaymentForInvoiceLBP,
                             ':received_by' => $repId,
+                        ]);
+                    }
+
+                    // Create payment record for credit used (if any)
+                    if ($creditUsedUSD > 0.01) {
+                        $creditPaymentStmt = $pdo->prepare("
+                            INSERT INTO payments (
+                                invoice_id, method, amount_usd, amount_lbp,
+                                received_by_user_id, received_at
+                            ) VALUES (
+                                :invoice_id, 'account_credit', :amount_usd, :amount_lbp,
+                                :received_by, NOW()
+                            )
+                        ");
+                        $creditPaymentStmt->execute([
+                            ':invoice_id' => $invoiceId,
+                            ':amount_usd' => $creditUsedUSD,
+                            ':amount_lbp' => $creditUsedLBP,
+                            ':received_by' => $repId,
+                        ]);
+                    }
+
+                    // Update customer account balance:
+                    // - Deduct credit used (negative)
+                    // - Add overpayment as new credit (positive)
+                    $overpaymentLBP = $overpaymentUSD * $exchangeRate;
+                    $netBalanceChangeLBP = $overpaymentLBP - $creditUsedLBP;
+                    if (abs($netBalanceChangeLBP) > 0.01) {
+                        $balanceStmt = $pdo->prepare("
+                            UPDATE customers
+                            SET account_balance_lbp = COALESCE(account_balance_lbp, 0) + :balance_change
+                            WHERE id = :customer_id
+                        ");
+                        $balanceStmt->execute([
+                            ':balance_change' => $netBalanceChangeLBP,
+                            ':customer_id' => $customerId,
                         ]);
                     }
 
@@ -1423,5 +1479,5 @@ if (!$canCreateOrder) {
     </script>
 <?php
 }
-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
 sales_portal_render_layout_end();

@@ -226,8 +226,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 
                     // Create initial order status (on_hold - awaiting approval)
                     $statusStmt = $pdo->prepare("
-                        INSERT INTO order_status_events (order_id, status, actor_user_id, note, created_at)
-                        VALUES (:order_id, 'on_hold', :actor_id, 'Order request submitted by sales rep', NOW())
+                        INSERT INTO order_status_events (order_id, status, actor_user_id)
+                        VALUES (:order_id, 'on_hold', :actor_id)
                     ");
                     $statusStmt->execute([
                         ':order_id' => $orderId,

@@ -413,6 +413,153 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'toggle_status') {
     }
 }
 
+// Handle payment collection
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'collect_payment') {
+    if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+        $flashes[] = [
+            'type' => 'error',
+            'title' => 'Security Error',
+            'message' => 'Invalid or expired CSRF token. Please try again.',
+            'dismissible' => true,
+        ];
+    } else {
+        $customerId = (int)($_POST['customer_id'] ?? 0);
+        $invoiceId = (int)($_POST['invoice_id'] ?? 0);
+        $paymentUSD = (float)($_POST['payment_usd'] ?? 0);
+        $paymentLBP = (float)($_POST['payment_lbp'] ?? 0);
+        $paymentMethod = trim((string)($_POST['payment_method'] ?? 'cash'));
+        $paymentNote = trim((string)($_POST['payment_note'] ?? ''));
+
+        // Get current exchange rate
+        $rateStmt = $pdo->prepare("
+            SELECT id, rate
+            FROM exchange_rates
+            WHERE UPPER(base_currency) = 'USD'
+              AND UPPER(quote_currency) IN ('LBP', 'LEBP')
+            ORDER BY valid_from DESC, created_at DESC, id DESC
+            LIMIT 1
+        ");
+        $rateStmt->execute();
+        $rateData = $rateStmt->fetch(PDO::FETCH_ASSOC);
+        $exchangeRate = $rateData ? (float)$rateData['rate'] : 89000;
+
+        // Verify customer belongs to sales rep
+        $checkStmt = $pdo->prepare("SELECT id FROM customers WHERE id = :id AND assigned_sales_rep_id = :rep_id");
+        $checkStmt->execute([':id' => $customerId, ':rep_id' => $repId]);
+
+        if (!$checkStmt->fetch()) {
+            $flashes[] = [
+                'type' => 'error',
+                'title' => 'Access Denied',
+                'message' => 'You can only collect payments from customers assigned to you.',
+                'dismissible' => true,
+            ];
+        } elseif ($paymentUSD <= 0 && $paymentLBP <= 0) {
+            $flashes[] = [
+                'type' => 'error',
+                'title' => 'Invalid Amount',
+                'message' => 'Please enter a payment amount greater than zero.',
+                'dismissible' => true,
+            ];
+        } else {
+            try {
+                $pdo->beginTransaction();
+
+                // Convert LBP to USD equivalent
+                $paymentLBPinUSD = $exchangeRate > 0 ? $paymentLBP / $exchangeRate : 0;
+                $totalPaymentUSD = $paymentUSD + $paymentLBPinUSD;
+                $totalPaymentLBP = $paymentLBP + ($paymentUSD * $exchangeRate);
+
+                // If no specific invoice selected, find the oldest unpaid invoice
+                if ($invoiceId <= 0) {
+                    $invoiceStmt = $pdo->prepare("
+                        SELECT i.id, i.total_usd, COALESCE(SUM(p.amount_usd), 0) as paid_usd
+                        FROM invoices i
+                        JOIN orders o ON o.id = i.order_id
+                        LEFT JOIN payments p ON p.invoice_id = i.id
+                        WHERE o.customer_id = :customer_id AND i.status != 'paid'
+                        GROUP BY i.id
+                        HAVING (i.total_usd - COALESCE(SUM(p.amount_usd), 0)) > 0.01
+                        ORDER BY i.created_at ASC
+                        LIMIT 1
+                    ");
+                    $invoiceStmt->execute([':customer_id' => $customerId]);
+                    $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($invoice) {
+                        $invoiceId = (int)$invoice['id'];
+                    }
+                }
+
+                if ($invoiceId > 0) {
+                    // Record payment against invoice
+                    $paymentStmt = $pdo->prepare("
+                        INSERT INTO payments (
+                            invoice_id, method, amount_usd, amount_lbp,
+                            received_by_user_id, received_at
+                        ) VALUES (
+                            :invoice_id, :method, :amount_usd, :amount_lbp,
+                            :received_by, NOW()
+                        )
+                    ");
+                    $paymentStmt->execute([
+                        ':invoice_id' => $invoiceId,
+                        ':method' => $paymentMethod,
+                        ':amount_usd' => $totalPaymentUSD,
+                        ':amount_lbp' => $totalPaymentLBP,
+                        ':received_by' => $repId,
+                    ]);
+
+                    // Check if invoice is now fully paid
+                    $checkPaidStmt = $pdo->prepare("
+                        SELECT i.total_usd, COALESCE(SUM(p.amount_usd), 0) as paid_usd
+                        FROM invoices i
+                        LEFT JOIN payments p ON p.invoice_id = i.id
+                        WHERE i.id = :invoice_id
+                        GROUP BY i.id
+                    ");
+                    $checkPaidStmt->execute([':invoice_id' => $invoiceId]);
+                    $invoiceStatus = $checkPaidStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($invoiceStatus && $invoiceStatus['paid_usd'] >= $invoiceStatus['total_usd']) {
+                        $updateInvoiceStmt = $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE id = :id");
+                        $updateInvoiceStmt->execute([':id' => $invoiceId]);
+                    }
+                } else {
+                    // No outstanding invoice - add to customer credit balance
+                    $creditStmt = $pdo->prepare("
+                        UPDATE customers
+                        SET account_balance_lbp = COALESCE(account_balance_lbp, 0) + :credit_lbp
+                        WHERE id = :customer_id
+                    ");
+                    $creditStmt->execute([
+                        ':credit_lbp' => $totalPaymentLBP,
+                        ':customer_id' => $customerId,
+                    ]);
+                }
+
+                $pdo->commit();
+
+                $flashes[] = [
+                    'type' => 'success',
+                    'title' => 'Payment Collected',
+                    'message' => 'Payment of $' . number_format($totalPaymentUSD, 2) . ' has been recorded successfully.',
+                    'dismissible' => true,
+                ];
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                error_log("Failed to collect payment: " . $e->getMessage());
+                $flashes[] = [
+                    'type' => 'error',
+                    'title' => 'Database Error',
+                    'message' => 'Unable to record payment. Error: ' . $e->getMessage(),
+                    'dismissible' => true,
+                ];
+            }
+        }
+    }
+}
+
 // Get filter parameters
 $search = trim((string)($_GET['search'] ?? ''));
 $statusFilter = (string)($_GET['status'] ?? '');
@@ -1029,7 +1176,11 @@ if (!$customers) {
         echo '<td>$', number_format($revenue, 2), '</td>';
         echo '<td>';
         if ($outstanding > 0.01) {
+            // Customer owes money (red)
             echo '<span style="color:#dc2626;font-weight:600;">$', number_format($outstanding, 2), '</span>';
+        } elseif ($outstanding < -0.01) {
+            // Customer has credit (green) - show as positive credit
+            echo '<span style="color:#059669;font-weight:600;">-$', number_format(abs($outstanding), 2), ' (Credit)</span>';
         } else {
             echo '<span style="color:#6b7280;">$0.00</span>';
         }
@@ -1044,6 +1195,9 @@ if (!$customers) {
         echo '<td><div class="customer-actions">';
         echo '<button class="btn-sm" onclick="openCustomerDetail(', $id, ')" style="background:#0ea5e9;color:white;border-color:#0ea5e9;">View</button>';
         echo '<button class="btn-sm" onclick="openEditModal(', $id, ')">Edit</button>';
+        if ($outstanding > 0.01) {
+            echo '<button class="btn-sm" onclick="openCollectPaymentModal(', $id, ', \'', addslashes($name), '\', ', $outstanding, ')" style="background:#10b981;color:white;border-color:#10b981;">Collect</button>';
+        }
         echo '</div></td>';
         echo '</tr>';
     }
@@ -1218,6 +1372,57 @@ echo '</div>';
 echo '</div>';
 echo '</div>';
 
+// Collect Payment Modal
+echo '<div id="collectPaymentModal" class="modal">';
+echo '<div class="modal-content" style="max-width: 500px;">';
+echo '<div class="modal-header">';
+echo '<h2>Collect Payment</h2>';
+echo '<button class="modal-close" onclick="closeCollectPaymentModal()">&times;</button>';
+echo '</div>';
+echo '<form method="POST">';
+echo '<input type="hidden" name="csrf_token" value="', htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'), '">';
+echo '<input type="hidden" name="action" value="collect_payment">';
+echo '<input type="hidden" name="customer_id" id="collect-customer-id">';
+echo '<input type="hidden" name="invoice_id" value="0">';
+
+echo '<div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:16px;margin-bottom:20px;">';
+echo '<div style="font-weight:600;color:#92400e;">Customer: <span id="collect-customer-name"></span></div>';
+echo '<div style="font-size:1.2rem;font-weight:700;color:#dc2626;margin-top:8px;">Outstanding: $<span id="collect-outstanding"></span></div>';
+echo '</div>';
+
+echo '<div class="form-group">';
+echo '<label>Amount in USD ($)</label>';
+echo '<input type="number" name="payment_usd" id="collect-payment-usd" step="0.01" min="0" placeholder="0.00" style="font-size:1.1rem;">';
+echo '</div>';
+
+echo '<div class="form-group">';
+echo '<label>Amount in LBP (L.L.)</label>';
+echo '<input type="number" name="payment_lbp" id="collect-payment-lbp" step="1000" min="0" placeholder="0" style="font-size:1.1rem;">';
+echo '</div>';
+
+echo '<div class="form-group">';
+echo '<label>Payment Method</label>';
+echo '<select name="payment_method" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.95rem;">';
+echo '<option value="cash">Cash</option>';
+echo '<option value="bank_transfer">Bank Transfer</option>';
+echo '<option value="check">Check</option>';
+echo '<option value="other">Other</option>';
+echo '</select>';
+echo '</div>';
+
+echo '<div class="form-group">';
+echo '<label>Note (optional)</label>';
+echo '<input type="text" name="payment_note" placeholder="Payment note...">';
+echo '</div>';
+
+echo '<div class="form-actions">';
+echo '<button type="button" class="btn-cancel" onclick="closeCollectPaymentModal()">Cancel</button>';
+echo '<button type="submit" class="btn-submit" style="background:#10b981;">Collect Payment</button>';
+echo '</div>';
+echo '</form>';
+echo '</div>';
+echo '</div>';
+
 echo '<script>';
 echo 'function applyFilters() {';
 echo '  const search = document.getElementById("filter-search").value;';
@@ -1280,7 +1485,16 @@ echo '      html += "<div><h3 style=\"margin: 0 0 16px 0; font-size: 1.1rem; bor
 echo '      html += "<div style=\"display: flex; flex-direction: column; gap: 12px;\">";';
 echo '      html += "<div><strong>Total Orders:</strong> " + data.stats.order_count + "</div>";';
 echo '      html += "<div><strong>Total Revenue:</strong> $" + parseFloat(data.stats.total_revenue).toFixed(2) + "</div>";';
-echo '      html += "<div><strong>Outstanding:</strong> <span style=\"color: " + (data.stats.outstanding > 0 ? "#dc2626" : "#059669") + ";\">$" + parseFloat(data.stats.outstanding).toFixed(2) + "</span></div>";';
+echo '      const outstanding = parseFloat(data.stats.outstanding);';
+echo '      let outstandingText = "";';
+echo '      if (outstanding > 0.01) {';
+echo '        outstandingText = "<span style=\"color: #dc2626; font-weight: 600;\">$" + outstanding.toFixed(2) + " (Owes)</span>";';
+echo '      } else if (outstanding < -0.01) {';
+echo '        outstandingText = "<span style=\"color: #059669; font-weight: 600;\">$" + Math.abs(outstanding).toFixed(2) + " (Credit)</span>";';
+echo '      } else {';
+echo '        outstandingText = "<span style=\"color: #6b7280;\">$0.00</span>";';
+echo '      }';
+echo '      html += "<div><strong>Outstanding:</strong> " + outstandingText + "</div>";';
 echo '      html += "<div><strong>Last Order:</strong> " + (data.stats.last_order_date ? new Date(data.stats.last_order_date).toLocaleDateString() : "Never") + "</div>";';
 echo '      html += "</div></div>";';
 echo '      html += "</div>";';
@@ -1291,13 +1505,21 @@ echo '      } else {';
 echo '        html += "<table style=\"width: 100%; border-collapse: collapse;\"><thead><tr style=\"background: var(--bg); text-align: left;\">";';
 echo '        html += "<th style=\"padding: 10px;\">Order #</th><th>Date</th><th>Status</th><th>Total</th><th>Outstanding</th></tr></thead><tbody>";';
 echo '        data.orders.forEach(order => {';
-echo '          const outstanding = parseFloat(order.outstanding || 0);';
+echo '          const orderOutstanding = parseFloat(order.outstanding || 0);';
+echo '          let orderOutstandingText = "";';
+echo '          if (orderOutstanding > 0.01) {';
+echo '            orderOutstandingText = "<span style=\"color: #dc2626;\">$" + orderOutstanding.toFixed(2) + "</span>";';
+echo '          } else if (orderOutstanding < -0.01) {';
+echo '            orderOutstandingText = "<span style=\"color: #059669;\">-$" + Math.abs(orderOutstanding).toFixed(2) + "</span>";';
+echo '          } else {';
+echo '            orderOutstandingText = "<span style=\"color: #059669;\">$0.00</span>";';
+echo '          }';
 echo '          html += "<tr style=\"border-bottom: 1px solid var(--border);\">";';
 echo '          html += "<td style=\"padding: 10px;\"><strong>" + order.order_number + "</strong></td>";';
 echo '          html += "<td>" + new Date(order.created_at).toLocaleDateString() + "</td>";';
 echo '          html += "<td><span style=\"padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; background: rgba(59, 130, 246, 0.15); color: #1d4ed8;\">" + order.status + "</span></td>";';
 echo '          html += "<td>$" + parseFloat(order.total_usd).toFixed(2) + "</td>";';
-echo '          html += "<td><span style=\"color: " + (outstanding > 0 ? "#dc2626" : "#059669") + ";\">$" + outstanding.toFixed(2) + "</span></td>";';
+echo '          html += "<td>" + orderOutstandingText + "</td>";';
 echo '          html += "</tr>";';
 echo '        });';
 echo '        html += "</tbody></table>";';
@@ -1310,6 +1532,17 @@ echo '    });';
 echo '}';
 echo 'function closeCustomerDetail() {';
 echo '  document.getElementById("customerDetailModal").classList.remove("active");';
+echo '}';
+echo 'function openCollectPaymentModal(customerId, customerName, outstanding) {';
+echo '  document.getElementById("collect-customer-id").value = customerId;';
+echo '  document.getElementById("collect-customer-name").textContent = customerName;';
+echo '  document.getElementById("collect-outstanding").textContent = outstanding.toFixed(2);';
+echo '  document.getElementById("collect-payment-usd").value = "";';
+echo '  document.getElementById("collect-payment-lbp").value = "";';
+echo '  document.getElementById("collectPaymentModal").classList.add("active");';
+echo '}';
+echo 'function closeCollectPaymentModal() {';
+echo '  document.getElementById("collectPaymentModal").classList.remove("active");';
 echo '}';
 echo 'document.getElementById("filter-search").addEventListener("keypress", function(e) {';
 echo '  if (e.key === "Enter") applyFilters();';

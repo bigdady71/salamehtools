@@ -85,11 +85,21 @@ $invoicesStmt = $pdo->prepare("
 $invoicesStmt->execute([$customerId]);
 $outstandingInvoices = $invoicesStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Calculate total outstanding
-$totalOutstanding = 0;
-foreach ($outstandingInvoices as $inv) {
-    $totalOutstanding += (float)$inv['total_amount_usd'] - (float)$inv['paid_amount_usd'];
-}
+// Calculate total outstanding from ALL invoices (not just displayed ones)
+$totalOutstandingStmt = $pdo->prepare("
+    SELECT
+        COALESCE(SUM(i.total_usd - COALESCE(p.paid_usd, 0)), 0) as total_outstanding
+    FROM invoices i
+    INNER JOIN orders o ON o.id = i.order_id
+    LEFT JOIN (
+        SELECT invoice_id, SUM(amount_usd) as paid_usd
+        FROM payments
+        GROUP BY invoice_id
+    ) p ON p.invoice_id = i.id
+    WHERE o.customer_id = ? AND i.status != 'voided'
+");
+$totalOutstandingStmt->execute([$customerId]);
+$totalOutstanding = (float)$totalOutstandingStmt->fetchColumn();
 
 // Fetch order statistics
 $statsStmt = $pdo->prepare("
@@ -162,6 +172,9 @@ customer_portal_render_layout_start([
 }
 .stat-card.warning {
     background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+.stat-card.success {
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
 }
 .stat-card.neutral {
     background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
@@ -434,9 +447,17 @@ table tr:hover {
         <h3>Total Spent</h3>
         <p class="value">$<?= number_format($stats['total_spent_usd'], 2) ?></p>
     </div>
-    <div class="stat-card warning">
-        <h3>Outstanding Balance</h3>
-        <p class="value">$<?= number_format($totalOutstanding, 2) ?></p>
+    <div class="stat-card <?= $totalOutstanding < -0.01 ? 'success' : 'warning' ?>">
+        <h3><?= $totalOutstanding < -0.01 ? 'Account Credit' : 'Outstanding Balance' ?></h3>
+        <p class="value"><?php
+            if ($totalOutstanding > 0.01) {
+                echo '$' . number_format($totalOutstanding, 2);
+            } elseif ($totalOutstanding < -0.01) {
+                echo '$' . number_format(abs($totalOutstanding), 2);
+            } else {
+                echo '$0.00';
+            }
+        ?></p>
     </div>
     <div class="stat-card neutral">
         <h3>Account Tier</h3>

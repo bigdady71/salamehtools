@@ -271,38 +271,6 @@ function warehouse_portal_render_layout_start(array $options = []): void
     echo '</head>';
     echo '<body>';
 
-    // Inline JavaScript for hamburger menu
-    echo '<script>';
-    echo 'document.addEventListener("DOMContentLoaded", function() {';
-    echo 'const btn = document.getElementById("hamburger-btn");';
-    echo 'const sidebar = document.getElementById("sidebar");';
-    echo 'const overlay = document.getElementById("sidebar-overlay");';
-    echo 'if(btn && sidebar && overlay){';
-    echo 'btn.onclick = function(e) {';
-    echo 'e.preventDefault();e.stopPropagation();';
-    echo 'const isOpen = sidebar.classList.contains("active");';
-    echo 'if(!isOpen){';
-    echo 'sidebar.classList.add("active");';
-    echo 'overlay.classList.add("active");';
-    echo 'btn.classList.add("active");';
-    echo 'document.body.style.overflow = "hidden";';
-    echo '}else{';
-    echo 'sidebar.classList.remove("active");';
-    echo 'overlay.classList.remove("active");';
-    echo 'btn.classList.remove("active");';
-    echo 'document.body.style.overflow = "";';
-    echo '}';
-    echo '};';
-    echo 'overlay.onclick = function() {';
-    echo 'sidebar.classList.remove("active");';
-    echo 'overlay.classList.remove("active");';
-    echo 'btn.classList.remove("active");';
-    echo 'document.body.style.overflow = "";';
-    echo '};';
-    echo '}';
-    echo '});';
-    echo '</script>';
-
     // Hamburger Menu Button
     echo '<button class="hamburger-btn" id="hamburger-btn" aria-label="Toggle Menu">';
     echo '<div class="hamburger-icon">';
@@ -378,5 +346,31 @@ function warehouse_portal_render_layout_start(array $options = []): void
  */
 function warehouse_portal_render_layout_end(): void
 {
-    echo '</main></div></body></html>';
+    echo '</main></div>';
+
+    // JavaScript for hamburger menu - placed at end so elements exist
+    echo '<script>';
+    echo 'function toggleWarehouseSidebar() {';
+    echo '  var btn = document.getElementById("hamburger-btn");';
+    echo '  var sidebar = document.getElementById("sidebar");';
+    echo '  var overlay = document.getElementById("sidebar-overlay");';
+    echo '  if (!btn || !sidebar || !overlay) return;';
+    echo '  var isOpen = sidebar.classList.contains("active");';
+    echo '  if (!isOpen) {';
+    echo '    sidebar.classList.add("active");';
+    echo '    overlay.classList.add("active");';
+    echo '    btn.classList.add("active");';
+    echo '    document.body.style.overflow = "hidden";';
+    echo '  } else {';
+    echo '    sidebar.classList.remove("active");';
+    echo '    overlay.classList.remove("active");';
+    echo '    btn.classList.remove("active");';
+    echo '    document.body.style.overflow = "";';
+    echo '  }';
+    echo '}';
+    echo 'document.getElementById("hamburger-btn").onclick = toggleWarehouseSidebar;';
+    echo 'document.getElementById("sidebar-overlay").onclick = toggleWarehouseSidebar;';
+    echo '</script>';
+
+    echo '</body></html>';
 }

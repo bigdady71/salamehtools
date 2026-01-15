@@ -73,6 +73,10 @@ function sales_portal_nav_links(): array
             'label' => t('nav.stock_return', '↩️ Stock Return'),
             'href' => $prefix . 'stock_return.php',
         ],
+        'customer_returns' => [
+            'label' => t('nav.customer_returns', '🔄 Customer Returns'),
+            'href' => $prefix . 'customer_returns.php',
+        ],
         'warehouse_stock' => [
             'label' => t('nav.warehouse_stock', '🏭 Warehouse Stock'),
             'href' => $prefix . 'warehouse_stock.php',
@@ -207,15 +211,47 @@ function sales_portal_render_layout_start(array $options = []): void
     echo '[dir="rtl"] .card ul{padding-left:0;padding-right:20px;}';
     echo '[dir="rtl"] .page-header{text-align:right;}';
 
-    echo '@media (max-width:900px){.layout{flex-direction:column;}.sidebar{width:auto;flex-direction:row;';
-    echo 'align-items:center;justify-content:space-between;padding:18px 22px;border-right:none;border-bottom:1px solid rgba(255,255,255,0.2);position:static;overflow-y:visible;}';
-    echo '.nav-links{flex-direction:row;flex-wrap:wrap;gap:6px;}.nav-links a{padding:8px 10px;}';
-    echo '.user-card{margin-top:0;}';
-    echo '.main{padding:24px;margin-left:0;}';
-    echo '[dir="rtl"] .main{margin-right:0;}}';
-    echo '@media (max-width:640px){.sidebar{flex-direction:column;align-items:flex-start;gap:16px;}';
-    echo '.nav-links{width:100%;}.nav-links a{width:100%;}}';
-    echo '</style></head><body class="theme-light"><div class="layout"><aside class="sidebar">';
+    // Mobile responsive styles with hamburger menu
+    echo '.hamburger{display:none;background:none;border:none;cursor:pointer;padding:8px;z-index:1001;}';
+    echo '.hamburger span{display:block;width:24px;height:3px;background:#fff;margin:5px 0;border-radius:2px;transition:0.3s;}';
+    echo '.sidebar-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:999;}';
+    echo '.sidebar-close{display:none;position:absolute;top:16px;right:16px;background:rgba(255,255,255,0.2);border:none;';
+    echo 'color:#fff;font-size:1.5rem;width:36px;height:36px;border-radius:50%;cursor:pointer;}';
+    echo '[dir="rtl"] .sidebar-close{right:auto;left:16px;}';
+    echo '@media (max-width:900px){';
+    echo 'body{overflow-x:hidden;}';
+    echo '.layout{overflow-x:hidden;}';
+    echo '.hamburger{display:block;position:fixed;top:16px;left:16px;z-index:1001;background:var(--accent);border-radius:8px;padding:10px;}';
+    echo '[dir="rtl"] .hamburger{left:auto;right:16px;}';
+    echo '.sidebar{position:fixed;top:0;left:0;bottom:0;transform:translateX(-100%);transition:transform 0.3s ease;z-index:1000;width:280px;overflow-y:auto;}';
+    echo '[dir="rtl"] .sidebar{left:auto;right:0;transform:translateX(100%);}';
+    echo '.sidebar.open{transform:translateX(0);}';
+    echo '.sidebar-overlay.open{display:block;}';
+    echo '.sidebar-close{display:block;}';
+    echo '.main{margin-left:0;padding:80px 20px 20px 20px;width:100%;}';
+    echo '[dir="rtl"] .main{margin-right:0;}';
+    echo '.page-header h1{font-size:1.5rem;}';
+    echo '.page-header{flex-direction:column;align-items:flex-start;}';
+    echo '}';
+    echo '@media (max-width:480px){';
+    echo '.main{padding:70px 12px 12px 12px;}';
+    echo '.card{padding:16px;border-radius:12px;}';
+    echo '}';
+    // Tablet specific improvements (600-900px)
+    echo '@media (min-width:600px) and (max-width:900px){';
+    echo '.main{padding:80px 24px 24px 24px;}';
+    echo '.page-header{gap:12px;}';
+    echo '.actions{gap:8px;}';
+    echo '.btn{padding:8px 12px;font-size:0.9rem;}';
+    echo '}';
+    echo '</style></head><body class="theme-light">';
+
+    // Hamburger button and overlay
+    echo '<button class="hamburger" onclick="toggleSidebar()" aria-label="Toggle menu"><span></span><span></span><span></span></button>';
+    echo '<div class="sidebar-overlay" onclick="toggleSidebar()"></div>';
+
+    echo '<div class="layout"><aside class="sidebar">';
+    echo '<button class="sidebar-close" onclick="toggleSidebar()">&times;</button>';
     echo '<div class="brand">Salameh Tools<small>', htmlspecialchars(t('phrase.sales_portal', 'SALES PORTAL'), ENT_QUOTES, 'UTF-8'), '</small></div><nav class="nav-links">';
 
     foreach ($navItems as $slug => $item) {
@@ -279,7 +315,25 @@ function sales_portal_render_layout_start(array $options = []): void
  */
 function sales_portal_render_layout_end(): void
 {
-    echo '</main></div></body></html>';
+    echo '</main></div>';
+    echo '<script>';
+    echo 'function toggleSidebar(){';
+    echo '  document.querySelector(".sidebar").classList.toggle("open");';
+    echo '  document.querySelector(".sidebar-overlay").classList.toggle("open");';
+    echo '  document.body.style.overflow = document.querySelector(".sidebar").classList.contains("open") ? "hidden" : "";';
+    echo '}';
+    // Close sidebar when clicking a nav link on mobile
+    echo 'document.querySelectorAll(".nav-links a").forEach(function(link){';
+    echo '  link.addEventListener("click", function(){';
+    echo '    if(window.innerWidth <= 900){';
+    echo '      document.querySelector(".sidebar").classList.remove("open");';
+    echo '      document.querySelector(".sidebar-overlay").classList.remove("open");';
+    echo '      document.body.style.overflow = "";';
+    echo '    }';
+    echo '  });';
+    echo '});';
+    echo '</script>';
+    echo '</body></html>';
 }
 
 /**

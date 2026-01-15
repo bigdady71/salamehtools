@@ -891,6 +891,146 @@ sales_portal_render_layout_start([
                 grid-template-columns: 1fr;
             }
         }
+        /* Tablet responsive (600px - 900px) */
+        @media (max-width: 900px) {
+            .stats-grid {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 12px;
+                margin-bottom: 20px;
+            }
+            .stat-card {
+                padding: 16px;
+            }
+            .stat-value {
+                font-size: 1.5rem;
+            }
+            .stat-label {
+                font-size: 0.75rem;
+            }
+            .filter-bar {
+                padding: 16px;
+                gap: 12px;
+            }
+            .filter-group {
+                min-width: 140px;
+                flex: 1 1 calc(50% - 12px);
+            }
+            .filter-group input,
+            .filter-group select {
+                padding: 8px 10px;
+                font-size: 0.9rem;
+            }
+            .filter-actions {
+                width: 100%;
+                justify-content: flex-start;
+                margin-top: 8px;
+                flex-wrap: wrap;
+            }
+            .btn-filter {
+                padding: 8px 12px;
+                font-size: 0.85rem;
+                white-space: nowrap;
+            }
+            .stock-table {
+                overflow-x: auto;
+            }
+            .stock-table table {
+                min-width: 700px;
+            }
+            .stock-table th,
+            .stock-table td {
+                padding: 10px 12px;
+                font-size: 0.85rem;
+            }
+            .products-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 16px;
+            }
+            .product-card {
+                border-radius: 12px;
+            }
+            .product-image,
+            .product-image-placeholder {
+                height: 160px;
+            }
+            .product-content {
+                padding: 16px;
+            }
+            .product-header h3 {
+                font-size: 1rem;
+            }
+            .product-price {
+                font-size: 1.4rem;
+            }
+            .movements-panel {
+                padding: 16px;
+            }
+            .info-banner {
+                padding: 12px 16px;
+                font-size: 0.85rem;
+            }
+            .page-header h1 {
+                word-break: break-word;
+            }
+            .page-header p {
+                font-size: 0.85rem;
+            }
+        }
+        /* Mobile responsive (under 600px) */
+        @media (max-width: 600px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+            .stat-card {
+                padding: 12px;
+            }
+            .stat-value {
+                font-size: 1.25rem;
+            }
+            .stat-label {
+                font-size: 0.7rem;
+            }
+            .stat-meta {
+                font-size: 0.65rem;
+            }
+            .filter-bar {
+                padding: 12px;
+                gap: 10px;
+            }
+            .filter-group {
+                min-width: 100%;
+                flex: 1 1 100%;
+            }
+            .filter-actions {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .btn-filter {
+                flex: 1 1 auto;
+                justify-content: center;
+                padding: 10px 12px;
+            }
+            .products-grid {
+                grid-template-columns: 1fr;
+            }
+            .product-image,
+            .product-image-placeholder {
+                height: 180px;
+            }
+            .info-banner {
+                flex-direction: column;
+                text-align: center;
+            }
+            .pagination {
+                flex-wrap: wrap;
+            }
+            .pagination a,
+            .pagination span {
+                padding: 6px 10px;
+                font-size: 0.85rem;
+            }
+        }
     </style>',
 ]);
 
