@@ -157,7 +157,7 @@ if ($action === 'export') {
     }
 
     if ($categoryFilter !== '') {
-        $where[] = 'p.topcat = :category';
+        $where[] = 'p.topcat_name = :category';
         $params[':category'] = $categoryFilter;
     }
 
@@ -184,7 +184,7 @@ if ($action === 'export') {
             p.sku,
             p.item_name,
             p.second_name,
-            p.topcat as category,
+            p.topcat_name as category,
             p.unit,
             p.sale_price_usd,
             (p.sale_price_usd * 9000) as sale_price_lbp,
@@ -254,6 +254,7 @@ $search = trim((string)($_GET['search'] ?? ''));
 $categoryFilter = (string)($_GET['category'] ?? '');
 $alertFilter = (string)($_GET['alert'] ?? '');
 $ageFilter = (string)($_GET['age'] ?? '');
+$showZeroStock = isset($_GET['show_zero']) && $_GET['show_zero'] === '1';
 
 // Pagination
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -286,14 +287,17 @@ if ($search !== '') {
 }
 
 if ($categoryFilter !== '') {
-    $where[] = 'p.topcat = :category';
+    $where[] = 'p.topcat_name = :category';
     $params[':category'] = $categoryFilter;
 }
 
 if ($alertFilter === 'low') {
-    $where[] = 's.qty_on_hand <= 5';
+    $where[] = 's.qty_on_hand <= 5 AND s.qty_on_hand > 0';
 } elseif ($alertFilter === 'out') {
     $where[] = 's.qty_on_hand = 0';
+} elseif (!$showZeroStock) {
+    // By default, hide zero stock items unless explicitly requested
+    $where[] = 's.qty_on_hand > 0';
 }
 
 // Age filtering
@@ -328,7 +332,7 @@ $stockStmt = $pdo->prepare("
         DATEDIFF(NOW(), s.created_at) as days_in_stock,
         p.sku,
         p.item_name,
-        p.topcat as category,
+        p.topcat_name as category,
         p.sale_price_usd,
         (s.qty_on_hand * p.sale_price_usd) as value_usd
     FROM s_stock s
@@ -348,11 +352,11 @@ $stockItems = $stockStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get unique categories for filter
 $categoriesStmt = $pdo->prepare("
-    SELECT DISTINCT p.topcat
+    SELECT DISTINCT p.topcat_name
     FROM s_stock s
     INNER JOIN products p ON p.id = s.product_id
-    WHERE s.salesperson_id = :rep_id AND p.topcat IS NOT NULL AND p.topcat != ''
-    ORDER BY p.topcat
+    WHERE s.salesperson_id = :rep_id AND p.topcat_name IS NOT NULL AND p.topcat_name != ''
+    ORDER BY p.topcat_name
 ");
 $categoriesStmt->execute([':rep_id' => $repId]);
 $categories = $categoriesStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -377,7 +381,7 @@ $recentMovements = $movementsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get all active products for the adjustment modal
 $productsStmt = $pdo->query("
-    SELECT id, sku, item_name, topcat as category
+    SELECT id, sku, item_name, topcat_name as category
     FROM products
     WHERE is_active = 1
     ORDER BY item_name
@@ -459,6 +463,46 @@ sales_portal_render_layout_start([
             border-radius: 8px;
             font-size: 0.95rem;
             background: var(--bg);
+        }
+        /* Toggle checkbox styling */
+        .checkbox-toggle {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 28px;
+            cursor: pointer;
+        }
+        .checkbox-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle-slider {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            border-radius: 28px;
+            transition: 0.3s;
+        }
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+        .checkbox-toggle input:checked + .toggle-slider {
+            background-color: var(--accent);
+        }
+        .checkbox-toggle input:checked + .toggle-slider:before {
+            transform: translateX(22px);
         }
         .filter-actions {
             display: flex;
@@ -1135,6 +1179,13 @@ echo '<option value="60plus"', $ageFilter === '60plus' ? ' selected' : '', '>Ove
 echo '<option value="90plus"', $ageFilter === '90plus' ? ' selected' : '', '>Over 90 Days</option>';
 echo '</select>';
 echo '</div>';
+echo '<div class="filter-group" style="min-width:auto;">';
+echo '<label style="white-space:nowrap;">Show Zero Stock</label>';
+echo '<label class="checkbox-toggle">';
+echo '<input type="checkbox" id="filter-zero-stock"', $showZeroStock ? ' checked' : '', ' onchange="applyFilters()">';
+echo '<span class="toggle-slider"></span>';
+echo '</label>';
+echo '</div>';
 echo '<div class="filter-actions">';
 echo '<button class="btn-filter" onclick="applyFilters()">Apply Filters</button>';
 if ($search !== '' || $categoryFilter !== '' || $alertFilter !== '' || $ageFilter !== '') {
@@ -1455,11 +1506,13 @@ function applyFilters() {
   const category = document.getElementById("filter-category").value;
   const alert = document.getElementById("filter-alert").value;
   const age = document.getElementById("filter-age").value;
+  const showZero = document.getElementById("filter-zero-stock").checked;
   let url = "?page=1";
   if (search) url += "&search=" + encodeURIComponent(search);
   if (category) url += "&category=" + encodeURIComponent(category);
   if (alert) url += "&alert=" + encodeURIComponent(alert);
   if (age) url += "&age=" + encodeURIComponent(age);
+  if (showZero) url += "&show_zero=1";
   window.location.href = url;
 }
 
@@ -1480,10 +1533,6 @@ function toggleView() {
   const movementsWrapper = document.querySelector(".movements-wrapper");
 
   if (!tableView || !cardView || !toggleBtn) {
-    console.error("Required elements not found");
-    console.log("tableView:", tableView);
-    console.log("cardView:", cardView);
-    console.log("toggleBtn:", toggleBtn);
     return;
   }
 
@@ -1506,12 +1555,6 @@ function toggleView() {
   }
 }
 
-// Debug: Log elements on page load
-window.addEventListener('DOMContentLoaded', function() {
-  console.log("Table view:", document.getElementById("tableView"));
-  console.log("Card view:", document.getElementById("cardView"));
-  console.log("Toggle button:", document.getElementById("toggleViewBtn"));
-});
 </script>
 <?php
 

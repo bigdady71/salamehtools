@@ -54,6 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'search_products') {
     header('Content-Type: application/json');
 
     $query = trim((string)($_GET['q'] ?? ''));
+    $showZero = isset($_GET['show_zero']) && $_GET['show_zero'] === '1';
 
     if (strlen($query) < 1) {
         echo json_encode(['results' => []]);
@@ -62,6 +63,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'search_products') {
 
     try {
         $searchPattern = '%' . $query . '%';
+
+        // Build stock condition - hide zero by default unless show_zero is checked
+        $stockCondition = $showZero ? 's.qty_on_hand >= 0' : 's.qty_on_hand > 0';
+
         $stmt = $pdo->prepare("
             SELECT
                 p.id,
@@ -75,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'search_products') {
             FROM s_stock s
             JOIN products p ON p.id = s.product_id
             WHERE s.salesperson_id = :rep_id
-              AND s.qty_on_hand > 0
+              AND {$stockCondition}
               AND p.is_active = 1
               AND (
                   p.item_name LIKE :pattern
@@ -607,6 +612,47 @@ sales_portal_render_layout_start([
             font-weight: 700;
         }
 
+        /* Small toggle checkbox */
+        .checkbox-toggle-small {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 22px;
+            cursor: pointer;
+        }
+        .checkbox-toggle-small input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle-slider-small {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            border-radius: 22px;
+            transition: 0.3s;
+        }
+        .toggle-slider-small:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+        .checkbox-toggle-small input:checked + .toggle-slider-small {
+            background-color: #059669;
+        }
+        .checkbox-toggle-small input:checked + .toggle-slider-small:before {
+            transform: translateX(18px);
+        }
+
         .form-group {
             margin-bottom: 18px;
         }
@@ -1066,6 +1112,13 @@ if (!$canCreateOrder) {
                         autocomplete="off">
                     <div id="productDropdown" class="autocomplete-dropdown" style="display: none;"></div>
                 </div>
+                <div style="margin-top: 10px; display: flex; align-items: center; gap: 10px;">
+                    <label class="checkbox-toggle-small">
+                        <input type="checkbox" id="showZeroStock">
+                        <span class="toggle-slider-small"></span>
+                    </label>
+                    <span style="font-size: 0.9rem; color: var(--muted);">Show zero stock items</span>
+                </div>
             </div>
 
             <div id="selectedProducts" class="selected-products" style="display: none;">
@@ -1229,6 +1282,7 @@ if (!$canCreateOrder) {
         // Product search autocomplete
         const productSearch = document.getElementById('productSearch');
         const productDropdown = document.getElementById('productDropdown');
+        const showZeroStockCheckbox = document.getElementById('showZeroStock');
         let productDebounceTimer = null;
 
         productSearch.addEventListener('input', function() {
@@ -1242,17 +1296,29 @@ if (!$canCreateOrder) {
             }
 
             productDebounceTimer = setTimeout(() => {
-                fetch(`?action=search_products&q=${encodeURIComponent(query)}`)
+                const showZero = showZeroStockCheckbox.checked ? '1' : '0';
+                fetch(`?action=search_products&q=${encodeURIComponent(query)}&show_zero=${showZero}`)
                     .then(res => res.json())
                     .then(data => {
                         if (data.results && data.results.length > 0) {
                             productDropdown.innerHTML = data.results.map(product => {
-                                const isLowStock = parseFloat(product.qty_on_hand) <= 5;
-                                const stockClass = isLowStock ? ' style="background: #fef9c3;"' : '';
+                                const stockQty = parseFloat(product.qty_on_hand);
+                                const isZeroStock = stockQty <= 0;
+                                const isLowStock = stockQty > 0 && stockQty <= 5;
+
+                                let stockStyle = '';
+                                let stockLabel = '';
+                                if (isZeroStock) {
+                                    stockStyle = ' style="background: #fee2e2; opacity: 0.7;"';
+                                    stockLabel = ' (OUT OF STOCK)';
+                                } else if (isLowStock) {
+                                    stockStyle = ' style="background: #fef9c3;"';
+                                }
+
                                 return `
-                                    <div class="autocomplete-item product-result" data-product-id="${product.id}" data-product-name="${escapeHtml(product.item_name)}" data-product-price="${product.sale_price_usd}" data-product-stock="${product.qty_on_hand}"${stockClass}>
-                                        <strong>${escapeHtml(product.item_name)}</strong>
-                                        <small>SKU: ${escapeHtml(product.sku)} | Stock: ${parseFloat(product.qty_on_hand).toFixed(2)} | $${parseFloat(product.sale_price_usd).toFixed(2)}</small>
+                                    <div class="autocomplete-item product-result" data-product-id="${product.id}" data-product-name="${escapeHtml(product.item_name)}" data-product-price="${product.sale_price_usd}" data-product-stock="${product.qty_on_hand}"${stockStyle}>
+                                        <strong>${escapeHtml(product.item_name)}${stockLabel}</strong>
+                                        <small>SKU: ${escapeHtml(product.sku)} | Stock: ${stockQty.toFixed(2)} | $${parseFloat(product.sale_price_usd).toFixed(2)}</small>
                                     </div>
                                 `;
                             }).join('');
@@ -1265,6 +1331,12 @@ if (!$canCreateOrder) {
                                     const productName = this.dataset.productName;
                                     const productPrice = parseFloat(this.dataset.productPrice);
                                     const productStock = parseFloat(this.dataset.productStock);
+
+                                    // Don't allow adding zero stock items
+                                    if (productStock <= 0) {
+                                        alert('Cannot add out of stock items to sale.');
+                                        return;
+                                    }
 
                                     if (!selectedProducts[productId]) {
                                         selectedProducts[productId] = {
@@ -1341,31 +1413,65 @@ if (!$canCreateOrder) {
                                 <input type="hidden" name="items[${productId}][discount]" value="0">
                             </div>
                         </div>
-                        <div class="subtotal">Subtotal: $${subtotal.toFixed(2)}</div>
+                        <div class="subtotal" id="subtotal-${productId}">Subtotal: $${subtotal.toFixed(2)}</div>
                     </div>
                 `;
             }).join('');
 
-            // Add event listeners for quantity and discount changes
+            // Add event listeners for quantity changes
             document.querySelectorAll('.quantity-input').forEach(input => {
+                // Select all text on focus for easy editing
+                input.addEventListener('focus', function() {
+                    this.select();
+                });
+
+                // Update values as user types (without re-rendering)
                 input.addEventListener('input', function() {
                     const productId = this.dataset.productId;
-                    const value = parseFloat(this.value) || 1;
+                    let value = parseFloat(this.value) || 0;
+                    const maxStock = selectedProducts[productId].stock;
+                    const product = selectedProducts[productId];
+
+                    // Allow typing without immediate validation (will validate on blur)
+                    if (value > 0 && value <= maxStock) {
+                        selectedProducts[productId].quantity = value;
+                        document.querySelector(`.quantity-hidden-${productId}`).value = value;
+
+                        // Update subtotal display without re-render
+                        const subtotal = product.price * value;
+                        const subtotalEl = document.getElementById(`subtotal-${productId}`);
+                        if (subtotalEl) {
+                            subtotalEl.textContent = `Subtotal: $${subtotal.toFixed(2)}`;
+                        }
+                        updateOrderSummary();
+                    }
+                });
+
+                // Validate on blur (when leaving the field)
+                input.addEventListener('blur', function() {
+                    const productId = this.dataset.productId;
+                    let value = parseFloat(this.value) || 1;
                     const maxStock = selectedProducts[productId].stock;
 
                     if (value < 1) {
+                        value = 1;
                         this.value = 1;
-                        selectedProducts[productId].quantity = 1;
                     } else if (value > maxStock) {
                         alert(`Maximum available stock is ${maxStock}`);
+                        value = maxStock;
                         this.value = maxStock;
-                        selectedProducts[productId].quantity = maxStock;
-                    } else {
-                        selectedProducts[productId].quantity = value;
                     }
 
-                    document.querySelector(`.quantity-hidden-${productId}`).value = selectedProducts[productId].quantity;
-                    renderSelectedProducts();
+                    selectedProducts[productId].quantity = value;
+                    document.querySelector(`.quantity-hidden-${productId}`).value = value;
+
+                    // Update subtotal display
+                    const product = selectedProducts[productId];
+                    const subtotal = product.price * value;
+                    const subtotalEl = document.getElementById(`subtotal-${productId}`);
+                    if (subtotalEl) {
+                        subtotalEl.textContent = `Subtotal: $${subtotal.toFixed(2)}`;
+                    }
                     updateOrderSummary();
                 });
             });

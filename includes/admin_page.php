@@ -18,6 +18,7 @@ if (!function_exists('admin_nav_links')) {
             'sales_reps' => ['label' => 'Sales Reps', 'href' => 'sales_reps.php'],
             'stock_adjustments' => ['label' => 'Rep Stock Auth', 'href' => 'sales_rep_stock_adjustment.php'],
             'receivables' => ['label' => 'Receivables', 'href' => 'receivables.php'],
+            'cash_refunds' => ['label' => 'Cash Refunds', 'href' => 'cash_refund_approvals.php'],
             'warehouse' => ['label' => 'Warehouse', 'href' => 'warehouse_stock.php'],
             'analytics' => ['label' => 'Analytics', 'href' => 'analytics.php'],
             'demo_filters' => ['label' => 'Filters Demo', 'href' => 'demo_filters_export.php'],
