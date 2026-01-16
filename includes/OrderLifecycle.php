@@ -769,7 +769,7 @@ class OrderLifecycle {
         $stmt = $this->pdo->prepare("
             SELECT o.*,
                    (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,
-                   (SELECT SUM(quantity * unit_price) FROM order_items WHERE order_id = o.id) as total_value
+                   (SELECT SUM(quantity * unit_price_usd) FROM order_items WHERE order_id = o.id) as total_value
             FROM orders o
             WHERE o.status = :status AND o.user_id = :sales_rep_id
             ORDER BY o.created_at ASC

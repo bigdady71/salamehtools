@@ -129,7 +129,7 @@ $readyOrdersStmt = $pdo->prepare("
         c.phone as customer_phone,
         c.location as customer_location,
         (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,
-        (SELECT SUM(quantity * unit_price) FROM order_items WHERE order_id = o.id) as total_value
+        (SELECT SUM(quantity * unit_price_usd) FROM order_items WHERE order_id = o.id) as total_value
     FROM orders o
     INNER JOIN customers c ON c.id = o.customer_id
     WHERE o.sales_rep_id = :sales_rep_id
