@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'search_customers') {
         $stmt = $pdo->prepare("
             SELECT id, name, phone, location as city
             FROM customers
-            WHERE assigned_sales_rep_id = :rep_id
+            WHERE assigned_sales_rep_id = :rep_id*
               AND is_active = 1
               AND (name LIKE :pattern OR phone LIKE :pattern)
             ORDER BY name

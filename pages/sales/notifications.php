@@ -14,11 +14,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'mark_read') {
         $notifId = (int)($_POST['notification_id'] ?? 0);
         if ($notifId > 0) {
-            $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?");
+            $stmt = $pdo->prepare("UPDATE notifications SET read_at = NOW() WHERE id = ? AND user_id = ?");
             $stmt->execute([$notifId, $salesRepId]);
         }
     } elseif ($_POST['action'] === 'mark_all_read') {
-        $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?");
+        $stmt = $pdo->prepare("UPDATE notifications SET read_at = NOW() WHERE user_id = ? AND read_at IS NULL");
         $stmt->execute([$salesRepId]);
         $_SESSION['success'] = 'All notifications marked as read.';
     } elseif ($_POST['action'] === 'delete') {
@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $stmt->execute([$notifId, $salesRepId]);
         }
     } elseif ($_POST['action'] === 'clear_all') {
-        $stmt = $pdo->prepare("DELETE FROM notifications WHERE user_id = ? AND is_read = 1");
+        $stmt = $pdo->prepare("DELETE FROM notifications WHERE user_id = ? AND read_at IS NOT NULL");
         $stmt->execute([$salesRepId]);
         $_SESSION['success'] = 'Read notifications cleared.';
     }
@@ -45,7 +45,7 @@ $where = "user_id = ?";
 $params = [$salesRepId];
 
 if ($filter === 'unread') {
-    $where .= " AND is_read = 0";
+    $where .= " AND read_at IS NULL";
 } elseif ($filter === 'order_ready') {
     $where .= " AND type = 'order_ready'";
 }
@@ -64,7 +64,7 @@ $stmt->execute($params);
 $notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get unread count
-$unreadStmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0");
+$unreadStmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read_at IS NULL");
 $unreadStmt->execute([$salesRepId]);
 $unreadCount = (int)$unreadStmt->fetchColumn();
 
@@ -318,7 +318,7 @@ sales_portal_render_layout_start(t('notifications.title', 'Notifications'));
 <?php if (count($notifications) > 0): ?>
     <?php foreach ($notifications as $notif): ?>
         <?php
-        $isUnread = (int)$notif['is_read'] === 0;
+        $isUnread = $notif['read_at'] === null;
         $type = $notif['type'] ?? 'system';
         $config = $typeConfig[$type] ?? $typeConfig['system'];
 

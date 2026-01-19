@@ -41,6 +41,10 @@ function sales_portal_nav_links(): array
             'label' => t('nav.create_sale', '🚚 Create New Sale'),
             'href' => $prefix . 'van_stock_sales.php',
         ],
+        'orders_cart' => [
+            'label' => t('nav.quick_sale', '🛒 Quick Sale'),
+            'href' => $prefix . 'van_stock_cart.php',
+        ],
         'orders' => [
             'label' => t('nav.my_orders', '📋 My Orders'),
             'href' => $prefix . 'orders.php',
