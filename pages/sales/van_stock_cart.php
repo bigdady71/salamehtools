@@ -226,16 +226,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     ];
                 }
 
-                // Calculate customer credit in USD equivalent
-                $customerCreditUSD = $exchangeRate > 0 ? $customerCreditLBP / $exchangeRate : 0;
+                // Customer balance logic:
+                // Positive balance = customer owes us money (debt)
+                // Negative balance = we owe customer money (credit)
+                // When making a sale: unpaid amount gets ADDED to balance
 
-                // Calculate how much credit to use (up to the invoice total)
-                $creditUsedUSD = min($customerCreditUSD, $totalUSD);
-                $creditUsedLBP = $creditUsedUSD * $exchangeRate;
+                // Calculate how much is unpaid after cash payment
+                $unpaidUSD = max(0, $totalUSD - $totalPaymentUSD);
+                $unpaidLBP = $unpaidUSD * $exchangeRate;
 
-                // Calculate overpayment
-                $remainingAfterCredit = max(0, $totalUSD - $creditUsedUSD);
-                $overpaymentUSD = max(0, $totalPaymentUSD - $remainingAfterCredit);
+                // Calculate overpayment (if cash exceeds invoice total - adds credit to customer)
+                $overpaymentUSD = max(0, $totalPaymentUSD - $totalUSD);
+                $overpaymentLBP = $overpaymentUSD * $exchangeRate;
 
                 if ($errors) {
                     $pdo->rollBack();
@@ -344,8 +346,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
                         try {
                             $invoiceNumber = generate_invoice_number($pdo, $customerId, $repId);
-                            $totalPaidWithCredit = $totalPaymentUSD + $creditUsedUSD;
-                            $invoiceStatus = $totalPaidWithCredit >= $totalUSD ? 'paid' : 'issued';
+                            // Invoice is paid only if cash payment covers the total
+                            $invoiceStatus = $totalPaymentUSD >= $totalUSD ? 'paid' : 'issued';
 
                             $invoiceStmt = $pdo->prepare("
                                 INSERT INTO invoices (
@@ -383,8 +385,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         throw new Exception('Failed to create invoice.');
                     }
 
-                    // Calculate cash payment for invoice
-                    $cashPaymentForInvoiceUSD = min($totalPaymentUSD, $remainingAfterCredit);
+                    // Calculate cash payment for invoice (capped at invoice total, excess is overpayment/credit)
+                    $cashPaymentForInvoiceUSD = min($totalPaymentUSD, $totalUSD);
                     $cashPaymentForInvoiceLBP = $cashPaymentForInvoiceUSD * $exchangeRate;
 
                     // Create payment record for cash payment
@@ -407,36 +409,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         ]);
                     }
 
-                    // Create payment record for credit used
-                    if ($creditUsedUSD > 0.01) {
-                        $creditPaymentStmt = $pdo->prepare("
-                            INSERT INTO payments (
-                                invoice_id, method, amount_usd, amount_lbp,
-                                received_by_user_id, received_at
-                            ) VALUES (
-                                :invoice_id, 'account_credit', :amount_usd, :amount_lbp,
-                                :received_by, NOW()
-                            )
-                        ");
-                        $creditPaymentStmt->execute([
-                            ':invoice_id' => $invoiceId,
-                            ':amount_usd' => $creditUsedUSD,
-                            ':amount_lbp' => $creditUsedLBP,
-                            ':received_by' => $repId,
-                        ]);
-                    }
-
                     // Update customer account balance
-                    $overpaymentLBP = $overpaymentUSD * $exchangeRate;
-                    $netBalanceChangeLBP = $overpaymentLBP - $creditUsedLBP;
-                    if (abs($netBalanceChangeLBP) > 0.01) {
+                    // Add unpaid amount (increases their debt)
+                    // Subtract overpayment (decreases their debt / gives them credit)
+                    $balanceChangeLBP = $unpaidLBP - $overpaymentLBP;
+                    if (abs($balanceChangeLBP) > 0.01) {
                         $balanceStmt = $pdo->prepare("
                             UPDATE customers
                             SET account_balance_lbp = COALESCE(account_balance_lbp, 0) + :balance_change
                             WHERE id = :customer_id
                         ");
                         $balanceStmt->execute([
-                            ':balance_change' => $netBalanceChangeLBP,
+                            ':balance_change' => $balanceChangeLBP,
                             ':customer_id' => $customerId,
                         ]);
                     }

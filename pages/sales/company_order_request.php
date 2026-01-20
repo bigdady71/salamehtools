@@ -295,7 +295,7 @@ $productsStmt = $pdo->prepare("
         p.id,
         p.sku,
         p.item_name,
-        p.topcat as category,
+        p.topcat_name as category,
         p.description,
         p.barcode,
         p.code_clean,
@@ -303,363 +303,511 @@ $productsStmt = $pdo->prepare("
         p.quantity_on_hand
     FROM products p
     WHERE p.is_active = 1
-    ORDER BY p.item_name
+    ORDER BY p.topcat_name, p.item_name
 ");
 $productsStmt->execute();
 $products = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Get unique categories for filter
+$categories = array_unique(array_filter(array_column($products, 'category')));
+sort($categories);
 
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
     'title' => 'Company Order Request',
     'heading' => 'Create Company Order Request',
-    'subtitle' => 'Request products to be fulfilled from warehouse stock',
+    'subtitle' => 'Tap products to add them to your order',
     'active' => 'orders_request',
     'user' => $user,
-    'extra_head' => '<style>
-        .order-form {
-            background: var(--bg-panel);
-            border-radius: 14px;
-            padding: 28px;
-            border: 1px solid var(--border);
-            margin-bottom: 24px;
-        }
-        .form-section {
-            margin-bottom: 32px;
-        }
-        .form-section h3 {
-            margin: 0 0 16px;
-            font-size: 1.2rem;
-            color: var(--text);
-        }
-        .form-group {
-            margin-bottom: 18px;
-        }
-        .form-group label {
-            display: block;
-            font-weight: 600;
-            margin-bottom: 6px;
-            font-size: 0.9rem;
-        }
-        .form-group select,
-        .form-group textarea {
-            width: 100%;
-            padding: 10px 12px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 0.95rem;
-            background: var(--bg);
-        }
-        .customer-search-wrapper {
-            position: relative;
-            margin-bottom: 10px;
-        }
-        .customer-search-wrapper input {
-            width: 100%;
-            padding: 10px 40px 10px 12px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 0.95rem;
-            background: var(--bg-panel);
-            transition: all 0.2s;
-        }
-        .customer-search-wrapper input:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
-        }
-        .customer-search-icon {
-            position: absolute;
-            right: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--muted);
-            pointer-events: none;
-        }
-        .customer-search-clear {
-            position: absolute;
-            right: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: #ef4444;
-            color: white;
-            border: none;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            cursor: pointer;
-            display: none;
-            font-weight: 600;
-        }
-        .customer-search-clear:hover {
-            background: #dc2626;
-        }
-        .customer-list {
-            max-height: 250px;
-            overflow-y: auto;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: var(--bg-panel);
-            margin-top: 8px;
-        }
-        .customer-item {
-            padding: 12px;
-            border-bottom: 1px solid var(--border);
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .customer-item:hover {
-            background: var(--bg-panel-alt);
-        }
-        .customer-item:last-child {
-            border-bottom: none;
-        }
-        .customer-item.highlighted {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
-        }
-        .customer-item.hidden {
-            display: none !important;
-        }
-        .customer-item-name {
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-        .customer-item-meta {
-            font-size: 0.85rem;
-            color: var(--muted);
-        }
-        .selected-customer {
-            padding: 12px 16px;
-            background: #d1fae5;
-            border: 2px solid #059669;
-            border-radius: 8px;
-            margin-top: 10px;
-        }
-        .selected-customer-name {
-            font-weight: 600;
-            color: #065f46;
-            margin-bottom: 4px;
-        }
-        .selected-customer-info {
-            font-size: 0.9rem;
-            color: #047857;
-        }
-        .form-group textarea {
-            resize: vertical;
-            min-height: 80px;
-        }
-        .products-selector {
-            background: var(--bg-panel-alt);
-            border-radius: 10px;
-            padding: 20px;
+    'extra_head' => '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>
+        .filter-bar {
+            display: flex;
+            gap: 12px;
             margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
         }
-        .product-search {
-            position: relative;
-            margin-bottom: 16px;
-        }
-        .product-search input {
-            width: 100%;
-            padding: 12px 44px 12px 16px;
+        .filter-bar select,
+        .filter-bar input {
+            padding: 10px 14px;
             border: 2px solid var(--border);
             border-radius: 8px;
             font-size: 1rem;
+            min-width: 150px;
+        }
+        .filter-bar select:focus,
+        .filter-bar input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 16px;
+            padding-bottom: 100px;
+        }
+        .product-card {
             background: var(--bg-panel);
+            border-radius: 14px;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            border: 3px solid transparent;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .product-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+        }
+        .product-card.in-cart {
+            border-color: #22c55e;
+            background: #dcfce7;
+        }
+        .product-card.in-cart::after {
+            content: "\2713";
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #22c55e;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1rem;
+        }
+        .product-card img {
+            width: 100%;
+            height: 130px;
+            object-fit: cover;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+        }
+        .product-sku {
+            font-size: 0.75rem;
+            color: var(--muted);
+            margin-top: 8px;
+            font-family: monospace;
+            background: #f1f5f9;
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+        .product-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin: 6px 0 6px;
+            color: var(--text);
+            min-height: 40px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .product-price {
+            font-weight: 800;
+            font-size: 1.2rem;
+            color: var(--accent);
+        }
+        .product-stock {
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+        .product-stock.low {
+            color: #f59e0b;
+            font-weight: 600;
+        }
+        .product-stock.out {
+            color: #dc2626;
+            font-weight: 600;
+        }
+        .product-controls {
+            display: none;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .product-card.in-cart .product-controls {
+            display: flex;
+        }
+        .product-qty-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: 2px solid var(--border);
+            background: white;
+            font-size: 1.2rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             transition: all 0.2s;
         }
-        .product-search input:focus {
-            outline: none;
-            border-color: #6366f1;
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        .product-qty-btn:hover:not(:disabled) {
+            border-color: var(--accent);
+            background: var(--accent);
+            color: white;
         }
-        .product-search-icon {
-            position: absolute;
-            right: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--muted);
-            font-size: 1.2rem;
-            pointer-events: none;
+        .product-qty-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
-        .product-search-clear {
-            position: absolute;
-            right: 44px;
-            top: 50%;
-            transform: translateY(-50%);
+        .product-qty-btn.minus {
+            border-color: #dc2626;
+            color: #dc2626;
+        }
+        .product-qty-btn.minus:hover:not(:disabled) {
             background: #dc2626;
             color: white;
+        }
+        .product-qty-display {
+            font-weight: 700;
+            font-size: 1.1rem;
+            min-width: 30px;
+            text-align: center;
+        }
+        .cart-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            color: white;
+            padding: 18px 28px;
+            border-radius: 50px;
+            box-shadow: 0 6px 25px rgba(99, 102, 241, 0.4);
+            z-index: 1000;
+            cursor: pointer;
             border: none;
-            border-radius: 4px;
-            padding: 4px 8px;
-            cursor: pointer;
-            font-size: 0.75rem;
-            font-weight: 600;
-            display: none;
-        }
-        .product-search-clear:hover {
-            background: #991b1b;
-        }
-        .product-list {
-            max-height: 300px;
-            overflow-y: auto;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: var(--bg-panel);
-        }
-        .product-item {
-            padding: 12px;
-            border-bottom: 1px solid var(--border);
-            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
             transition: all 0.2s;
         }
-        .product-item:hover {
-            background: var(--bg-panel-alt);
-            border-left: 4px solid #6366f1;
-            padding-left: 8px;
+        .cart-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 35px rgba(99, 102, 241, 0.5);
         }
-        .product-item.selected {
-            background: #dbeafe;
-            border-left: 4px solid #3b82f6;
-            padding-left: 8px;
+        .cart-button.empty {
+            background: #9ca3af;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
-        .product-item.highlighted {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            padding-left: 8px;
+        .cart-badge {
+            background: white;
+            color: #6366f1;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
         }
-        .product-item:last-child {
-            border-bottom: none;
+        .cart-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-radius: 24px 24px 0 0;
+            max-height: 90vh;
+            overflow-y: auto;
+            transform: translateY(100%);
+            transition: transform 0.3s ease-out;
+            z-index: 1001;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.2);
         }
-        .product-item.hidden {
-            display: none;
+        .cart-panel.open {
+            transform: translateY(0);
         }
-        .no-results {
-            padding: 40px 20px;
-            text-align: center;
-            color: var(--muted);
-            display: none;
+        .cart-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
         }
-        .no-results.visible {
-            display: block;
+        .cart-overlay.open {
+            opacity: 1;
+            visibility: visible;
         }
-        .product-item-header {
+        .cart-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 10;
+        }
+        .cart-header h2 {
+            margin: 0;
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .cart-close {
+            background: none;
+            border: none;
+            font-size: 1.8rem;
+            cursor: pointer;
+            color: var(--muted);
+            padding: 0;
+        }
+        .cart-items {
+            padding: 16px 24px;
+            max-height: 35vh;
+            overflow-y: auto;
+        }
+        .cart-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 0;
+            border-bottom: 1px solid var(--border);
+            gap: 12px;
+        }
+        .cart-item:last-child {
+            border-bottom: none;
+        }
+        .cart-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .cart-item-name {
+            font-weight: 600;
+            font-size: 0.95rem;
             margin-bottom: 4px;
         }
-        .product-item-name {
-            font-weight: 600;
+        .cart-item-sku {
+            font-size: 0.75rem;
+            color: var(--muted);
+            font-family: monospace;
+            background: #f1f5f9;
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 4px;
         }
-        .product-item-price {
-            font-weight: 600;
-            color: var(--accent);
-        }
-        .product-item-meta {
+        .cart-item-price {
             font-size: 0.85rem;
             color: var(--muted);
         }
-        .product-item-stock {
-            color: #059669;
-            font-weight: 600;
+        .cart-item-qty {
+            font-size: 0.9rem;
+            color: #6366f1;
+            font-weight: 700;
+            margin-bottom: 4px;
+            background: #e0e7ff;
+            padding: 2px 8px;
+            border-radius: 4px;
+            display: inline-block;
         }
-        .product-item-stock.low {
-            color: #f59e0b;
+        .cart-item-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .product-item-stock.out {
+        .qty-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: 2px solid var(--border);
+            background: white;
+            font-size: 1.2rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .qty-btn:hover {
+            border-color: #6366f1;
+            background: #6366f1;
+            color: white;
+        }
+        .qty-btn.remove {
+            border-color: #dc2626;
             color: #dc2626;
         }
-        .selected-products {
-            margin-top: 20px;
-        }
-        .selected-products h4 {
-            margin: 0 0 12px;
-            font-size: 1.1rem;
-        }
-        .selected-product {
-            background: var(--bg-panel);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 12px;
-        }
-        .selected-product-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 12px;
-        }
-        .selected-product-name {
-            font-weight: 600;
-            font-size: 1rem;
-        }
-        .btn-remove {
-            background: #ef4444;
-            color: #fff;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-weight: 600;
-        }
-        .btn-remove:hover {
+        .qty-btn.remove:hover {
             background: #dc2626;
+            color: white;
         }
-        .selected-product-controls {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 12px;
+        .qty-value {
+            font-weight: 700;
+            font-size: 1.1rem;
+            min-width: 30px;
+            text-align: center;
         }
-        .control-group {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        .control-group label {
-            font-size: 0.85rem;
-            font-weight: 600;
-        }
-        .control-group input {
-            padding: 8px 10px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-size: 0.9rem;
-        }
-        .selected-product-subtotal {
-            margin-top: 12px;
+        .cart-item-subtotal {
+            font-weight: 700;
+            color: #6366f1;
+            min-width: 70px;
             text-align: right;
-            font-weight: 600;
+        }
+        .cart-customer {
+            padding: 20px 24px;
+            background: #f8fafc;
+            border-top: 1px solid var(--border);
+        }
+        .cart-customer label {
+            display: block;
+            font-weight: 700;
+            margin-bottom: 10px;
             font-size: 1rem;
         }
-        .order-summary {
-            background: var(--bg-panel);
-            border-radius: 14px;
-            padding: 24px;
-            border: 2px solid var(--accent);
-            margin-bottom: 24px;
+        .customer-search-wrapper {
+            position: relative;
         }
-        .order-summary h3 {
-            margin: 0 0 16px;
-            font-size: 1.3rem;
+        .customer-input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-size: 1rem;
         }
-        .summary-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 0;
+        .customer-input:focus {
+            outline: none;
+            border-color: #6366f1;
+        }
+        .customer-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 2px solid #6366f1;
+            border-top: none;
+            border-radius: 0 0 10px 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            display: none;
+        }
+        .customer-dropdown.show {
+            display: block;
+        }
+        .customer-option {
+            padding: 12px 16px;
+            cursor: pointer;
             border-bottom: 1px solid var(--border);
         }
-        .summary-row:last-child {
-            border-bottom: none;
-            padding-top: 16px;
-            margin-top: 8px;
-            border-top: 2px solid var(--border);
+        .customer-option:hover {
+            background: #eef2ff;
         }
-        .summary-row.total {
+        .customer-option strong {
+            display: block;
+            margin-bottom: 2px;
+        }
+        .customer-option small {
+            color: var(--muted);
+        }
+        .customer-selected {
+            background: #e0e7ff;
+            border: 2px solid #6366f1;
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-top: 10px;
+            display: none;
+        }
+        .customer-selected.show {
+            display: block;
+        }
+        .customer-selected strong {
+            color: #3730a3;
+        }
+        .cart-notes {
+            padding: 0 24px 20px;
+        }
+        .cart-notes label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            color: var(--muted);
+        }
+        .cart-notes textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-size: 1rem;
+            resize: none;
+            height: 70px;
+        }
+        .cart-totals {
+            padding: 20px 24px;
+            background: #eef2ff;
+            border-top: 2px solid #6366f1;
+        }
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+        }
+        .total-row.grand {
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: #000;
+            padding-top: 10px;
+            border-top: 2px solid #6366f1;
+            margin-top: 10px;
+        }
+        .cart-submit {
+            padding: 20px 24px;
+            background: white;
+            border-top: 1px solid var(--border);
+        }
+        .btn-submit {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            color: white;
+            border: none;
+            border-radius: 14px;
             font-size: 1.3rem;
             font-weight: 700;
-            color: var(--accent);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+        }
+        .btn-submit:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--muted);
+        }
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 16px;
         }
         .flash-stack {
             margin-bottom: 24px;
@@ -668,7 +816,7 @@ sales_portal_render_layout_start([
             padding: 16px 20px;
             border-radius: 12px;
             margin-bottom: 12px;
-            border: 1px solid;
+            border-left: 4px solid;
         }
         .flash-success {
             background: #d1fae5;
@@ -688,25 +836,6 @@ sales_portal_render_layout_start([
             margin: 8px 0 0 20px;
             padding: 0;
         }
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--muted);
-        }
-        .empty-state-icon {
-            font-size: 3rem;
-            margin-bottom: 16px;
-            opacity: 0.3;
-        }
-        .alert-info {
-            background: #dbeafe;
-            border: 1px solid #3b82f6;
-            color: #1e40af;
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-            font-size: 0.9rem;
-        }
         .alert-warning {
             background: #fef3c7;
             border: 1px solid #f59e0b;
@@ -715,6 +844,21 @@ sales_portal_render_layout_start([
             border-radius: 8px;
             margin-bottom: 16px;
             font-size: 0.9rem;
+        }
+        @media (max-width: 600px) {
+            .product-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+            }
+            .product-card img {
+                height: 100px;
+            }
+            .cart-button {
+                bottom: 15px;
+                right: 15px;
+                padding: 14px 20px;
+                font-size: 1rem;
+            }
         }
     </style>',
 ]);
@@ -772,505 +916,456 @@ if (empty($customers)) {
     echo '<p>There are no active products available for ordering.</p>';
     echo '</div>';
 } else {
-    echo '<div class="alert-warning">';
-    echo '<strong>Note:</strong> This creates an order request that will be fulfilled from warehouse stock. ';
-    echo 'The order will be placed on hold pending approval. Orders are fulfilled by the warehouse team, not from your van stock.';
-    echo '</div>';
+?>
+    <div class="alert-warning">
+        <strong>Note:</strong> This creates an order request that will be fulfilled from warehouse stock.
+        The order will be placed on hold pending approval. Orders are fulfilled by the warehouse team, not from your van stock.
+    </div>
 
-    echo '<form method="POST" id="orderForm">';
-    echo '<input type="hidden" name="csrf_token" value="', htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'), '">';
-    echo '<input type="hidden" name="action" value="create_order">';
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+        <select id="categoryFilter" onchange="filterProducts()">
+            <option value="">All Categories</option>
+            <?php foreach ($categories as $cat): ?>
+                <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></option>
+            <?php endforeach; ?>
+        </select>
+        <input type="text" id="searchFilter" placeholder="Search products..." oninput="filterProducts()">
+    </div>
 
-    echo '<div class="order-form">';
+    <!-- Product Grid -->
+    <div class="product-grid" id="productGrid">
+        <?php foreach ($products as $product):
+            $sku = $product['sku'] ?? '';
+            $itemName = htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8');
+            $category = $product['category'] ?? '';
+            $priceUSD = (float)$product['sale_price_usd'];
+            $stock = (float)$product['quantity_on_hand'];
 
-    // Customer Selection
-    echo '<div class="form-section">';
-    echo '<h3>1. Select Customer</h3>';
-    echo '<div class="form-group">';
-    echo '<label>Customer <span style="color:red;">*</span></label>';
-    echo '<div class="customer-search-wrapper">';
-    echo '<input type="text" id="customerSearch" placeholder="Search by name or phone..." autocomplete="off">';
-    echo '<button type="button" class="customer-search-clear" id="clearCustomerSearch">✕ Clear</button>';
-    echo '<span class="customer-search-icon">🔍</span>';
-    echo '</div>';
-    echo '<input type="hidden" name="customer_id" id="selectedCustomerId" required>';
-    echo '<div class="customer-list" id="customerList" style="display:none;">';
-    foreach ($customers as $customer) {
-        $custId = (int)$customer['id'];
-        $custName = htmlspecialchars($customer['name'], ENT_QUOTES, 'UTF-8');
-        $custPhone = htmlspecialchars($customer['phone'] ?? '', ENT_QUOTES, 'UTF-8');
-        $custCity = htmlspecialchars($customer['city'] ?? '', ENT_QUOTES, 'UTF-8');
-        echo '<div class="customer-item" data-customer-id="', $custId, '" data-customer-name="', $custName, '" ';
-        echo 'data-customer-phone="', $custPhone, '" data-customer-city="', $custCity, '">';
-        echo '<div class="customer-item-name">', $custName, '</div>';
-        echo '<div class="customer-item-meta">';
-        if ($custPhone) echo 'Phone: ', $custPhone;
-        if ($custPhone && $custCity) echo ' | ';
-        if ($custCity) echo 'City: ', $custCity;
-        echo '</div>';
-        echo '</div>';
-    }
-    echo '</div>';
-    echo '<div class="selected-customer" id="selectedCustomerDisplay" style="display:none;"></div>';
-    echo '</div>';
-    echo '</div>';
+            // Stock status
+            $stockClass = '';
+            if ($stock <= 0) {
+                $stockClass = 'out';
+            } elseif ($stock <= 10) {
+                $stockClass = 'low';
+            }
 
-    // Product Selection
-    echo '<div class="form-section">';
-    echo '<h3>2. Select Products</h3>';
-    echo '<div class="alert-info">';
-    echo 'Click on products below to add them to your order. All warehouse products are shown with their availability status.';
-    echo '</div>';
-    echo '<div class="products-selector">';
-    echo '<div class="product-search">';
-    echo '<input type="text" id="productSearch" placeholder="Search by name, SKU, category, barcode, code, or description..." autocomplete="off">';
-    echo '<button type="button" class="product-search-clear" id="clearSearch">✕ Clear</button>';
-    echo '<span class="product-search-icon">🔍</span>';
-    echo '</div>';
-    echo '<div class="product-list" id="productList">';
-    echo '<div class="no-results" id="noResults">No products found. Try a different search term.</div>';
+            // Find product image
+            $imageExists = false;
+            $imagePath = '../../images/products/default.jpg';
+            $possibleExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
 
-    foreach ($products as $product) {
-        $prodId = (int)$product['id'];
-        $prodSku = htmlspecialchars($product['sku'] ?? '', ENT_QUOTES, 'UTF-8');
-        $prodName = htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8');
-        $prodCategory = $product['category'] ? htmlspecialchars($product['category'], ENT_QUOTES, 'UTF-8') : '';
-        $prodDescription = $product['description'] ? htmlspecialchars($product['description'], ENT_QUOTES, 'UTF-8') : '';
-        $prodBarcode = $product['barcode'] ? htmlspecialchars($product['barcode'], ENT_QUOTES, 'UTF-8') : '';
-        $prodCodeClean = $product['code_clean'] ? htmlspecialchars($product['code_clean'], ENT_QUOTES, 'UTF-8') : '';
-        $prodPriceUSD = (float)$product['sale_price_usd'];
-        $prodStock = (float)$product['quantity_on_hand'];
+            if ($sku) {
+                foreach ($possibleExtensions as $ext) {
+                    $serverPath = __DIR__ . '/../../images/products/' . $sku . '.' . $ext;
+                    if (file_exists($serverPath)) {
+                        $imagePath = '../../images/products/' . $sku . '.' . $ext;
+                        $imageExists = true;
+                        break;
+                    }
+                }
+            }
+        ?>
+            <div class="product-card"
+                 data-id="<?= $product['id'] ?>"
+                 data-name="<?= $itemName ?>"
+                 data-sku="<?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?>"
+                 data-price="<?= $priceUSD ?>"
+                 data-stock="<?= $stock ?>"
+                 data-category="<?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>">
+                <img src="<?= htmlspecialchars($imagePath, ENT_QUOTES, 'UTF-8') ?>"
+                     alt="<?= $itemName ?>"
+                     loading="lazy"
+                     onerror="this.src='../../images/products/default.jpg'">
+                <div class="product-sku"><?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?></div>
+                <div class="product-name"><?= $itemName ?></div>
+                <div class="product-price">$<?= number_format($priceUSD, 2) ?></div>
+                <div class="product-stock <?= $stockClass ?>">
+                    Warehouse: <?= number_format($stock, 1) ?>
+                </div>
+                <div class="product-controls" id="controls-<?= $product['id'] ?>" onclick="event.stopPropagation();">
+                    <button type="button" class="product-qty-btn minus" onclick="decreaseQtyFromCard(<?= $product['id'] ?>)">−</button>
+                    <span class="product-qty-display" id="qty-display-<?= $product['id'] ?>">0</span>
+                    <button type="button" class="product-qty-btn plus" onclick="increaseQtyFromCard(<?= $product['id'] ?>)" id="plus-btn-<?= $product['id'] ?>">+</button>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    </div>
 
-        $stockClass = '';
-        $stockLabel = 'In Stock';
-        if ($prodStock <= 0) {
-            $stockClass = 'out';
-            $stockLabel = 'Out of Stock';
-        } elseif ($prodStock <= 10) {
-            $stockClass = 'low';
-            $stockLabel = 'Low Stock';
+    <!-- Floating Cart Button -->
+    <button class="cart-button empty" id="cartButton" onclick="openCart()">
+        <span>📦</span>
+        <span id="cartTotal">$0.00</span>
+        <span class="cart-badge" id="cartBadge">0</span>
+    </button>
+
+    <!-- Cart Overlay -->
+    <div class="cart-overlay" id="cartOverlay" onclick="closeCart()"></div>
+
+    <!-- Cart Panel -->
+    <div class="cart-panel" id="cartPanel">
+        <div class="cart-header">
+            <h2>📦 Order Request</h2>
+            <button class="cart-close" onclick="closeCart()">&times;</button>
+        </div>
+
+        <form method="POST" action="" id="cartForm">
+            <input type="hidden" name="action" value="create_order">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+            <input type="hidden" name="customer_id" id="customerId" value="">
+
+            <div class="cart-items" id="cartItems">
+                <div class="empty-state" id="emptyCart">
+                    <div class="empty-state-icon">📦</div>
+                    <p>No products selected. Tap products to add them.</p>
+                </div>
+            </div>
+
+            <div class="cart-customer">
+                <label>Select Customer</label>
+                <div class="customer-search-wrapper">
+                    <input type="text"
+                           id="customerSearch"
+                           class="customer-input"
+                           placeholder="Search by name or phone..."
+                           autocomplete="off">
+                    <div id="customerDropdown" class="customer-dropdown">
+                        <?php foreach ($customers as $customer): ?>
+                            <div class="customer-option"
+                                 onclick="selectCustomer(<?= $customer['id'] ?>, '<?= htmlspecialchars(addslashes($customer['name']), ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars(addslashes($customer['phone'] ?? ''), ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars(addslashes($customer['location'] ?? ''), ENT_QUOTES, 'UTF-8') ?>')">
+                                <strong><?= htmlspecialchars($customer['name'], ENT_QUOTES, 'UTF-8') ?></strong>
+                                <small><?= htmlspecialchars($customer['phone'] ?? 'No phone', ENT_QUOTES, 'UTF-8') ?><?= $customer['location'] ? ' | ' . htmlspecialchars($customer['location'], ENT_QUOTES, 'UTF-8') : '' ?></small>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div id="customerSelected" class="customer-selected">
+                    <strong id="selectedCustomerName"></strong>
+                    <div id="selectedCustomerInfo" style="font-size: 0.85rem; color: #4338ca;"></div>
+                </div>
+            </div>
+
+            <div class="cart-notes">
+                <label>Notes & Delivery Instructions (Optional)</label>
+                <textarea name="notes" id="orderNotes" placeholder="Add any notes for the warehouse team..."></textarea>
+            </div>
+
+            <div class="cart-totals">
+                <div class="total-row">
+                    <span>Items:</span>
+                    <span id="totalItems">0</span>
+                </div>
+                <div class="total-row grand">
+                    <span>Total USD:</span>
+                    <span id="totalUSD">$0.00</span>
+                </div>
+                <div class="total-row">
+                    <span>Total LBP:</span>
+                    <span id="totalLBP">L.L. 0</span>
+                </div>
+            </div>
+
+            <div class="cart-submit">
+                <button type="submit" class="btn-submit" id="submitBtn" disabled>
+                    Submit Order Request
+                </button>
+            </div>
+
+            <!-- Hidden cart items inputs -->
+            <div id="cartInputs"></div>
+        </form>
+    </div>
+
+    <script>
+        const exchangeRate = <?= $exchangeRate ?>;
+        let cart = {};
+
+        // Filter products
+        function filterProducts() {
+            const category = document.getElementById('categoryFilter').value.toLowerCase();
+            const search = document.getElementById('searchFilter').value.toLowerCase();
+
+            document.querySelectorAll('.product-card').forEach(card => {
+                const cardCategory = (card.dataset.category || '').toLowerCase();
+                const cardName = (card.dataset.name || '').toLowerCase();
+                const cardSku = (card.dataset.sku || '').toLowerCase();
+
+                const matchesCategory = !category || cardCategory === category;
+                const matchesSearch = !search || cardName.includes(search) || cardSku.includes(search);
+
+                card.style.display = (matchesCategory && matchesSearch) ? 'block' : 'none';
+            });
         }
 
-        $prodPriceLBP = $prodPriceUSD * $exchangeRate;
-        echo '<div class="product-item" data-product-id="', $prodId, '" data-product-name="', $prodName, '" ';
-        echo 'data-product-sku="', $prodSku, '" data-product-category="', $prodCategory, '" ';
-        echo 'data-product-description="', $prodDescription, '" data-product-barcode="', $prodBarcode, '" ';
-        echo 'data-product-code="', $prodCodeClean, '" data-price-usd="', $prodPriceUSD, '" ';
-        echo 'data-price-lbp="', $prodPriceLBP, '" data-warehouse-stock="', $prodStock, '">';
-        echo '<div class="product-item-header">';
-        echo '<span class="product-item-name">', $prodName, '</span>';
-        echo '<span class="product-item-price">$', number_format($prodPriceUSD, 2), '</span>';
-        echo '</div>';
-        echo '<div class="product-item-meta">';
-        echo 'SKU: ', $prodSku;
-        if ($prodCategory) {
-            echo ' | Category: ', $prodCategory;
+        // Toggle item selection (select/deselect)
+        function toggleSelectItem(cardElement) {
+            const id = cardElement.dataset.id;
+            const name = cardElement.dataset.name;
+            const sku = cardElement.dataset.sku;
+            const price = parseFloat(cardElement.dataset.price);
+            const stock = parseFloat(cardElement.dataset.stock);
+
+            if (cart[id]) {
+                // Already in cart - remove it (deselect)
+                delete cart[id];
+            } else {
+                // Not in cart - add with quantity 1 (select)
+                cart[id] = { name, sku, price, stock, quantity: 1 };
+            }
+
+            updateCartDisplay();
+            updateProductCards();
         }
-        echo ' | <span class="product-item-stock ', $stockClass, '">', $stockLabel, ': ', number_format($prodStock, 1), '</span>';
-        echo '</div>';
-        echo '</div>';
-    }
 
-    echo '</div>';
-    echo '</div>';
+        // Increase quantity from product card controls
+        function increaseQtyFromCard(id) {
+            if (cart[id]) {
+                cart[id].quantity++;
+                updateCartDisplay();
+                updateProductCards();
+            }
+        }
 
-    echo '<div class="selected-products" id="selectedProducts">';
-    echo '<h4>Selected Products</h4>';
-    echo '<div id="selectedProductsList">';
-    echo '<p style="color:var(--muted);text-align:center;">No products selected yet. Click on products above to add them.</p>';
-    echo '</div>';
-    echo '</div>';
-    echo '</div>';
+        // Decrease quantity from product card controls
+        function decreaseQtyFromCard(id) {
+            if (cart[id]) {
+                cart[id].quantity--;
+                if (cart[id].quantity <= 0) {
+                    delete cart[id];
+                }
+                updateCartDisplay();
+                updateProductCards();
+            }
+        }
 
-    // Order Notes
-    echo '<div class="form-section">';
-    echo '<h3>3. Order Notes & Delivery Instructions</h3>';
-    echo '<div class="form-group">';
-    echo '<label>Notes</label>';
-    echo '<textarea name="notes" placeholder="Add delivery instructions, special requests, or any notes for the warehouse team..."></textarea>';
-    echo '</div>';
-    echo '</div>';
+        // Update product cards to show in-cart state
+        function updateProductCards() {
+            document.querySelectorAll('.product-card').forEach(card => {
+                const id = card.dataset.id;
+                const qtyDisplay = document.getElementById('qty-display-' + id);
+                const plusBtn = document.getElementById('plus-btn-' + id);
 
-    echo '</div>'; // End order-form
+                if (cart[id]) {
+                    card.classList.add('in-cart');
+                    card.dataset.cartQty = cart[id].quantity;
+                    if (qtyDisplay) qtyDisplay.textContent = cart[id].quantity;
+                    // No stock limit for company orders (warehouse fulfillment)
+                    if (plusBtn) plusBtn.disabled = false;
+                } else {
+                    card.classList.remove('in-cart');
+                    delete card.dataset.cartQty;
+                    if (qtyDisplay) qtyDisplay.textContent = '0';
+                }
+            });
+        }
 
-    // Order Summary
-    echo '<div class="order-summary" id="orderSummary" style="display:none;">';
-    echo '<h3>Order Summary</h3>';
-    echo '<div class="summary-row">';
-    echo '<span>Items Count:</span>';
-    echo '<span id="summaryItemCount">0</span>';
-    echo '</div>';
-    echo '<div class="summary-row total">';
-    echo '<span>Total (USD):</span>';
-    echo '<span id="summaryTotalUSD">$0.00</span>';
-    echo '</div>';
-    echo '<div class="summary-row">';
-    echo '<span>Total (LBP):</span>';
-    echo '<span id="summaryTotalLBP">L.L. 0</span>';
-    echo '</div>';
-    echo '</div>';
+        // Update cart display
+        function updateCartDisplay() {
+            const cartItems = document.getElementById('cartItems');
+            const cartInputs = document.getElementById('cartInputs');
+            const cartButton = document.getElementById('cartButton');
+            const cartBadge = document.getElementById('cartBadge');
+            const cartTotal = document.getElementById('cartTotal');
+            const submitBtn = document.getElementById('submitBtn');
 
-    echo '<button type="submit" class="btn btn-success btn-block btn-lg" id="submitButton" disabled>Submit Order Request</button>';
-    echo '</form>';
+            const keys = Object.keys(cart);
+
+            if (keys.length === 0) {
+                cartItems.innerHTML = `
+                    <div class="empty-state" id="emptyCart">
+                        <div class="empty-state-icon">📦</div>
+                        <p>No products selected. Tap products to add them.</p>
+                    </div>
+                `;
+                cartInputs.innerHTML = '';
+                cartButton.classList.add('empty');
+                cartBadge.textContent = '0';
+                cartTotal.textContent = '$0.00';
+                submitBtn.disabled = true;
+                document.getElementById('totalItems').textContent = '0';
+                document.getElementById('totalUSD').textContent = '$0.00';
+                document.getElementById('totalLBP').textContent = 'L.L. 0';
+                return;
+            }
+
+            cartButton.classList.remove('empty');
+
+            let totalQty = 0;
+            let totalUSD = 0;
+            let itemsHtml = '';
+            let inputsHtml = '';
+
+            keys.forEach(id => {
+                const item = cart[id];
+                const subtotal = item.price * item.quantity;
+                totalQty += item.quantity;
+                totalUSD += subtotal;
+
+                const stockWarning = item.quantity > item.stock ? ' (Exceeds warehouse stock)' : '';
+
+                itemsHtml += `
+                    <div class="cart-item">
+                        <div class="cart-item-info">
+                            <div class="cart-item-sku">${escapeHtml(item.sku || '')}</div>
+                            <div class="cart-item-name">${escapeHtml(item.name)}</div>
+                            <div class="cart-item-qty">Qty: ${item.quantity} / Warehouse: ${item.stock}${stockWarning}</div>
+                            <div class="cart-item-price">$${item.price.toFixed(2)} x ${item.quantity} = $${subtotal.toFixed(2)}</div>
+                        </div>
+                        <div class="cart-item-controls">
+                            <button type="button" class="qty-btn remove" onclick="removeFromCart(${id})">−</button>
+                            <span class="qty-value">${item.quantity}</span>
+                            <button type="button" class="qty-btn" onclick="increaseQty(${id})">+</button>
+                        </div>
+                        <div class="cart-item-subtotal">$${subtotal.toFixed(2)}</div>
+                    </div>
+                `;
+
+                inputsHtml += `
+                    <input type="hidden" name="items[${id}][product_id]" value="${id}">
+                    <input type="hidden" name="items[${id}][quantity]" value="${item.quantity}">
+                `;
+            });
+
+            cartItems.innerHTML = itemsHtml;
+            cartInputs.innerHTML = inputsHtml;
+
+            cartBadge.textContent = keys.length;
+            cartTotal.textContent = '$' + totalUSD.toFixed(2);
+
+            document.getElementById('totalItems').textContent = totalQty;
+            document.getElementById('totalUSD').textContent = '$' + totalUSD.toFixed(2);
+            document.getElementById('totalLBP').textContent = 'L.L. ' + Math.round(totalUSD * exchangeRate).toLocaleString();
+
+            // Enable submit only if customer is selected
+            const customerId = document.getElementById('customerId').value;
+            submitBtn.disabled = !customerId;
+        }
+
+        // Remove from cart
+        function removeFromCart(id) {
+            if (cart[id]) {
+                cart[id].quantity--;
+                if (cart[id].quantity <= 0) {
+                    delete cart[id];
+                }
+            }
+            updateCartDisplay();
+            updateProductCards();
+        }
+
+        // Increase quantity
+        function increaseQty(id) {
+            if (cart[id]) {
+                cart[id].quantity++;
+                updateCartDisplay();
+                updateProductCards();
+            }
+        }
+
+        // Open/close cart
+        function openCart() {
+            document.getElementById('cartPanel').classList.add('open');
+            document.getElementById('cartOverlay').classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeCart() {
+            document.getElementById('cartPanel').classList.remove('open');
+            document.getElementById('cartOverlay').classList.remove('open');
+            document.body.style.overflow = '';
+        }
+
+        // Customer search and selection
+        const customerSearch = document.getElementById('customerSearch');
+        const customerDropdown = document.getElementById('customerDropdown');
+        const customerSelected = document.getElementById('customerSelected');
+        const customerIdInput = document.getElementById('customerId');
+
+        customerSearch.addEventListener('input', function() {
+            const query = this.value.toLowerCase().trim();
+            const options = customerDropdown.querySelectorAll('.customer-option');
+            let hasVisible = false;
+
+            options.forEach(option => {
+                const text = option.textContent.toLowerCase();
+                if (query === '' || text.includes(query)) {
+                    option.style.display = 'block';
+                    hasVisible = true;
+                } else {
+                    option.style.display = 'none';
+                }
+            });
+
+            customerDropdown.classList.toggle('show', hasVisible && query.length > 0);
+        });
+
+        customerSearch.addEventListener('focus', function() {
+            if (this.value.length > 0) {
+                this.dispatchEvent(new Event('input'));
+            }
+        });
+
+        function selectCustomer(id, name, phone, city) {
+            customerIdInput.value = id;
+            customerSearch.value = name;
+            customerDropdown.classList.remove('show');
+
+            document.getElementById('selectedCustomerName').textContent = name;
+            document.getElementById('selectedCustomerInfo').textContent = `${phone || 'No phone'}${city ? ' | ' + city : ''}`;
+            customerSelected.classList.add('show');
+
+            // Enable submit if cart has items
+            if (Object.keys(cart).length > 0) {
+                document.getElementById('submitBtn').disabled = false;
+            }
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!customerSearch.contains(e.target) && !customerDropdown.contains(e.target)) {
+                customerDropdown.classList.remove('show');
+            }
+        });
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Form validation
+        document.getElementById('cartForm').addEventListener('submit', function(e) {
+            const customerId = document.getElementById('customerId').value;
+            const itemCount = Object.keys(cart).length;
+
+            if (!customerId) {
+                e.preventDefault();
+                alert('Please select a customer.');
+                return false;
+            }
+
+            if (itemCount === 0) {
+                e.preventDefault();
+                alert('Please add at least one product.');
+                return false;
+            }
+
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('submitBtn').textContent = 'Processing...';
+        });
+
+        // Add click listeners to all product cards
+        document.querySelectorAll('.product-card').forEach(card => {
+            card.addEventListener('click', function(e) {
+                // Don't trigger if clicking on controls
+                if (e.target.closest('.product-controls')) {
+                    return;
+                }
+                toggleSelectItem(this);
+            });
+        });
+    </script>
+<?php
 }
-
-echo '<script>';
-echo 'const selectedProducts = [];';
-echo 'const exchangeRate = ', $exchangeRate, ';';
-echo '';
-echo 'function addProduct(productId, productName, sku, priceUSD, priceLBP, warehouseStock) {';
-echo '  if (selectedProducts.find(p => p.id === productId)) {';
-echo '    alert("Product already added!");';
-echo '    return;';
-echo '  }';
-echo '  selectedProducts.push({';
-echo '    id: productId,';
-echo '    name: productName,';
-echo '    sku: sku,';
-echo '    priceUSD: priceUSD,';
-echo '    priceLBP: priceLBP,';
-echo '    warehouseStock: warehouseStock,';
-echo '    quantity: 1,';
-echo '    discount: 0';
-echo '  });';
-echo '  renderSelectedProducts();';
-echo '  updateSummary();';
-echo '  updateProductItemStates();';
-echo '}';
-echo '';
-echo 'function removeProduct(productId) {';
-echo '  const index = selectedProducts.findIndex(p => p.id === productId);';
-echo '  if (index > -1) {';
-echo '    selectedProducts.splice(index, 1);';
-echo '    renderSelectedProducts();';
-echo '    updateSummary();';
-echo '    updateProductItemStates();';
-echo '  }';
-echo '}';
-echo '';
-echo 'function updateProduct(productId, field, value) {';
-echo '  const product = selectedProducts.find(p => p.id === productId);';
-echo '  if (product) {';
-echo '    if (field === "quantity") {';
-echo '      const qty = parseFloat(value);';
-echo '      if (qty > 0) {';
-echo '        product.quantity = qty;';
-echo '        if (qty > product.warehouseStock) {';
-echo '          console.warn("Requested quantity exceeds warehouse stock - order will require approval");';
-echo '        }';
-echo '      }';
-echo '    }';
-echo '    renderSelectedProducts();';
-echo '    updateSummary();';
-echo '  }';
-echo '}';
-echo '';
-echo '// HTML escape function to prevent XSS';
-echo 'function escapeHtml(text) {';
-echo '  const div = document.createElement("div");';
-echo '  div.textContent = text;';
-echo '  return div.innerHTML;';
-echo '}';
-echo '';
-echo 'function renderSelectedProducts() {';
-echo '  const container = document.getElementById("selectedProductsList");';
-echo '  if (selectedProducts.length === 0) {';
-echo '    container.innerHTML = \'<p style="color:var(--muted);text-align:center;">No products selected yet. Click on products above to add them.</p>\';';
-echo '    return;';
-echo '  }';
-echo '  let html = "";';
-echo '  selectedProducts.forEach(product => {';
-echo '    const subtotal = product.priceUSD * product.quantity;';
-echo '    const stockWarning = product.quantity > product.warehouseStock ? " (⚠️ Exceeds warehouse stock)" : "";';
-echo '    const safeName = escapeHtml(product.name);';
-echo '    const safeSku = escapeHtml(product.sku);';
-echo '    html += `<div class="selected-product">`;';
-echo '    html += `<div class="selected-product-header">`;';
-echo '    html += `<div><div class="selected-product-name">${safeName}</div>`;';
-echo '    html += `<div style="font-size:0.85rem;color:var(--muted);">SKU: ${safeSku} | Unit: $${product.priceUSD.toFixed(2)} | Warehouse: ${product.warehouseStock}${stockWarning}</div></div>`;';
-echo '    html += `<button type="button" class="btn-remove" onclick="removeProduct(${product.id})">Remove</button>`;';
-echo '    html += `</div>`;';
-echo '    html += `<div class="selected-product-controls">`;';
-echo '    html += `<div class="control-group">`;';
-echo '    html += `<label>Quantity</label>`;';
-echo '    html += `<input type="number" step="0.1" min="0.1" value="${product.quantity}" `;';
-echo '    html += `onchange="updateProduct(${product.id}, \'quantity\', this.value)">`;';
-echo '    html += `</div>`;';
-echo '    html += `</div>`;';
-echo '    html += `<div class="selected-product-subtotal">Subtotal: $${subtotal.toFixed(2)}</div>`;';
-echo '    html += `<input type="hidden" name="items[${product.id}][product_id]" value="${product.id}">`;';
-echo '    html += `<input type="hidden" name="items[${product.id}][quantity]" value="${product.quantity}">`;';
-echo '    html += `<input type="hidden" name="items[${product.id}][discount]" value="0">`;';
-echo '    html += `</div>`;';
-echo '  });';
-echo '  container.innerHTML = html;';
-echo '}';
-echo '';
-echo 'function updateSummary() {';
-echo '  const summary = document.getElementById("orderSummary");';
-echo '  const submitBtn = document.getElementById("submitButton");';
-echo '  ';
-echo '  if (selectedProducts.length === 0) {';
-echo '    summary.style.display = "none";';
-echo '    submitBtn.disabled = true;';
-echo '    return;';
-echo '  }';
-echo '  ';
-echo '  summary.style.display = "block";';
-echo '  submitBtn.disabled = false;';
-echo '  ';
-echo '  let itemCount = selectedProducts.length;';
-echo '  let totalUSD = 0;';
-echo '  let totalLBP = 0;';
-echo '  ';
-echo '  selectedProducts.forEach(product => {';
-echo '    totalUSD += product.priceUSD * product.quantity;';
-echo '    totalLBP += product.priceLBP * product.quantity;';
-echo '  });';
-echo '  ';
-echo '  document.getElementById("summaryItemCount").textContent = itemCount;';
-echo '  document.getElementById("summaryTotalUSD").textContent = "$" + totalUSD.toFixed(2);';
-echo '  document.getElementById("summaryTotalLBP").textContent = "L.L. " + totalLBP.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");';
-echo '}';
-echo '';
-echo 'document.querySelectorAll(".product-item").forEach(item => {';
-echo '  item.addEventListener("click", function() {';
-echo '    const productId = parseInt(this.dataset.productId);';
-echo '    const productName = this.dataset.productName;';
-echo '    const sku = this.dataset.productSku;';
-echo '    const priceUSD = parseFloat(this.dataset.priceUsd);';
-echo '    const priceLBP = parseFloat(this.dataset.priceLbp);';
-echo '    const warehouseStock = parseFloat(this.dataset.warehouseStock);';
-echo '    addProduct(productId, productName, sku, priceUSD, priceLBP, warehouseStock);';
-echo '  });';
-echo '});';
-echo '';
-echo '// Enhanced search functionality with keyboard navigation';
-echo 'let currentHighlightIndex = -1;';
-echo 'let visibleProducts = [];';
-echo '';
-echo 'function performSearch() {';
-echo '  const searchInput = document.getElementById("productSearch");';
-echo '  const clearBtn = document.getElementById("clearSearch");';
-echo '  const noResults = document.getElementById("noResults");';
-echo '  const search = searchInput.value.toLowerCase().trim();';
-echo '';
-echo '  visibleProducts = [];';
-echo '  currentHighlightIndex = -1;';
-echo '';
-echo '  // Show/hide clear button';
-echo '  clearBtn.style.display = search.length > 0 ? "block" : "none";';
-echo '';
-echo '  let hasResults = false;';
-echo '  document.querySelectorAll(".product-item").forEach(item => {';
-echo '    item.classList.remove("highlighted");';
-echo '    if (search === "") {';
-echo '      item.classList.remove("hidden");';
-echo '      hasResults = true;';
-echo '      visibleProducts.push(item);';
-echo '      return;';
-echo '    }';
-echo '    const name = item.dataset.productName.toLowerCase();';
-echo '    const sku = (item.dataset.productSku || "").toLowerCase();';
-echo '    const category = (item.dataset.productCategory || "").toLowerCase();';
-echo '    const description = (item.dataset.productDescription || "").toLowerCase();';
-echo '    const barcode = (item.dataset.productBarcode || "").toLowerCase();';
-echo '    const code = (item.dataset.productCode || "").toLowerCase();';
-echo '    if (name.includes(search) || sku.includes(search) || category.includes(search) || description.includes(search) || barcode.includes(search) || code.includes(search)) {';
-echo '      item.classList.remove("hidden");';
-echo '      visibleProducts.push(item);';
-echo '      hasResults = true;';
-echo '    } else {';
-echo '      item.classList.add("hidden");';
-echo '    }';
-echo '  });';
-echo '  noResults.classList.toggle("visible", !hasResults);';
-echo '  if (visibleProducts.length > 0) highlightProduct(0);';
-echo '}';
-echo '';
-echo 'function highlightProduct(index) {';
-echo '  visibleProducts.forEach(item => item.classList.remove("highlighted"));';
-echo '  if (index >= 0 && index < visibleProducts.length) {';
-echo '    currentHighlightIndex = index;';
-echo '    visibleProducts[index].classList.add("highlighted");';
-echo '    visibleProducts[index].scrollIntoView({ behavior: "smooth", block: "nearest" });';
-echo '  }';
-echo '}';
-echo '';
-echo 'function selectHighlightedProduct() {';
-echo '  if (currentHighlightIndex >= 0 && currentHighlightIndex < visibleProducts.length) {';
-echo '    const item = visibleProducts[currentHighlightIndex];';
-echo '    const productId = parseInt(item.dataset.productId);';
-echo '    const productName = item.dataset.productName;';
-echo '    const sku = item.dataset.productSku;';
-echo '    const priceUSD = parseFloat(item.dataset.priceUsd);';
-echo '    const priceLBP = parseFloat(item.dataset.priceLbp);';
-echo '    const warehouseStock = parseFloat(item.dataset.warehouseStock);';
-echo '    addProduct(productId, productName, sku, priceUSD, priceLBP, warehouseStock);';
-echo '    document.getElementById("productSearch").value = "";';
-echo '    performSearch();';
-echo '    document.getElementById("productSearch").focus();';
-echo '  }';
-echo '}';
-echo '';
-echo 'function updateProductItemStates() {';
-echo '  document.querySelectorAll(".product-item").forEach(item => {';
-echo '    const productId = parseInt(item.dataset.productId);';
-echo '    item.classList.toggle("selected", !!selectedProducts.find(p => p.id === productId));';
-echo '  });';
-echo '}';
-echo '';
-echo 'document.getElementById("productSearch").addEventListener("input", performSearch);';
-echo '';
-echo 'document.getElementById("productSearch").addEventListener("keydown", function(e) {';
-echo '  if (e.key === "ArrowDown") {';
-echo '    e.preventDefault();';
-echo '    if (currentHighlightIndex < visibleProducts.length - 1) highlightProduct(currentHighlightIndex + 1);';
-echo '  } else if (e.key === "ArrowUp") {';
-echo '    e.preventDefault();';
-echo '    if (currentHighlightIndex > 0) highlightProduct(currentHighlightIndex - 1);';
-echo '  } else if (e.key === "Enter") {';
-echo '    e.preventDefault();';
-echo '    selectHighlightedProduct();';
-echo '  } else if (e.key === "Escape") {';
-echo '    e.preventDefault();';
-echo '    this.value = "";';
-echo '    performSearch();';
-echo '  }';
-echo '});';
-echo '';
-echo 'document.getElementById("clearSearch").addEventListener("click", function() {';
-echo '  document.getElementById("productSearch").value = "";';
-echo '  performSearch();';
-echo '  document.getElementById("productSearch").focus();';
-echo '});';
-echo '';
-echo '// Customer search functionality';
-echo 'let currentCustomerHighlightIndex = -1;';
-echo 'let visibleCustomers = [];';
-echo '';
-echo 'function performCustomerSearch() {';
-echo '  const searchInput = document.getElementById("customerSearch");';
-echo '  const clearBtn = document.getElementById("clearCustomerSearch");';
-echo '  const customerList = document.getElementById("customerList");';
-echo '  const search = searchInput.value.toLowerCase().trim();';
-echo '';
-echo '  visibleCustomers = [];';
-echo '  currentCustomerHighlightIndex = -1;';
-echo '';
-echo '  clearBtn.style.display = search.length > 0 ? "block" : "none";';
-echo '';
-echo '  customerList.style.display = "block";';
-echo '  let hasResults = false;';
-echo '';
-echo '  document.querySelectorAll(".customer-item").forEach(item => {';
-echo '    const name = item.dataset.customerName.toLowerCase();';
-echo '    const phone = (item.dataset.customerPhone || "").toLowerCase();';
-echo '    const matches = search === "" || name.includes(search) || phone.includes(search);';
-echo '';
-echo '    item.classList.toggle("hidden", !matches);';
-echo '    item.classList.remove("highlighted");';
-echo '';
-echo '    if (matches) {';
-echo '      hasResults = true;';
-echo '      visibleCustomers.push(item);';
-echo '    }';
-echo '  });';
-echo '';
-echo '  if (visibleCustomers.length > 0) {';
-echo '    highlightCustomer(0);';
-echo '  }';
-echo '}';
-echo '';
-echo 'function highlightCustomer(index) {';
-echo '  visibleCustomers.forEach(item => item.classList.remove("highlighted"));';
-echo '  if (index >= 0 && index < visibleCustomers.length) {';
-echo '    currentCustomerHighlightIndex = index;';
-echo '    visibleCustomers[index].classList.add("highlighted");';
-echo '    visibleCustomers[index].scrollIntoView({ behavior: "smooth", block: "nearest" });';
-echo '  }';
-echo '}';
-echo '';
-echo 'function selectHighlightedCustomer() {';
-echo '  if (currentCustomerHighlightIndex >= 0 && currentCustomerHighlightIndex < visibleCustomers.length) {';
-echo '    const item = visibleCustomers[currentCustomerHighlightIndex];';
-echo '    selectCustomer(item);';
-echo '  }';
-echo '}';
-echo '';
-echo 'function selectCustomer(item) {';
-echo '  const customerId = item.dataset.customerId;';
-echo '  const customerName = item.dataset.customerName;';
-echo '  const customerPhone = item.dataset.customerPhone || "";';
-echo '  const customerCity = item.dataset.customerCity || "";';
-echo '';
-echo '  document.getElementById("selectedCustomerId").value = customerId;';
-echo '  document.getElementById("customerSearch").value = customerName;';
-echo '  document.getElementById("customerList").style.display = "none";';
-echo '';
-echo '  let displayHtml = "<div class=\"selected-customer-name\">" + customerName + "</div>";';
-echo '  displayHtml += "<div class=\"selected-customer-info\">";';
-echo '  if (customerPhone) displayHtml += "Phone: " + customerPhone;';
-echo '  if (customerPhone && customerCity) displayHtml += " | ";';
-echo '  if (customerCity) displayHtml += "City: " + customerCity;';
-echo '  displayHtml += "</div>";';
-echo '';
-echo '  const displayDiv = document.getElementById("selectedCustomerDisplay");';
-echo '  displayDiv.innerHTML = displayHtml;';
-echo '  displayDiv.style.display = "block";';
-echo '}';
-echo '';
-echo 'document.getElementById("customerSearch").addEventListener("input", performCustomerSearch);';
-echo '';
-echo 'document.getElementById("customerSearch").addEventListener("focus", function() {';
-echo '  performCustomerSearch();';
-echo '});';
-echo '';
-echo 'document.getElementById("customerSearch").addEventListener("keydown", function(e) {';
-echo '  if (e.key === "ArrowDown") {';
-echo '    e.preventDefault();';
-echo '    if (currentCustomerHighlightIndex < visibleCustomers.length - 1) highlightCustomer(currentCustomerHighlightIndex + 1);';
-echo '  } else if (e.key === "ArrowUp") {';
-echo '    e.preventDefault();';
-echo '    if (currentCustomerHighlightIndex > 0) highlightCustomer(currentCustomerHighlightIndex - 1);';
-echo '  } else if (e.key === "Enter") {';
-echo '    e.preventDefault();';
-echo '    selectHighlightedCustomer();';
-echo '  } else if (e.key === "Escape") {';
-echo '    e.preventDefault();';
-echo '    this.value = "";';
-echo '    document.getElementById("customerList").style.display = "none";';
-echo '    document.getElementById("clearCustomerSearch").style.display = "none";';
-echo '  }';
-echo '});';
-echo '';
-echo 'document.getElementById("clearCustomerSearch").addEventListener("click", function() {';
-echo '  document.getElementById("customerSearch").value = "";';
-echo '  document.getElementById("selectedCustomerId").value = "";';
-echo '  document.getElementById("customerList").style.display = "none";';
-echo '  document.getElementById("selectedCustomerDisplay").style.display = "none";';
-echo '  this.style.display = "none";';
-echo '  document.getElementById("customerSearch").focus();';
-echo '});';
-echo '';
-echo 'document.querySelectorAll(".customer-item").forEach(item => {';
-echo '  item.addEventListener("click", function() {';
-echo '    selectCustomer(this);';
-echo '  });';
-echo '});';
-echo '';
-echo '// Hide customer list when clicking outside';
-echo 'document.addEventListener("click", function(e) {';
-echo '  const customerSearch = document.getElementById("customerSearch");';
-echo '  const customerList = document.getElementById("customerList");';
-echo '  const clearBtn = document.getElementById("clearCustomerSearch");';
-echo '  if (e.target !== customerSearch && e.target !== clearBtn && !customerList.contains(e.target)) {';
-echo '    customerList.style.display = "none";';
-echo '  }';
-echo '});';
-echo '';
-echo '// Focus customer search on page load';
-echo 'document.getElementById("customerSearch").focus();';
-echo '</script>';
 
 sales_portal_render_layout_end();

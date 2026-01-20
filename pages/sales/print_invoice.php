@@ -56,8 +56,20 @@ if (!$invoice) {
 // Calculate invoice payment status
 $invoiceTotal = (float)$invoice['total_usd'];
 $invoicePaid = (float)$invoice['paid_usd'];
-$invoiceRemaining = $invoiceTotal - $invoicePaid;
+$invoiceRemaining = max(0, $invoiceTotal - $invoicePaid);
 $isFullyPaid = $invoiceRemaining < 0.01;
+
+// Get detailed payment breakdown for this invoice
+$paymentBreakdownStmt = $pdo->prepare("
+    SELECT method, SUM(amount_usd) as total_usd
+    FROM payments
+    WHERE invoice_id = :invoice_id
+    GROUP BY method
+");
+$paymentBreakdownStmt->execute([':invoice_id' => $invoiceId]);
+$paymentBreakdown = $paymentBreakdownStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+$cashPaid = (float)($paymentBreakdown['cash'] ?? 0);
 
 // Get total customer outstanding balance (all unpaid invoices)
 $customerBalanceStmt = $pdo->prepare("
@@ -75,6 +87,26 @@ $customerBalanceStmt = $pdo->prepare("
 ");
 $customerBalanceStmt->execute([':customer_id' => $invoice['customer_id']]);
 $customerTotalBalance = (float)$customerBalanceStmt->fetchColumn();
+
+// Get customer's credit balance (positive = customer has credit with us)
+$customerCreditStmt = $pdo->prepare("
+    SELECT COALESCE(account_balance_lbp, 0) as credit_lbp
+    FROM customers
+    WHERE id = :customer_id
+");
+$customerCreditStmt->execute([':customer_id' => $invoice['customer_id']]);
+$customerCreditLBP = (float)$customerCreditStmt->fetchColumn();
+
+// Get current exchange rate for display
+$exchangeRateStmt = $pdo->query("
+    SELECT rate FROM exchange_rates
+    WHERE UPPER(base_currency) = 'USD'
+      AND UPPER(quote_currency) IN ('LBP', 'LEBP')
+    ORDER BY valid_from DESC, created_at DESC, id DESC
+    LIMIT 1
+");
+$currentExchangeRate = (float)$exchangeRateStmt->fetchColumn();
+$customerCreditUSD = $currentExchangeRate > 0 ? $customerCreditLBP / $currentExchangeRate : 0;
 
 // Fetch invoice items
 $itemsStmt = $pdo->prepare("
@@ -330,7 +362,7 @@ $finalTotal = $invoice['total_usd'];
 </head>
 <body>
     <button class="print-button no-print" onclick="window.print()">🖨️ طباعة</button>
-    <a href="van_stock_sales.php" class="back-button no-print">← رجوع</a>
+    <a href="van_stock_cart.php" class="back-button no-print">← رجوع</a>
 
     <div class="invoice-container">
         <!-- Header -->
@@ -394,7 +426,7 @@ $finalTotal = $invoice['total_usd'];
                     <td style="text-align: right; padding-right: 10px;">
                         <?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?>
                         <br>
-                        <small style="color: #666;">SKU: <?= htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') ?></small>
+                        <small>SKU: <?= htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') ?></small>
                     </td>
                     <td><?= number_format((float)$item['quantity'], 2) ?></td>
                     <td>$<?= number_format((float)$item['unit_price_usd'], 2) ?></td>
@@ -412,38 +444,74 @@ $finalTotal = $invoice['total_usd'];
                 <span>المجموع الكلي:</span>
                 <span>$<?= number_format((float)$finalTotal, 2) ?> USD</span>
             </div>
-            <div class="total-row" style="font-size: 14px; color: #666; margin-top: 5px;">
+            <div class="total-row" style="font-size: 14px; margin-top: 5px;">
                 <span>بالليرة اللبنانية:</span>
                 <span><?= number_format((float)$invoice['total_lbp'], 0) ?> ل.ل.</span>
             </div>
         </div>
 
         <!-- Payment Status Section -->
-        <?php if ($invoicePaid > 0 || !$isFullyPaid || $customerTotalBalance > 0.01): ?>
         <div class="divider"></div>
         <div class="payment-status" style="margin-top: 15px;">
-            <?php if ($invoicePaid > 0): ?>
-            <div class="total-row" style="font-size: 15px;">
-                <span>المبلغ المدفوع:</span>
-                <span style="font-weight: 600;">$<?= number_format($invoicePaid, 2) ?></span>
+            <!-- Payment Breakdown -->
+            <?php if ($cashPaid > 0.01): ?>
+            <div class="total-row" style="font-size: 14px;">
+                <span>المبلغ المدفوع نقداً / Cash Paid:</span>
+                <span style="font-weight: 600;">$<?= number_format($cashPaid, 2) ?></span>
             </div>
             <?php endif; ?>
 
+            <?php if ($balanceUsed > 0.01): ?>
+            <div class="total-row" style="font-size: 14px;">
+                <span>مدفوع من الرصيد / Paid from Balance:</span>
+                <span style="font-weight: 600;">$<?= number_format($balanceUsed, 2) ?></span>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($invoicePaid > 0.01): ?>
+            <div class="total-row" style="font-size: 14px; padding: 8px 10px; margin-top: 8px; border: 1px solid #000;">
+                <span>إجمالي المدفوع / Total Paid:</span>
+                <span style="font-weight: 700;">$<?= number_format($invoicePaid, 2) ?></span>
+            </div>
+            <?php endif; ?>
+
+            <!-- Remaining on this invoice -->
             <?php if (!$isFullyPaid): ?>
-            <div class="total-row" style="font-size: 15px; padding: 8px 10px; margin-top: 8px; border: 1px solid #000;">
-                <span>المتبقي على الحساب:</span>
+            <div class="total-row" style="font-size: 15px; padding: 10px; margin-top: 10px; border: 2px solid #000;">
+                <span>المتبقي على هذه الفاتورة / Remaining on Invoice:</span>
                 <span style="font-weight: 700;">$<?= number_format($invoiceRemaining, 2) ?></span>
             </div>
+            <?php else: ?>
+            <div class="total-row" style="font-size: 15px; padding: 10px; margin-top: 10px; border: 2px solid #000;">
+                <span>حالة الفاتورة / Invoice Status:</span>
+                <span style="font-weight: 700;">✓ مدفوعة بالكامل / PAID IN FULL</span>
+            </div>
+            <?php if ($balanceUsed > 0.01): ?>
+            <div style="font-size: 12px; text-align: center; margin-top: 5px;">
+                * تم خصم $<?= number_format($balanceUsed, 2) ?> من رصيد العميل / *Deducted from customer balance
+            </div>
+            <?php endif; ?>
             <?php endif; ?>
 
-            <?php if ($customerTotalBalance > 0.01): ?>
-            <div class="total-row" style="font-size: 14px; padding: 10px; margin-top: 12px; border: 2px solid #000;">
-                <span>إجمالي المستحق على العميل:</span>
-                <span style="font-weight: 700;">$<?= number_format($customerTotalBalance, 2) ?></span>
+            <!-- Customer Balance Display -->
+            <?php if ($customerCreditLBP > 0.01): ?>
+            <!-- Positive balance = customer owes us -->
+            <div class="total-row" style="font-size: 14px; padding: 10px; margin-top: 10px; border: 1px dashed #000;">
+                <span>رصيد العميل (علينا) / Customer Owes Us:</span>
+                <span style="font-weight: 700;">$<?= number_format($customerCreditUSD, 2) ?></span>
+            </div>
+            <?php elseif ($customerCreditLBP < -0.01): ?>
+            <!-- Negative balance = we owe customer -->
+            <div class="total-row" style="font-size: 14px; padding: 10px; margin-top: 10px; border: 1px dashed #000;">
+                <span>رصيد العميل (له) / We Owe Customer:</span>
+                <span style="font-weight: 700;">$<?= number_format(abs($customerCreditUSD), 2) ?></span>
+            </div>
+            <?php elseif ($isFullyPaid): ?>
+            <div class="total-row" style="font-size: 13px; padding: 8px 10px; margin-top: 10px; text-align: center; border: 1px solid #000;">
+                <span style="width: 100%; text-align: center; font-weight: 600;">لا يوجد رصيد / No Balance</span>
             </div>
             <?php endif; ?>
         </div>
-        <?php endif; ?>
 
         <?php if ($invoice['notes']): ?>
         <div class="notes">

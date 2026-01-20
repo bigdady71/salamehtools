@@ -102,7 +102,13 @@ $typeConfig = [
     ]
 ];
 
-sales_portal_render_layout_start(t('notifications.title', 'Notifications'));
+sales_portal_render_layout_start([
+    'title' => 'Notifications',
+    'heading' => 'Notifications',
+    'subtitle' => 'Stay updated with your orders and stock requests',
+    'active' => 'notifications',
+    'user' => $user,
+]);
 ?>
 
 <style>
@@ -279,9 +285,9 @@ sales_portal_render_layout_start(t('notifications.title', 'Notifications'));
 
 <div class="notif-header">
     <h1>
-        <?= t('notifications.title', 'Notifications') ?>
+        Notifications
         <?php if ($unreadCount > 0): ?>
-            <span class="notif-badge"><?= $unreadCount ?> <?= t('notifications.unread', 'unread') ?></span>
+            <span class="notif-badge"><?= $unreadCount ?> unread</span>
         <?php endif; ?>
     </h1>
 
@@ -290,14 +296,14 @@ sales_portal_render_layout_start(t('notifications.title', 'Notifications'));
             <form method="POST">
                 <input type="hidden" name="action" value="mark_all_read">
                 <button type="submit" class="notif-btn notif-btn-secondary">
-                    ✓ <?= t('notifications.mark_all_read', 'Mark All Read') ?>
+                    ✓ Mark All Read
                 </button>
             </form>
         <?php endif; ?>
         <form method="POST" onsubmit="return confirm('Clear all read notifications?');">
             <input type="hidden" name="action" value="clear_all">
             <button type="submit" class="notif-btn notif-btn-secondary">
-                🗑️ <?= t('notifications.clear_read', 'Clear Read') ?>
+                🗑️ Clear Read
             </button>
         </form>
     </div>
@@ -305,13 +311,13 @@ sales_portal_render_layout_start(t('notifications.title', 'Notifications'));
 
 <div class="filters">
     <a href="notifications.php?filter=all" class="filter-btn <?= $filter === 'all' ? 'active' : '' ?>">
-        <?= t('notifications.all', 'All') ?>
+        All
     </a>
     <a href="notifications.php?filter=unread" class="filter-btn <?= $filter === 'unread' ? 'active' : '' ?>">
-        <?= t('notifications.unread', 'Unread') ?> (<?= $unreadCount ?>)
+        Unread (<?= $unreadCount ?>)
     </a>
     <a href="notifications.php?filter=order_ready" class="filter-btn <?= $filter === 'order_ready' ? 'active' : '' ?>">
-        📦 <?= t('notifications.orders_ready', 'Orders Ready') ?>
+        📦 Orders Ready
     </a>
 </div>
 
@@ -331,13 +337,13 @@ sales_portal_render_layout_start(t('notifications.title', 'Notifications'));
         // Time display
         $timeAgo = time() - strtotime($notif['created_at']);
         if ($timeAgo < 60) {
-            $timeDisplay = t('notifications.just_now', 'Just now');
+            $timeDisplay = 'Just now';
         } elseif ($timeAgo < 3600) {
             $mins = floor($timeAgo / 60);
-            $timeDisplay = $mins . ' ' . t('notifications.minutes_ago', 'min ago');
+            $timeDisplay = $mins . ' min ago';
         } elseif ($timeAgo < 86400) {
             $hours = floor($timeAgo / 3600);
-            $timeDisplay = $hours . ' ' . t('notifications.hours_ago', 'hours ago');
+            $timeDisplay = $hours . ' hours ago';
         } else {
             $timeDisplay = date('M j, Y H:i', strtotime($notif['created_at']));
         }
@@ -359,14 +365,14 @@ sales_portal_render_layout_start(t('notifications.title', 'Notifications'));
                 <div class="notif-message">
                     <?= htmlspecialchars($message, ENT_QUOTES, 'UTF-8') ?>
                     <?php if ($orderNumber): ?>
-                        <br><strong><?= t('notifications.order', 'Order') ?>: <?= htmlspecialchars($orderNumber, ENT_QUOTES, 'UTF-8') ?></strong>
+                        <br><strong>Order: <?= htmlspecialchars($orderNumber, ENT_QUOTES, 'UTF-8') ?></strong>
                     <?php endif; ?>
                 </div>
 
                 <div class="notif-btn-group">
                     <?php if ($type === 'order_ready' && $orderId): ?>
                         <a href="accept_orders.php" class="notif-btn notif-btn-primary">
-                            📥 <?= t('notifications.accept_order', 'Accept Order') ?>
+                            📥 Accept Order
                         </a>
                     <?php endif; ?>
 
@@ -375,7 +381,7 @@ sales_portal_render_layout_start(t('notifications.title', 'Notifications'));
                             <input type="hidden" name="action" value="mark_read">
                             <input type="hidden" name="notification_id" value="<?= $notif['id'] ?>">
                             <button type="submit" class="notif-btn notif-btn-secondary">
-                                ✓ <?= t('notifications.mark_read', 'Mark Read') ?>
+                                ✓ Mark Read
                             </button>
                         </form>
                     <?php endif; ?>
@@ -394,8 +400,8 @@ sales_portal_render_layout_start(t('notifications.title', 'Notifications'));
 <?php else: ?>
     <div class="empty-state">
         <div class="icon">🔔</div>
-        <h3><?= t('notifications.no_notifications', 'No notifications') ?></h3>
-        <p><?= t('notifications.empty_message', 'You\'re all caught up! New notifications will appear here.') ?></p>
+        <h3>No notifications</h3>
+        <p>You're all caught up! New notifications will appear here.</p>
     </div>
 <?php endif; ?>
 

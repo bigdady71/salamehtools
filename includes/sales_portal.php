@@ -18,6 +18,42 @@ function sales_portal_bootstrap(): array
 }
 
 /**
+ * Get enabled sidebar links from settings.
+ *
+ * @return array|null Array of enabled link keys, or null if all enabled
+ */
+function sales_portal_get_enabled_links(): ?array
+{
+    static $enabledLinks = null;
+    static $loaded = false;
+
+    if ($loaded) {
+        return $enabledLinks;
+    }
+
+    $loaded = true;
+
+    try {
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT v FROM settings WHERE k = :key");
+        $stmt->execute([':key' => 'sales_portal.sidebar_links']);
+        $result = $stmt->fetchColumn();
+
+        if ($result !== false && $result !== '') {
+            $enabledLinks = json_decode($result, true);
+            if (!is_array($enabledLinks)) {
+                $enabledLinks = null;
+            }
+        }
+    } catch (Exception $e) {
+        // If settings can't be loaded, show all links
+        $enabledLinks = null;
+    }
+
+    return $enabledLinks;
+}
+
+/**
  * Navigation links available to sales representatives.
  *
  * @return array<string, array{label:string,href:string}>
@@ -32,7 +68,10 @@ function sales_portal_nav_links(): array
     $inSubdir = strpos($scriptPath, '/pages/sales/orders/') !== false;
     $prefix = $inSubdir ? '../' : '';
 
-    return [
+    // Get enabled links from settings
+    $enabledLinks = sales_portal_get_enabled_links();
+
+    $allLinks = [
         'dashboard' => [
             'label' => t('nav.dashboard', '🏠 Dashboard'),
             'href' => $prefix . 'dashboard.php',
@@ -110,6 +149,21 @@ function sales_portal_nav_links(): array
             'href' => $prefix . 'analytics.php',
         ],
     ];
+
+    // If no settings configured, return all links
+    if ($enabledLinks === null) {
+        return $allLinks;
+    }
+
+    // Filter to only enabled links
+    $filteredLinks = [];
+    foreach ($enabledLinks as $linkKey) {
+        if (isset($allLinks[$linkKey])) {
+            $filteredLinks[$linkKey] = $allLinks[$linkKey];
+        }
+    }
+
+    return $filteredLinks;
 }
 
 /**

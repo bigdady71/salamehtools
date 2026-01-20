@@ -319,6 +319,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    if ($_POST['action'] === 'save_sidebar_settings') {
+        try {
+            // Get all possible sidebar links
+            $allLinks = [
+                'dashboard', 'orders_van', 'orders_cart', 'orders', 'users', 'add_customer',
+                'van_stock', 'accept_orders', 'notifications', 'stock_auth', 'stock_return',
+                'customer_returns', 'warehouse_stock', 'orders_request', 'invoices',
+                'receivables', 'expenses', 'products', 'analytics'
+            ];
+
+            // Get enabled links from form (checked checkboxes)
+            $enabledLinks = $_POST['sidebar_links'] ?? [];
+
+            // Build JSON array of enabled links
+            $enabledLinksJson = json_encode(array_values($enabledLinks));
+
+            set_setting($pdo, 'sales_portal.sidebar_links', $enabledLinksJson);
+
+            flash('success', '', [
+                'title' => 'Sidebar Settings Saved',
+                'lines' => ['Sales portal sidebar links have been updated successfully.'],
+                'dismissible' => true
+            ]);
+        } catch (Exception $e) {
+            flash('error', 'Failed to save sidebar settings: ' . $e->getMessage());
+        }
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+
     if ($_POST['action'] === 'save_settings') {
         try {
             $pdo->beginTransaction();
@@ -380,6 +410,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 // Get current settings
 $watchPath = get_setting($pdo, 'import.products.watch_path', '');
 $importEnabled = get_setting($pdo, 'import.products.enabled', '0') === '1';
+
+// Get sidebar link settings
+$sidebarLinksJson = get_setting($pdo, 'sales_portal.sidebar_links', '');
+$enabledSidebarLinks = $sidebarLinksJson ? json_decode($sidebarLinksJson, true) : null;
+
+// Define all available sidebar links with their labels
+$allSidebarLinks = [
+    'dashboard' => ['label' => '🏠 Dashboard', 'description' => 'Main dashboard with overview'],
+    'orders_van' => ['label' => '🚚 Create New Sale', 'description' => 'Search-based van sales page'],
+    'orders_cart' => ['label' => '🛒 Quick Sale', 'description' => 'Visual cart-based quick sale'],
+    'orders' => ['label' => '📋 My Orders', 'description' => 'View all orders'],
+    'users' => ['label' => '👥 My Customers', 'description' => 'View assigned customers'],
+    'add_customer' => ['label' => '➕ Add New Customer', 'description' => 'Register new customers'],
+    'van_stock' => ['label' => '📦 My Van Stock', 'description' => 'View van inventory'],
+    'accept_orders' => ['label' => '📥 Accept Orders', 'description' => 'Accept ready orders from warehouse'],
+    'notifications' => ['label' => '🔔 Notifications', 'description' => 'View notifications'],
+    'stock_auth' => ['label' => '🔐 Stock Authorizations', 'description' => 'Van loading authorizations'],
+    'stock_return' => ['label' => '↩️ Stock Return', 'description' => 'Return stock to warehouse'],
+    'customer_returns' => ['label' => '🔄 Customer Returns', 'description' => 'Process customer returns'],
+    'warehouse_stock' => ['label' => '🏭 Warehouse Stock', 'description' => 'View warehouse inventory'],
+    'orders_request' => ['label' => '🏢 Company Order', 'description' => 'Create company order requests'],
+    'invoices' => ['label' => '💵 Invoices', 'description' => 'View invoices'],
+    'receivables' => ['label' => '💰 Collections', 'description' => 'Payment collection'],
+    'expenses' => ['label' => '💵 My Expenses', 'description' => 'Track expenses'],
+    'products' => ['label' => '📦 All Products', 'description' => 'View product catalog'],
+    'analytics' => ['label' => '📊 My Performance', 'description' => 'Performance analytics'],
+];
+
+// If no settings saved yet, all links are enabled by default
+if ($enabledSidebarLinks === null) {
+    $enabledSidebarLinks = array_keys($allSidebarLinks);
+}
 
 // Scan for Excel files in common import directories
 $availableFiles = [];
@@ -1004,6 +1066,94 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
         </div>
     </div>
+
+    <!-- Sales Portal Sidebar Settings -->
+    <div class="settings-section" style="background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%); border: 2px solid #a78bfa;">
+        <h2 class="section-title" style="color: #5b21b6; display: flex; align-items: center; gap: 10px;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+            Sales Portal Sidebar
+        </h2>
+        <p class="section-subtitle" style="color: #6d28d9;">
+            Control which menu items are visible to sales representatives in their sidebar navigation
+        </p>
+
+        <form method="post" action="" style="margin-bottom: 0;">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="save_sidebar_settings">
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 20px;">
+                <?php foreach ($allSidebarLinks as $linkKey => $linkInfo): ?>
+                    <?php $isEnabled = in_array($linkKey, $enabledSidebarLinks); ?>
+                    <label style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: <?= $isEnabled ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.5)' ?>; border-radius: 10px; cursor: pointer; border: 2px solid <?= $isEnabled ? '#8b5cf6' : 'transparent' ?>; transition: all 0.2s;">
+                        <input
+                            type="checkbox"
+                            name="sidebar_links[]"
+                            value="<?= htmlspecialchars($linkKey, ENT_QUOTES, 'UTF-8') ?>"
+                            <?= $isEnabled ? 'checked' : '' ?>
+                            style="width: 20px; height: 20px; cursor: pointer; accent-color: #8b5cf6;"
+                        >
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 600; color: #1f2937; font-size: 0.95rem;">
+                                <?= htmlspecialchars($linkInfo['label'], ENT_QUOTES, 'UTF-8') ?>
+                            </div>
+                            <div style="font-size: 0.8rem; color: #6b7280; margin-top: 2px;">
+                                <?= htmlspecialchars($linkInfo['description'], ENT_QUOTES, 'UTF-8') ?>
+                            </div>
+                        </div>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <button type="submit" class="btn-import-now" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); box-shadow: 0 4px 14px rgba(139, 92, 246, 0.4);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                        <polyline points="7 3 7 8 15 8"></polyline>
+                    </svg>
+                    Save Sidebar Settings
+                </button>
+                <button type="button" onclick="selectAllSidebarLinks()" class="btn-import-now" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4); padding: 10px 20px; font-size: 0.9rem;">
+                    ✓ Select All
+                </button>
+                <button type="button" onclick="deselectAllSidebarLinks()" class="btn-import-now" style="background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); box-shadow: 0 4px 14px rgba(107, 114, 128, 0.4); padding: 10px 20px; font-size: 0.9rem;">
+                    ✕ Deselect All
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+    function selectAllSidebarLinks() {
+        document.querySelectorAll('input[name="sidebar_links[]"]').forEach(cb => {
+            cb.checked = true;
+            cb.closest('label').style.background = 'rgba(255,255,255,0.9)';
+            cb.closest('label').style.borderColor = '#8b5cf6';
+        });
+    }
+    function deselectAllSidebarLinks() {
+        document.querySelectorAll('input[name="sidebar_links[]"]').forEach(cb => {
+            cb.checked = false;
+            cb.closest('label').style.background = 'rgba(255,255,255,0.5)';
+            cb.closest('label').style.borderColor = 'transparent';
+        });
+    }
+    // Update visual state when checkbox changes
+    document.querySelectorAll('input[name="sidebar_links[]"]').forEach(cb => {
+        cb.addEventListener('change', function() {
+            if (this.checked) {
+                this.closest('label').style.background = 'rgba(255,255,255,0.9)';
+                this.closest('label').style.borderColor = '#8b5cf6';
+            } else {
+                this.closest('label').style.background = 'rgba(255,255,255,0.5)';
+                this.closest('label').style.borderColor = 'transparent';
+            }
+        });
+    });
+    </script>
 
     <form method="post" action="" enctype="multipart/form-data">
         <?= csrf_field() ?>
