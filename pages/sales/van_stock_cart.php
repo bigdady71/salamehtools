@@ -385,26 +385,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         throw new Exception('Failed to create invoice.');
                     }
 
-                    // Calculate cash payment for invoice (capped at invoice total, excess is overpayment/credit)
-                    $cashPaymentForInvoiceUSD = min($totalPaymentUSD, $totalUSD);
-                    $cashPaymentForInvoiceLBP = $cashPaymentForInvoiceUSD * $exchangeRate;
+                    // Record payments in their original currencies (no conversion)
+                    // This allows tracking actual amounts collected in each currency for commission calculations
 
-                    // Create payment record for cash payment
-                    if ($cashPaymentForInvoiceUSD > 0.01) {
-                        $paymentStmt = $pdo->prepare("
-                            INSERT INTO payments (
-                                invoice_id, method, amount_usd, amount_lbp,
-                                received_by_user_id, received_at
-                            ) VALUES (
-                                :invoice_id, :method, :amount_usd, :amount_lbp,
-                                :received_by, NOW()
-                            )
-                        ");
+                    $paymentStmt = $pdo->prepare("
+                        INSERT INTO payments (
+                            invoice_id, method, amount_usd, amount_lbp,
+                            received_by_user_id, received_at
+                        ) VALUES (
+                            :invoice_id, :method, :amount_usd, :amount_lbp,
+                            :received_by, NOW()
+                        )
+                    ");
+
+                    // Record USD payment if any
+                    if ($paymentAmountUSD > 0.01) {
                         $paymentStmt->execute([
                             ':invoice_id' => $invoiceId,
-                            ':method' => 'cash',
-                            ':amount_usd' => $cashPaymentForInvoiceUSD,
-                            ':amount_lbp' => $cashPaymentForInvoiceLBP,
+                            ':method' => 'cash_usd',
+                            ':amount_usd' => $paymentAmountUSD,
+                            ':amount_lbp' => 0,
+                            ':received_by' => $repId,
+                        ]);
+                    }
+
+                    // Record LBP payment if any (store as USD equivalent for totals, but keep original LBP)
+                    if ($paymentAmountLBP > 1000) {
+                        $paymentStmt->execute([
+                            ':invoice_id' => $invoiceId,
+                            ':method' => 'cash_lbp',
+                            ':amount_usd' => $paymentLBPinUSD, // USD equivalent for invoice tracking
+                            ':amount_lbp' => $paymentAmountLBP, // Actual LBP received
                             ':received_by' => $repId,
                         ]);
                     }
