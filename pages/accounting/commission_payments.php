@@ -9,15 +9,24 @@ require_once __DIR__ . '/../../includes/CommissionCalculator.php';
 $user = require_accounting_access();
 $pdo = db();
 
-$calculator = new CommissionCalculator($pdo);
+// Check if commission tables exist
+$tablesExist = false;
+try {
+    $pdo->query("SELECT 1 FROM commission_calculations LIMIT 1");
+    $tablesExist = true;
+} catch (PDOException $e) {
+    // Tables don't exist yet
+}
+
+$calculator = $tablesExist ? new CommissionCalculator($pdo) : null;
 
 // Pre-select rep from URL
 $preSelectedRep = (int)($_GET['rep'] ?? 0);
 $month = (int)($_GET['month'] ?? date('n'));
 $year = (int)($_GET['year'] ?? date('Y'));
 
-// Handle POST - record payment
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Handle POST - record payment (only if tables exist)
+if ($tablesExist && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf($_POST['_csrf'] ?? '')) {
         flash('error', 'Invalid security token.');
         header('Location: commission_payments.php');
@@ -142,70 +151,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Get sales reps with approved commissions
-$repsStmt = $pdo->query("
-    SELECT DISTINCT
-        u.id,
-        u.name,
-        COALESCE(SUM(cc.commission_amount_usd), 0) as approved_total
-    FROM users u
-    JOIN commission_calculations cc ON cc.sales_rep_id = u.id AND cc.status = 'approved'
-    WHERE u.role = 'sales_rep'
-    GROUP BY u.id, u.name
-    HAVING approved_total > 0
-    ORDER BY u.name
-");
-$salesRepsWithApproved = $repsStmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Get approved commissions for selected rep
+// Initialize defaults
+$salesRepsWithApproved = [];
 $approvedCommissions = [];
-if ($preSelectedRep > 0) {
-    $stmt = $pdo->prepare("
-        SELECT
-            cc.id,
-            cc.order_id,
-            cc.invoice_id,
-            cc.commission_type,
-            cc.order_total_usd,
-            cc.rate_percentage,
-            cc.commission_amount_usd,
-            cc.commission_amount_lbp,
-            cc.period_start,
-            cc.period_end,
-            i.invoice_number,
-            c.name as customer_name
-        FROM commission_calculations cc
-        JOIN invoices i ON i.id = cc.invoice_id
-        JOIN orders o ON o.id = cc.order_id
-        JOIN customers c ON c.id = o.customer_id
-        WHERE cc.sales_rep_id = :rep_id AND cc.status = 'approved'
-        ORDER BY cc.created_at DESC
-    ");
-    $stmt->execute([':rep_id' => $preSelectedRep]);
-    $approvedCommissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
+$payments = [];
 
-// Get payment history
-$paymentsStmt = $pdo->query("
-    SELECT
-        cp.id,
-        cp.payment_reference,
-        cp.period_start,
-        cp.period_end,
-        cp.total_amount_usd,
-        cp.total_amount_lbp,
-        cp.payment_method,
-        cp.payment_date,
-        cp.bank_reference,
-        u.name as sales_rep_name,
-        p.name as paid_by_name
-    FROM commission_payments cp
-    JOIN users u ON u.id = cp.sales_rep_id
-    JOIN users p ON p.id = cp.paid_by
-    ORDER BY cp.payment_date DESC, cp.created_at DESC
-    LIMIT 50
-");
-$payments = $paymentsStmt->fetchAll(PDO::FETCH_ASSOC);
+if ($tablesExist) {
+    // Get sales reps with approved commissions
+    $repsStmt = $pdo->query("
+        SELECT DISTINCT
+            u.id,
+            u.name,
+            COALESCE(SUM(cc.commission_amount_usd), 0) as approved_total
+        FROM users u
+        JOIN commission_calculations cc ON cc.sales_rep_id = u.id AND cc.status = 'approved'
+        WHERE u.role = 'sales_rep'
+        GROUP BY u.id, u.name
+        HAVING approved_total > 0
+        ORDER BY u.name
+    ");
+    $salesRepsWithApproved = $repsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Get approved commissions for selected rep
+    if ($preSelectedRep > 0) {
+        $stmt = $pdo->prepare("
+            SELECT
+                cc.id,
+                cc.order_id,
+                cc.invoice_id,
+                cc.commission_type,
+                cc.order_total_usd,
+                cc.rate_percentage,
+                cc.commission_amount_usd,
+                cc.commission_amount_lbp,
+                cc.period_start,
+                cc.period_end,
+                i.invoice_number,
+                c.name as customer_name
+            FROM commission_calculations cc
+            JOIN invoices i ON i.id = cc.invoice_id
+            JOIN orders o ON o.id = cc.order_id
+            JOIN customers c ON c.id = o.customer_id
+            WHERE cc.sales_rep_id = :rep_id AND cc.status = 'approved'
+            ORDER BY cc.created_at DESC
+        ");
+        $stmt->execute([':rep_id' => $preSelectedRep]);
+        $approvedCommissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    // Get payment history
+    $paymentsStmt = $pdo->query("
+        SELECT
+            cp.id,
+            cp.payment_reference,
+            cp.period_start,
+            cp.period_end,
+            cp.total_amount_usd,
+            cp.total_amount_lbp,
+            cp.payment_method,
+            cp.payment_date,
+            cp.bank_reference,
+            u.name as sales_rep_name,
+            p.name as paid_by_name
+        FROM commission_payments cp
+        JOIN users u ON u.id = cp.sales_rep_id
+        JOIN users p ON p.id = cp.paid_by
+        ORDER BY cp.payment_date DESC, cp.created_at DESC
+        LIMIT 50
+    ");
+    $payments = $paymentsStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 accounting_render_layout_start([
     'title' => 'Commission Payments',
@@ -216,9 +231,18 @@ accounting_render_layout_start([
 ]);
 
 accounting_render_flashes(consume_flashes());
-?>
 
-<?php if (!empty($salesRepsWithApproved)): ?>
+if (!$tablesExist): ?>
+<div class="card" style="background: #fef3c7; border-color: #fde68a; margin-bottom: 20px;">
+    <h2 style="color: #92400e;">Migration Required</h2>
+    <p style="color: #92400e;">The commission tables have not been created yet. Please run the migration to enable commission payments:</p>
+    <pre style="background: #fffbeb; padding: 12px; border-radius: 6px; margin: 12px 0; color: #78350f;">
+SOURCE c:/xampp/htdocs/salamehtools/migrations/accounting_module_UP.sql;</pre>
+    <p style="color: #92400e; margin-top: 12px;">After running the migration, refresh this page.</p>
+</div>
+<?php endif; ?>
+
+<?php if ($tablesExist && !empty($salesRepsWithApproved)): ?>
 <div class="card mb-2">
     <h2>Record New Payment</h2>
 
@@ -308,13 +332,14 @@ accounting_render_flashes(consume_flashes());
         <p class="text-muted">No approved commissions found for this sales rep. Go to <a href="commissions.php">Commissions</a> to approve pending commissions first.</p>
     <?php endif; ?>
 </div>
-<?php else: ?>
+<?php elseif ($tablesExist): ?>
 <div class="card mb-2">
     <h2>Record New Payment</h2>
     <p class="text-muted">No sales reps have approved commissions ready for payment. Go to <a href="commissions.php">Commissions</a> to calculate and approve commissions first.</p>
 </div>
 <?php endif; ?>
 
+<?php if ($tablesExist): ?>
 <div class="card">
     <h2>Payment History</h2>
 
@@ -355,6 +380,7 @@ accounting_render_flashes(consume_flashes());
         </tbody>
     </table>
 </div>
+<?php endif; ?>
 
 <script>
 function toggleAll(source) {

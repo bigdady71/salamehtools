@@ -87,18 +87,31 @@ $recentPaymentsStmt = $pdo->query("
 ");
 $recentPayments = $recentPaymentsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Customers with overdue balances
-$overdueStmt = $pdo->query("
-    SELECT
-        c.id,
-        c.name,
-        COALESCE(c.account_balance_usd, 0) as balance_usd
-    FROM customers c
-    WHERE COALESCE(c.account_balance_usd, 0) > 0
-    ORDER BY c.account_balance_usd DESC
-    LIMIT 5
-");
-$overdueCustomers = $overdueStmt->fetchAll(PDO::FETCH_ASSOC);
+// Customers with outstanding invoices (calculated from unpaid invoices)
+$overdueCustomers = [];
+try {
+    $overdueStmt = $pdo->query("
+        SELECT
+            c.id,
+            c.name,
+            SUM(i.total_usd - COALESCE(p.paid_usd, 0)) as balance_usd
+        FROM customers c
+        JOIN orders o ON o.customer_id = c.id
+        JOIN invoices i ON i.order_id = o.id
+        LEFT JOIN (
+            SELECT invoice_id, SUM(amount_usd) as paid_usd
+            FROM payments GROUP BY invoice_id
+        ) p ON p.invoice_id = i.id
+        WHERE i.status IN ('issued', 'paid')
+        GROUP BY c.id, c.name
+        HAVING balance_usd > 0
+        ORDER BY balance_usd DESC
+        LIMIT 5
+    ");
+    $overdueCustomers = $overdueStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Table structure may vary
+}
 
 // Low stock items
 $lowStockStmt = $pdo->query("

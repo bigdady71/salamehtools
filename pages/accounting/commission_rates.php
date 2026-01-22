@@ -8,8 +8,17 @@ require_once __DIR__ . '/../../includes/flash.php';
 $user = require_accounting_access();
 $pdo = db();
 
-// Handle POST actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Check if commission tables exist
+$tablesExist = false;
+try {
+    $pdo->query("SELECT 1 FROM commission_rates LIMIT 1");
+    $tablesExist = true;
+} catch (PDOException $e) {
+    // Tables don't exist yet
+}
+
+// Handle POST actions (only if tables exist)
+if ($tablesExist && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf($_POST['_csrf'] ?? '')) {
         flash('error', 'Invalid security token.');
         header('Location: commission_rates.php');
@@ -104,41 +113,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// Get default rates
-$defaultRatesStmt = $pdo->query("
-    SELECT commission_type, rate_percentage
-    FROM commission_rates
-    WHERE sales_rep_id IS NULL
-    AND (effective_until IS NULL OR effective_until >= CURDATE())
-    ORDER BY effective_from DESC
-");
-$defaultRatesRaw = $defaultRatesStmt->fetchAll(PDO::FETCH_ASSOC);
+// Initialize defaults
 $defaultRates = [
     'direct_sale' => 4.00,
     'assigned_customer' => 4.00,
 ];
-foreach ($defaultRatesRaw as $row) {
-    $defaultRates[$row['commission_type']] = (float)$row['rate_percentage'];
-}
+$overrides = [];
 
-// Get sales rep overrides
-$overridesStmt = $pdo->query("
-    SELECT
-        cr.id,
-        cr.sales_rep_id,
-        u.name as sales_rep_name,
-        cr.commission_type,
-        cr.rate_percentage,
-        cr.effective_from,
-        cr.effective_until,
-        cr.created_at
-    FROM commission_rates cr
-    JOIN users u ON u.id = cr.sales_rep_id
-    WHERE cr.sales_rep_id IS NOT NULL
-    AND (cr.effective_until IS NULL OR cr.effective_until >= CURDATE())
-    ORDER BY u.name, cr.commission_type
-");
-$overrides = $overridesStmt->fetchAll(PDO::FETCH_ASSOC);
+if ($tablesExist) {
+    // Get default rates
+    $defaultRatesStmt = $pdo->query("
+        SELECT commission_type, rate_percentage
+        FROM commission_rates
+        WHERE sales_rep_id IS NULL
+        AND (effective_until IS NULL OR effective_until >= CURDATE())
+        ORDER BY effective_from DESC
+    ");
+    $defaultRatesRaw = $defaultRatesStmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($defaultRatesRaw as $row) {
+        $defaultRates[$row['commission_type']] = (float)$row['rate_percentage'];
+    }
+
+    // Get sales rep overrides
+    $overridesStmt = $pdo->query("
+        SELECT
+            cr.id,
+            cr.sales_rep_id,
+            u.name as sales_rep_name,
+            cr.commission_type,
+            cr.rate_percentage,
+            cr.effective_from,
+            cr.effective_until,
+            cr.created_at
+        FROM commission_rates cr
+        JOIN users u ON u.id = cr.sales_rep_id
+        WHERE cr.sales_rep_id IS NOT NULL
+        AND (cr.effective_until IS NULL OR cr.effective_until >= CURDATE())
+        ORDER BY u.name, cr.commission_type
+    ");
+    $overrides = $overridesStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // Get sales reps for dropdown
 $salesRepsStmt = $pdo->query("SELECT id, name FROM users WHERE role = 'sales_rep' AND is_active = 1 ORDER BY name");
@@ -153,8 +167,18 @@ accounting_render_layout_start([
 ]);
 
 accounting_render_flashes(consume_flashes());
-?>
 
+if (!$tablesExist): ?>
+<div class="card" style="background: #fef3c7; border-color: #fde68a; margin-bottom: 20px;">
+    <h2 style="color: #92400e;">Migration Required</h2>
+    <p style="color: #92400e;">The commission tables have not been created yet. Please run the migration to enable commission rate management:</p>
+    <pre style="background: #fffbeb; padding: 12px; border-radius: 6px; margin: 12px 0; color: #78350f;">
+SOURCE c:/xampp/htdocs/salamehtools/migrations/accounting_module_UP.sql;</pre>
+    <p style="color: #92400e; margin-top: 12px;">After running the migration, refresh this page.</p>
+</div>
+<?php endif; ?>
+
+<?php if ($tablesExist): ?>
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
     <div class="card">
         <h2>Default Commission Rates</h2>
@@ -227,7 +251,9 @@ accounting_render_flashes(consume_flashes());
         </form>
     </div>
 </div>
+<?php endif; ?>
 
+<?php if ($tablesExist): ?>
 <div class="card" style="margin-top: 24px;">
     <h2>Active Rate Overrides</h2>
 
@@ -273,6 +299,7 @@ accounting_render_flashes(consume_flashes());
         </tbody>
     </table>
 </div>
+<?php endif; ?>
 
 <div class="card" style="margin-top: 24px; background: #f0fdf4;">
     <h2 style="color: #059669;">Commission Rules</h2>

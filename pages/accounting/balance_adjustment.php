@@ -8,18 +8,50 @@ require_once __DIR__ . '/../../includes/flash.php';
 $user = require_accounting_access();
 $pdo = db();
 
+// Check if accounting tables exist
+$tablesExist = false;
+try {
+    $checkStmt = $pdo->query("SELECT 1 FROM customer_balance_adjustments LIMIT 1");
+    $tablesExist = true;
+} catch (PDOException $e) {
+    // Tables don't exist yet
+}
+
 $selectedCustomerId = (int)($_GET['customer_id'] ?? 0);
 $selectedCustomer = null;
 
-// Load selected customer
+// Load selected customer with calculated balance from invoices
 if ($selectedCustomerId > 0) {
-    $custStmt = $pdo->prepare("SELECT id, name, phone, COALESCE(account_balance_usd, 0) as balance_usd, COALESCE(account_balance_lbp, 0) as balance_lbp FROM customers WHERE id = :id");
+    $custStmt = $pdo->prepare("
+        SELECT
+            c.id,
+            c.name,
+            c.phone,
+            COALESCE(inv.outstanding_usd, 0) as balance_usd,
+            COALESCE(inv.outstanding_lbp, 0) as balance_lbp
+        FROM customers c
+        LEFT JOIN (
+            SELECT
+                o.customer_id,
+                SUM(i.total_usd - COALESCE(p.paid_usd, 0)) as outstanding_usd,
+                SUM(i.total_lbp - COALESCE(p.paid_lbp, 0)) as outstanding_lbp
+            FROM invoices i
+            JOIN orders o ON o.id = i.order_id
+            LEFT JOIN (
+                SELECT invoice_id, SUM(amount_usd) as paid_usd, SUM(amount_lbp) as paid_lbp
+                FROM payments GROUP BY invoice_id
+            ) p ON p.invoice_id = i.id
+            WHERE i.status IN ('issued', 'paid')
+            GROUP BY o.customer_id
+        ) inv ON inv.customer_id = c.id
+        WHERE c.id = :id
+    ");
     $custStmt->execute([':id' => $selectedCustomerId]);
     $selectedCustomer = $custStmt->fetch(PDO::FETCH_ASSOC);
 }
 
-// Handle POST
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Handle POST (only if tables exist)
+if ($tablesExist && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf($_POST['_csrf'] ?? '')) {
         flash('error', 'Invalid security token.');
         header('Location: balance_adjustment.php');
@@ -44,8 +76,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($reason === '') {
         flash('error', 'Please provide a reason for this adjustment.');
     } else {
-        // Get current balances
-        $custStmt = $pdo->prepare("SELECT COALESCE(account_balance_usd, 0) as balance_usd, COALESCE(account_balance_lbp, 0) as balance_lbp FROM customers WHERE id = :id");
+        // Get current calculated balance
+        $custStmt = $pdo->prepare("
+            SELECT
+                COALESCE(inv.outstanding_usd, 0) as balance_usd,
+                COALESCE(inv.outstanding_lbp, 0) as balance_lbp
+            FROM customers c
+            LEFT JOIN (
+                SELECT
+                    o.customer_id,
+                    SUM(i.total_usd - COALESCE(p.paid_usd, 0)) as outstanding_usd,
+                    SUM(i.total_lbp - COALESCE(p.paid_lbp, 0)) as outstanding_lbp
+                FROM invoices i
+                JOIN orders o ON o.id = i.order_id
+                LEFT JOIN (
+                    SELECT invoice_id, SUM(amount_usd) as paid_usd, SUM(amount_lbp) as paid_lbp
+                    FROM payments GROUP BY invoice_id
+                ) p ON p.invoice_id = i.id
+                WHERE i.status IN ('issued', 'paid')
+                GROUP BY o.customer_id
+            ) inv ON inv.customer_id = c.id
+            WHERE c.id = :id
+        ");
         $custStmt->execute([':id' => $customerId]);
         $current = $custStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -58,13 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $prevUsd = (float)$current['balance_usd'];
         $prevLbp = (float)$current['balance_lbp'];
 
-        // Calculate new balances based on type
-        // credit = reduce balance (customer paid or credit given)
-        // debit = increase balance (customer owes more)
-        // correction = direct set
-        // write_off = reduce balance
-        // opening_balance = direct set
-
+        // Calculate new balances based on type (for audit record purposes)
         if ($adjustmentType === 'credit' || $adjustmentType === 'write_off') {
             $newUsd = $prevUsd - abs($amountUsd);
             $newLbp = $prevLbp - abs($amountLbp);
@@ -72,18 +118,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $newUsd = $prevUsd + abs($amountUsd);
             $newLbp = $prevLbp + abs($amountLbp);
         } else {
-            // correction or opening_balance - use the amounts as absolute new values if provided
             $newUsd = $amountUsd;
             $newLbp = $amountLbp;
         }
 
         try {
-            $pdo->beginTransaction();
-
-            // Update customer balance
-            $updateStmt = $pdo->prepare("UPDATE customers SET account_balance_usd = :usd, account_balance_lbp = :lbp WHERE id = :id");
-            $updateStmt->execute([':usd' => $newUsd, ':lbp' => $newLbp, ':id' => $customerId]);
-
             // Record adjustment in audit table
             $auditStmt = $pdo->prepare("
                 INSERT INTO customer_balance_adjustments
@@ -105,13 +144,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ':performed_by' => $user['id'],
             ]);
 
-            $pdo->commit();
-
             flash('success', 'Balance adjustment recorded successfully.');
             header('Location: customer_balances.php');
             exit;
         } catch (PDOException $e) {
-            $pdo->rollBack();
             flash('error', 'Database error: ' . $e->getMessage());
         }
     }
@@ -120,46 +156,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// Get all customers for dropdown
-$customersStmt = $pdo->query("SELECT id, name, phone, COALESCE(account_balance_usd, 0) as balance_usd, COALESCE(account_balance_lbp, 0) as balance_lbp FROM customers WHERE is_active = 1 ORDER BY name");
+// Get all customers for dropdown with calculated balance
+$customersStmt = $pdo->query("
+    SELECT
+        c.id,
+        c.name,
+        c.phone,
+        COALESCE(inv.outstanding_usd, 0) as balance_usd,
+        COALESCE(inv.outstanding_lbp, 0) as balance_lbp
+    FROM customers c
+    LEFT JOIN (
+        SELECT
+            o.customer_id,
+            SUM(i.total_usd - COALESCE(p.paid_usd, 0)) as outstanding_usd,
+            SUM(i.total_lbp - COALESCE(p.paid_lbp, 0)) as outstanding_lbp
+        FROM invoices i
+        JOIN orders o ON o.id = i.order_id
+        LEFT JOIN (
+            SELECT invoice_id, SUM(amount_usd) as paid_usd, SUM(amount_lbp) as paid_lbp
+            FROM payments GROUP BY invoice_id
+        ) p ON p.invoice_id = i.id
+        WHERE i.status IN ('issued', 'paid')
+        GROUP BY o.customer_id
+    ) inv ON inv.customer_id = c.id
+    WHERE c.is_active = 1
+    ORDER BY c.name
+");
 $customers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Get recent adjustments
-$recentStmt = $pdo->query("
-    SELECT
-        cba.id,
-        cba.created_at,
-        cba.adjustment_type,
-        cba.amount_usd,
-        cba.amount_lbp,
-        cba.previous_balance_usd,
-        cba.new_balance_usd,
-        cba.reason,
-        c.name as customer_name,
-        u.name as performed_by_name
-    FROM customer_balance_adjustments cba
-    JOIN customers c ON c.id = cba.customer_id
-    JOIN users u ON u.id = cba.performed_by
-    ORDER BY cba.created_at DESC
-    LIMIT 20
-");
-$recentAdjustments = $recentStmt->fetchAll(PDO::FETCH_ASSOC);
+// Get recent adjustments (if table exists)
+$recentAdjustments = [];
+if ($tablesExist) {
+    $recentStmt = $pdo->query("
+        SELECT
+            cba.id,
+            cba.created_at,
+            cba.adjustment_type,
+            cba.amount_usd,
+            cba.amount_lbp,
+            cba.previous_balance_usd,
+            cba.new_balance_usd,
+            cba.reason,
+            c.name as customer_name,
+            u.name as performed_by_name
+        FROM customer_balance_adjustments cba
+        JOIN customers c ON c.id = cba.customer_id
+        JOIN users u ON u.id = cba.performed_by
+        ORDER BY cba.created_at DESC
+        LIMIT 20
+    ");
+    $recentAdjustments = $recentStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 accounting_render_layout_start([
     'title' => 'Balance Adjustment',
     'heading' => 'Balance Adjustment',
-    'subtitle' => 'Manually adjust customer account balances',
+    'subtitle' => 'Record customer account balance adjustments',
     'active' => 'customer_balances',
     'user' => $user,
 ]);
 
 accounting_render_flashes(consume_flashes());
-?>
+
+if (!$tablesExist): ?>
+<div class="card" style="background: #fef3c7; border-color: #fde68a; margin-bottom: 20px;">
+    <h2 style="color: #92400e;">Migration Required</h2>
+    <p style="color: #92400e;">The accounting module database tables have not been created yet. Please run the migration to enable balance adjustments:</p>
+    <pre style="background: #fffbeb; padding: 12px; border-radius: 6px; margin: 12px 0; color: #78350f;">
+SOURCE c:/xampp/htdocs/salamehtools/migrations/accounting_module_UP.sql;</pre>
+    <p style="color: #92400e; margin-top: 12px;">After running the migration, refresh this page.</p>
+</div>
+<?php endif; ?>
 
 <div style="display: grid; grid-template-columns: 400px 1fr; gap: 24px;">
     <div class="card">
         <h2>New Adjustment</h2>
 
+        <?php if ($tablesExist): ?>
         <form method="POST" style="display: flex; flex-direction: column; gap: 16px;">
             <?= csrf_field() ?>
 
@@ -179,7 +252,7 @@ accounting_render_flashes(consume_flashes());
             </div>
 
             <div id="current-balance" style="padding: 12px; background: #f9fafb; border-radius: 8px; <?= $selectedCustomer ? '' : 'display: none;' ?>">
-                <div class="text-muted" style="font-size: 0.85rem;">Current Balance</div>
+                <div class="text-muted" style="font-size: 0.85rem;">Current Outstanding Balance</div>
                 <div style="font-size: 1.1rem; font-weight: 600;">
                     <span id="balance-usd"><?= $selectedCustomer ? format_currency_usd((float)$selectedCustomer['balance_usd']) : '$0.00' ?></span>
                     <span class="text-muted" style="margin: 0 8px;">|</span>
@@ -193,9 +266,9 @@ accounting_render_flashes(consume_flashes());
                     <option value="">Select type...</option>
                     <option value="credit">Credit (Reduce Balance - Payment/Credit)</option>
                     <option value="debit">Debit (Increase Balance - Charge)</option>
-                    <option value="correction">Correction (Set Exact Balance)</option>
+                    <option value="correction">Correction (Record adjustment)</option>
                     <option value="write_off">Write-off (Reduce Balance)</option>
-                    <option value="opening_balance">Opening Balance (Set Initial)</option>
+                    <option value="opening_balance">Opening Balance (Initial record)</option>
                 </select>
             </div>
 
@@ -222,6 +295,9 @@ accounting_render_flashes(consume_flashes());
 
             <button type="submit" class="btn btn-primary">Record Adjustment</button>
         </form>
+        <?php else: ?>
+        <p class="text-muted">Please run the migration first to enable balance adjustments.</p>
+        <?php endif; ?>
     </div>
 
     <div class="card">
@@ -241,7 +317,9 @@ accounting_render_flashes(consume_flashes());
             <tbody>
                 <?php if (empty($recentAdjustments)): ?>
                     <tr>
-                        <td colspan="6" class="text-center text-muted">No adjustments recorded yet</td>
+                        <td colspan="6" class="text-center text-muted">
+                            <?= $tablesExist ? 'No adjustments recorded yet' : 'Run migration to enable this feature' ?>
+                        </td>
                     </tr>
                 <?php else: ?>
                     <?php foreach ($recentAdjustments as $adj): ?>

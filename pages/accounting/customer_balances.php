@@ -8,8 +8,17 @@ require_once __DIR__ . '/../../includes/flash.php';
 $user = require_accounting_access();
 $pdo = db();
 
-// Handle POST actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Check if accounting columns exist
+$columnsExist = false;
+try {
+    $checkStmt = $pdo->query("SELECT credit_limit_usd FROM customers LIMIT 1");
+    $columnsExist = true;
+} catch (PDOException $e) {
+    // Columns don't exist yet
+}
+
+// Handle POST actions (only if columns exist)
+if ($columnsExist && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf($_POST['_csrf'] ?? '')) {
         flash('error', 'Invalid security token.');
         header('Location: ' . $_SERVER['REQUEST_URI']);
@@ -39,10 +48,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Filters
 $search = trim($_GET['search'] ?? '');
 $salesRepId = trim($_GET['sales_rep'] ?? '');
-$creditHold = trim($_GET['credit_hold'] ?? '');
-$balanceMin = trim($_GET['balance_min'] ?? '');
-$sortBy = trim($_GET['sort'] ?? 'balance_usd');
-$sortDir = strtoupper(trim($_GET['dir'] ?? 'DESC')) === 'ASC' ? 'ASC' : 'DESC';
 
 // Pagination
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -67,51 +72,9 @@ if ($salesRepId !== '') {
     $params[':sales_rep_id'] = $salesRepId;
 }
 
-if ($creditHold === '1') {
-    $conditions[] = "COALESCE(c.credit_hold, 0) = 1";
-} elseif ($creditHold === '0') {
-    $conditions[] = "COALESCE(c.credit_hold, 0) = 0";
-}
-
-if ($balanceMin !== '' && is_numeric($balanceMin)) {
-    $conditions[] = "COALESCE(c.account_balance_usd, 0) >= :balance_min";
-    $params[':balance_min'] = (float)$balanceMin;
-}
-
 $whereClause = implode(' AND ', $conditions);
 
-// Get totals
-$totalsStmt = $pdo->prepare("
-    SELECT
-        COUNT(*) as total_customers,
-        SUM(CASE WHEN COALESCE(c.account_balance_usd, 0) > 0 THEN 1 ELSE 0 END) as customers_with_balance,
-        COALESCE(SUM(c.account_balance_usd), 0) as total_balance_usd,
-        COALESCE(SUM(c.account_balance_lbp), 0) as total_balance_lbp,
-        SUM(CASE WHEN COALESCE(c.credit_hold, 0) = 1 THEN 1 ELSE 0 END) as on_credit_hold
-    FROM customers c
-    WHERE $whereClause AND c.is_active = 1
-");
-$totalsStmt->execute($params);
-$totals = $totalsStmt->fetch(PDO::FETCH_ASSOC);
-
-$totalCustomers = (int)$totals['total_customers'];
-$totalPages = ceil($totalCustomers / $perPage);
-
-// Validate sort column
-$allowedSorts = ['name', 'balance_usd', 'balance_lbp', 'credit_limit_usd', 'sales_rep_name'];
-if (!in_array($sortBy, $allowedSorts)) {
-    $sortBy = 'balance_usd';
-}
-
-$orderByClause = match($sortBy) {
-    'balance_usd' => 'COALESCE(c.account_balance_usd, 0)',
-    'balance_lbp' => 'COALESCE(c.account_balance_lbp, 0)',
-    'credit_limit_usd' => 'COALESCE(c.credit_limit_usd, 0)',
-    'sales_rep_name' => 'u.name',
-    default => 'c.name'
-};
-
-// Get customers
+// Get customer data with calculated outstanding balance from invoices
 $stmt = $pdo->prepare("
     SELECT
         c.id,
@@ -119,16 +82,29 @@ $stmt = $pdo->prepare("
         c.phone,
         c.assigned_sales_rep_id,
         COALESCE(u.name, 'Unassigned') as sales_rep_name,
-        COALESCE(c.account_balance_usd, 0) as balance_usd,
-        COALESCE(c.account_balance_lbp, 0) as balance_lbp,
-        COALESCE(c.credit_limit_usd, 0) as credit_limit_usd,
-        COALESCE(c.credit_limit_lbp, 0) as credit_limit_lbp,
-        COALESCE(c.credit_hold, 0) as credit_hold,
-        COALESCE(c.payment_terms_days, 0) as payment_terms_days
+        COALESCE(inv.outstanding_usd, 0) as balance_usd,
+        COALESCE(inv.outstanding_lbp, 0) as balance_lbp,
+        " . ($columnsExist ? "COALESCE(c.credit_limit_usd, 0)" : "0") . " as credit_limit_usd,
+        " . ($columnsExist ? "COALESCE(c.credit_limit_lbp, 0)" : "0") . " as credit_limit_lbp,
+        " . ($columnsExist ? "COALESCE(c.credit_hold, 0)" : "0") . " as credit_hold
     FROM customers c
     LEFT JOIN users u ON u.id = c.assigned_sales_rep_id
+    LEFT JOIN (
+        SELECT
+            o.customer_id,
+            SUM(i.total_usd - COALESCE(p.paid_usd, 0)) as outstanding_usd,
+            SUM(i.total_lbp - COALESCE(p.paid_lbp, 0)) as outstanding_lbp
+        FROM invoices i
+        JOIN orders o ON o.id = i.order_id
+        LEFT JOIN (
+            SELECT invoice_id, SUM(amount_usd) as paid_usd, SUM(amount_lbp) as paid_lbp
+            FROM payments GROUP BY invoice_id
+        ) p ON p.invoice_id = i.id
+        WHERE i.status IN ('issued', 'paid')
+        GROUP BY o.customer_id
+    ) inv ON inv.customer_id = c.id
     WHERE $whereClause AND c.is_active = 1
-    ORDER BY $orderByClause $sortDir
+    ORDER BY balance_usd DESC
     LIMIT :limit OFFSET :offset
 ");
 $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
@@ -139,62 +115,61 @@ foreach ($params as $key => $value) {
 $stmt->execute();
 $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Get totals
+$totalsStmt = $pdo->prepare("
+    SELECT
+        COUNT(*) as total_customers,
+        COUNT(CASE WHEN COALESCE(inv.outstanding_usd, 0) > 0 THEN 1 END) as customers_with_balance,
+        COALESCE(SUM(inv.outstanding_usd), 0) as total_balance_usd
+    FROM customers c
+    LEFT JOIN (
+        SELECT
+            o.customer_id,
+            SUM(i.total_usd - COALESCE(p.paid_usd, 0)) as outstanding_usd
+        FROM invoices i
+        JOIN orders o ON o.id = i.order_id
+        LEFT JOIN (
+            SELECT invoice_id, SUM(amount_usd) as paid_usd FROM payments GROUP BY invoice_id
+        ) p ON p.invoice_id = i.id
+        WHERE i.status IN ('issued', 'paid')
+        GROUP BY o.customer_id
+    ) inv ON inv.customer_id = c.id
+    WHERE $whereClause AND c.is_active = 1
+");
+$totalsStmt->execute($params);
+$totals = $totalsStmt->fetch(PDO::FETCH_ASSOC);
+
+$totalCustomers = (int)$totals['total_customers'];
+$totalPages = max(1, ceil($totalCustomers / $perPage));
+
 // Handle CSV export
 if (isset($_GET['export']) && $_GET['export'] === 'csv') {
-    $exportStmt = $pdo->prepare("
-        SELECT
-            c.name,
-            c.phone,
-            COALESCE(u.name, 'Unassigned') as sales_rep_name,
-            COALESCE(c.account_balance_usd, 0) as balance_usd,
-            COALESCE(c.account_balance_lbp, 0) as balance_lbp,
-            COALESCE(c.credit_limit_usd, 0) as credit_limit_usd,
-            COALESCE(c.credit_hold, 0) as credit_hold
-        FROM customers c
-        LEFT JOIN users u ON u.id = c.assigned_sales_rep_id
-        WHERE $whereClause AND c.is_active = 1
-        ORDER BY $orderByClause $sortDir
-    ");
-    foreach ($params as $key => $value) {
-        $exportStmt->bindValue($key, $value);
-    }
-    $exportStmt->execute();
-    $exportData = $exportStmt->fetchAll(PDO::FETCH_ASSOC);
-
     header('Content-Type: text/csv');
     header('Content-Disposition: attachment; filename="customer_balances_' . date('Y-m-d') . '.csv"');
 
     $output = fopen('php://output', 'w');
-    fputcsv($output, ['Customer', 'Phone', 'Sales Rep', 'Balance USD', 'Balance LBP', 'Credit Limit USD', 'Credit Hold']);
+    fputcsv($output, ['Customer', 'Phone', 'Sales Rep', 'Outstanding USD', 'Outstanding LBP', 'Credit Limit USD', 'Credit Hold']);
 
-    foreach ($exportData as $row) {
-        $row['credit_hold'] = $row['credit_hold'] ? 'Yes' : 'No';
-        fputcsv($output, $row);
+    foreach ($customers as $row) {
+        fputcsv($output, [
+            $row['name'],
+            $row['phone'],
+            $row['sales_rep_name'],
+            $row['balance_usd'],
+            $row['balance_lbp'],
+            $row['credit_limit_usd'],
+            $row['credit_hold'] ? 'Yes' : 'No'
+        ]);
     }
 
     fclose($output);
     exit;
 }
 
-// Helper for sort links
-function sortLink(string $column, string $label, string $currentSort, string $currentDir): string
-{
-    $newDir = ($currentSort === $column && $currentDir === 'DESC') ? 'ASC' : 'DESC';
-    $arrow = '';
-    if ($currentSort === $column) {
-        $arrow = $currentDir === 'DESC' ? ' ↓' : ' ↑';
-    }
-    $params = $_GET;
-    $params['sort'] = $column;
-    $params['dir'] = $newDir;
-    unset($params['page']);
-    return '<a href="?' . http_build_query($params) . '" style="color:inherit;text-decoration:none;">' . htmlspecialchars($label) . $arrow . '</a>';
-}
-
 accounting_render_layout_start([
     'title' => 'Customer Balances',
     'heading' => 'Customer Balances',
-    'subtitle' => 'Manage customer accounts, credit limits, and balances',
+    'subtitle' => 'Manage customer accounts and outstanding balances',
     'active' => 'customer_balances',
     'user' => $user,
     'actions' => [
@@ -203,7 +178,16 @@ accounting_render_layout_start([
 ]);
 
 accounting_render_flashes(consume_flashes());
-?>
+
+if (!$columnsExist): ?>
+<div class="card" style="background: #fef3c7; border-color: #fde68a;">
+    <h2 style="color: #92400e;">Migration Required</h2>
+    <p style="color: #92400e;">The accounting module database tables have not been created yet. Please run the migration:</p>
+    <pre style="background: #fffbeb; padding: 12px; border-radius: 6px; margin: 12px 0; color: #78350f;">
+SOURCE c:/xampp/htdocs/salamehtools/migrations/accounting_module_UP.sql;</pre>
+    <p style="color: #92400e; margin-top: 12px;">After running the migration, refresh this page.</p>
+</div>
+<?php endif; ?>
 
 <div class="metric-grid">
     <div class="metric-card">
@@ -211,7 +195,7 @@ accounting_render_flashes(consume_flashes());
         <div class="value"><?= number_format($totalCustomers) ?></div>
     </div>
     <div class="metric-card">
-        <div class="label">With Balance</div>
+        <div class="label">With Outstanding Balance</div>
         <div class="value"><?= number_format((int)$totals['customers_with_balance']) ?></div>
     </div>
     <div class="metric-card">
@@ -219,14 +203,14 @@ accounting_render_flashes(consume_flashes());
         <div class="value"><?= format_currency_usd((float)$totals['total_balance_usd']) ?></div>
     </div>
     <div class="metric-card">
-        <div class="label">On Credit Hold</div>
-        <div class="value"><?= number_format((int)$totals['on_credit_hold']) ?></div>
+        <div class="label">Credit Features</div>
+        <div class="value"><?= $columnsExist ? 'Enabled' : 'Run Migration' ?></div>
     </div>
 </div>
 
 <div class="card">
     <form method="GET" class="filters">
-        <input type="text" name="search" placeholder="Search name or phone..." value="<?= htmlspecialchars($search) ?>" class="filter-input" style="width: 180px;">
+        <input type="text" name="search" placeholder="Search name or phone..." value="<?= htmlspecialchars($search) ?>" class="filter-input" style="width: 200px;">
 
         <select name="sales_rep" class="filter-input">
             <option value="">All Sales Reps</option>
@@ -234,14 +218,6 @@ accounting_render_flashes(consume_flashes());
                 <option value="<?= (int)$rep['id'] ?>" <?= $salesRepId == $rep['id'] ? 'selected' : '' ?>><?= htmlspecialchars($rep['name']) ?></option>
             <?php endforeach; ?>
         </select>
-
-        <select name="credit_hold" class="filter-input">
-            <option value="">All Credit Status</option>
-            <option value="1" <?= $creditHold === '1' ? 'selected' : '' ?>>On Credit Hold</option>
-            <option value="0" <?= $creditHold === '0' ? 'selected' : '' ?>>Normal</option>
-        </select>
-
-        <input type="number" name="balance_min" placeholder="Min balance USD" value="<?= htmlspecialchars($balanceMin) ?>" class="filter-input" style="width: 140px;" step="0.01">
 
         <button type="submit" class="btn btn-primary">Filter</button>
         <a href="customer_balances.php" class="btn">Clear</a>
@@ -251,26 +227,28 @@ accounting_render_flashes(consume_flashes());
     <table>
         <thead>
             <tr>
-                <th><?= sortLink('name', 'Customer', $sortBy, $sortDir) ?></th>
-                <th><?= sortLink('sales_rep_name', 'Sales Rep', $sortBy, $sortDir) ?></th>
-                <th class="text-right"><?= sortLink('balance_usd', 'Balance (USD)', $sortBy, $sortDir) ?></th>
-                <th class="text-right"><?= sortLink('balance_lbp', 'Balance (LBP)', $sortBy, $sortDir) ?></th>
-                <th class="text-right"><?= sortLink('credit_limit_usd', 'Credit Limit', $sortBy, $sortDir) ?></th>
+                <th>Customer</th>
+                <th>Sales Rep</th>
+                <th class="text-right">Outstanding (USD)</th>
+                <th class="text-right">Outstanding (LBP)</th>
+                <?php if ($columnsExist): ?>
+                <th class="text-right">Credit Limit</th>
                 <th>Status</th>
-                <th style="width: 200px;">Actions</th>
+                <th style="width: 180px;">Actions</th>
+                <?php endif; ?>
             </tr>
         </thead>
         <tbody>
             <?php if (empty($customers)): ?>
                 <tr>
-                    <td colspan="7" class="text-center text-muted">No customers found</td>
+                    <td colspan="<?= $columnsExist ? 7 : 4 ?>" class="text-center text-muted">No customers found</td>
                 </tr>
             <?php else: ?>
                 <?php foreach ($customers as $customer): ?>
                     <?php
                     $balanceUsd = (float)$customer['balance_usd'];
                     $limitUsd = (float)$customer['credit_limit_usd'];
-                    $overLimit = $limitUsd > 0 && $balanceUsd > $limitUsd;
+                    $overLimit = $columnsExist && $limitUsd > 0 && $balanceUsd > $limitUsd;
                     ?>
                     <tr>
                         <td>
@@ -286,6 +264,7 @@ accounting_render_flashes(consume_flashes());
                         <td class="text-right <?= (float)$customer['balance_lbp'] > 0 ? 'text-danger' : '' ?>">
                             <?= format_currency_lbp((float)$customer['balance_lbp']) ?>
                         </td>
+                        <?php if ($columnsExist): ?>
                         <td class="text-right">
                             <?= format_currency_usd($limitUsd) ?>
                             <?php if ($overLimit): ?>
@@ -314,6 +293,7 @@ accounting_render_flashes(consume_flashes());
                                 </form>
                             </div>
                         </td>
+                        <?php endif; ?>
                     </tr>
                 <?php endforeach; ?>
             <?php endif; ?>

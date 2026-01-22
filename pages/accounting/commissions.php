@@ -9,7 +9,16 @@ require_once __DIR__ . '/../../includes/CommissionCalculator.php';
 $user = require_accounting_access();
 $pdo = db();
 
-$calculator = new CommissionCalculator($pdo);
+// Check if commission tables exist
+$tablesExist = false;
+try {
+    $pdo->query("SELECT 1 FROM commission_calculations LIMIT 1");
+    $tablesExist = true;
+} catch (PDOException $e) {
+    // Tables don't exist yet
+}
+
+$calculator = $tablesExist ? new CommissionCalculator($pdo) : null;
 
 // Period selection
 $month = (int)($_GET['month'] ?? date('n'));
@@ -18,8 +27,8 @@ $year = (int)($_GET['year'] ?? date('Y'));
 $periodStart = sprintf('%04d-%02d-01', $year, $month);
 $periodEnd = date('Y-m-t', strtotime($periodStart));
 
-// Handle POST actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Handle POST actions (only if tables exist)
+if ($tablesExist && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf($_POST['_csrf'] ?? '')) {
         flash('error', 'Invalid security token.');
         header('Location: commissions.php?month=' . $month . '&year=' . $year);
@@ -68,28 +77,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// Get period totals
-$totalsStmt = $pdo->prepare("
-    SELECT
-        COUNT(*) as total_count,
-        COALESCE(SUM(commission_amount_usd), 0) as total_usd,
-        COALESCE(SUM(CASE WHEN status = 'calculated' THEN commission_amount_usd ELSE 0 END), 0) as pending_usd,
-        COALESCE(SUM(CASE WHEN status = 'approved' THEN commission_amount_usd ELSE 0 END), 0) as approved_usd,
-        COALESCE(SUM(CASE WHEN status = 'paid' THEN commission_amount_usd ELSE 0 END), 0) as paid_usd
-    FROM commission_calculations
-    WHERE period_start >= :start AND period_end <= :end
-");
-$totalsStmt->execute([':start' => $periodStart, ':end' => $periodEnd]);
-$totals = $totalsStmt->fetch(PDO::FETCH_ASSOC);
+// Initialize defaults
+$totals = ['total_count' => 0, 'total_usd' => 0, 'pending_usd' => 0, 'approved_usd' => 0, 'paid_usd' => 0];
+$summary = [];
 
-// Get summary by sales rep
-$summary = $calculator->getSummaryByRep($periodStart, $periodEnd);
+if ($tablesExist) {
+    // Get period totals
+    $totalsStmt = $pdo->prepare("
+        SELECT
+            COUNT(*) as total_count,
+            COALESCE(SUM(commission_amount_usd), 0) as total_usd,
+            COALESCE(SUM(CASE WHEN status = 'calculated' THEN commission_amount_usd ELSE 0 END), 0) as pending_usd,
+            COALESCE(SUM(CASE WHEN status = 'approved' THEN commission_amount_usd ELSE 0 END), 0) as approved_usd,
+            COALESCE(SUM(CASE WHEN status = 'paid' THEN commission_amount_usd ELSE 0 END), 0) as paid_usd
+        FROM commission_calculations
+        WHERE period_start >= :start AND period_end <= :end
+    ");
+    $totalsStmt->execute([':start' => $periodStart, ':end' => $periodEnd]);
+    $totals = $totalsStmt->fetch(PDO::FETCH_ASSOC);
+
+    // Get summary by sales rep
+    $summary = $calculator->getSummaryByRep($periodStart, $periodEnd);
+}
 
 // View details for specific rep
 $viewRepId = (int)($_GET['rep'] ?? 0);
 $repDetails = [];
 $repName = '';
-if ($viewRepId > 0) {
+if ($tablesExist && $viewRepId > 0) {
     $repDetails = $calculator->getCommissionsForRep($viewRepId, $periodStart, $periodEnd);
     $repStmt = $pdo->prepare("SELECT name FROM users WHERE id = :id");
     $repStmt->execute([':id' => $viewRepId]);
