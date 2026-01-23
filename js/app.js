@@ -1,1 +1,1 @@
-console.log('App initialized');
+// App initialized

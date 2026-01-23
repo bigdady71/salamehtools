@@ -94,6 +94,12 @@ $typeConfig = [
         'bgColor' => '#fee2e2',
         'label' => 'Order Cancelled'
     ],
+    'new_product' => [
+        'icon' => '🆕',
+        'color' => '#8b5cf6',
+        'bgColor' => '#ede9fe',
+        'label' => 'New Product'
+    ],
     'system' => [
         'icon' => '🔔',
         'color' => '#6366f1',
@@ -334,6 +340,13 @@ sales_portal_render_layout_start([
         $orderId = $payload['order_id'] ?? null;
         $orderNumber = $payload['order_number'] ?? null;
 
+        // Product info for new_product notifications
+        $productImage = $payload['image_url'] ?? null;
+        $productSku = $payload['sku'] ?? null;
+        $productName = $payload['item_name'] ?? null;
+        $productPrice = $payload['price_usd'] ?? null;
+        $productQty = $payload['quantity'] ?? null;
+
         // Time display
         $timeAgo = time() - strtotime($notif['created_at']);
         if ($timeAgo < 60) {
@@ -368,6 +381,28 @@ sales_portal_render_layout_start([
                         <br><strong>Order: <?= htmlspecialchars($orderNumber, ENT_QUOTES, 'UTF-8') ?></strong>
                     <?php endif; ?>
                 </div>
+
+                <?php if ($type === 'new_product' && $productSku): ?>
+                <div style="display:flex;gap:16px;background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:12px;align-items:center;">
+                    <?php if ($productImage): ?>
+                    <img src="<?= htmlspecialchars($productImage, ENT_QUOTES, 'UTF-8') ?>" alt="" style="width:60px;height:60px;object-fit:contain;border-radius:8px;background:#fff;border:1px solid #e2e8f0;">
+                    <?php else: ?>
+                    <div style="width:60px;height:60px;background:#e2e8f0;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:1.5rem;">📦</div>
+                    <?php endif; ?>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:600;color:#1e293b;margin-bottom:2px;"><?= htmlspecialchars($productName ?? '', ENT_QUOTES, 'UTF-8') ?></div>
+                        <div style="font-size:0.85rem;color:#64748b;">SKU: <?= htmlspecialchars($productSku, ENT_QUOTES, 'UTF-8') ?></div>
+                        <div style="display:flex;gap:16px;margin-top:6px;font-size:0.9rem;">
+                            <?php if ($productPrice): ?>
+                            <span style="color:#059669;font-weight:600;">$<?= number_format((float)$productPrice, 2) ?></span>
+                            <?php endif; ?>
+                            <?php if ($productQty): ?>
+                            <span style="color:#6366f1;">Qty: <?= number_format((float)$productQty, 0) ?></span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
 
                 <div class="notif-btn-group">
                     <?php if ($type === 'order_ready' && $orderId): ?>

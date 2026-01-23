@@ -43,7 +43,7 @@ if ($tablesExist && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $bankReference = trim($_POST['bank_reference'] ?? '');
         $notes = trim($_POST['notes'] ?? '');
 
-        $validMethods = ['cash', 'bank_transfer', 'check', 'other'];
+        $validMethods = ['cash_usd', 'cash_lbp', 'cash', 'bank_transfer', 'check', 'other'];
 
         if ($salesRepId <= 0) {
             flash('error', 'Please select a sales rep.');
@@ -306,7 +306,8 @@ SOURCE c:/xampp/htdocs/salamehtools/migrations/accounting_module_UP.sql;</pre>
                 <div>
                     <label style="display: block; margin-bottom: 6px; font-weight: 500;">Payment Method</label>
                     <select name="payment_method" class="filter-input" style="width: 100%;" required>
-                        <option value="cash">Cash</option>
+                        <option value="cash_usd">Cash (USD)</option>
+                        <option value="cash_lbp">Cash (LBP)</option>
                         <option value="bank_transfer">Bank Transfer</option>
                         <option value="check">Check</option>
                         <option value="other">Other</option>
@@ -368,7 +369,7 @@ SOURCE c:/xampp/htdocs/salamehtools/migrations/accounting_module_UP.sql;</pre>
                         <td><?= date('M Y', strtotime($payment['period_start'])) ?> - <?= date('M Y', strtotime($payment['period_end'])) ?></td>
                         <td><?= date('M j, Y', strtotime($payment['payment_date'])) ?></td>
                         <td>
-                            <span class="badge badge-<?= $payment['payment_method'] === 'cash' ? 'success' : 'info' ?>">
+                            <span class="badge badge-<?= in_array($payment['payment_method'], ['cash', 'cash_usd', 'cash_lbp']) ? 'success' : 'info' ?>">
                                 <?= ucfirst(str_replace('_', ' ', $payment['payment_method'])) ?>
                             </span>
                         </td>

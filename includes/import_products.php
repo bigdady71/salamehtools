@@ -120,6 +120,7 @@ if (!function_exists('import_products_from_path')) {
         $updated = 0;
         $skipped = 0;
         $lineErrors = [];
+        $newProducts = []; // Track newly inserted products for notifications
 
         // Process data rows
         for ($r = 2; $r <= count($rows); $r++) {
@@ -190,6 +191,13 @@ if (!function_exists('import_products_from_path')) {
                 $affected = $stmt->rowCount();
                 if ($affected === 1) {
                     $inserted++;
+                    // Track new product for notifications
+                    $newProducts[] = [
+                        'sku' => $sku,
+                        'item_name' => $name,
+                        'price_usd' => $sale,
+                        'quantity' => $qoh,
+                    ];
                 } elseif ($affected === 2) {
                     $updated++;
                 } else {
@@ -220,6 +228,52 @@ if (!function_exists('import_products_from_path')) {
             $updated,
             $skipped
         );
+
+        // Send notifications to all sales reps for new products
+        if (!empty($newProducts)) {
+            try {
+                // Get all sales rep user IDs
+                $salesRepStmt = $pdo->query("SELECT id FROM users WHERE role = 'sales_rep' AND is_active = 1");
+                $salesRepIds = $salesRepStmt->fetchAll(PDO::FETCH_COLUMN);
+
+                if (!empty($salesRepIds)) {
+                    // Get image URLs for new products
+                    $skus = array_column($newProducts, 'sku');
+                    $placeholders = implode(',', array_fill(0, count($skus), '?'));
+                    $imgStmt = $pdo->prepare("SELECT sku, image_url FROM products WHERE sku IN ($placeholders)");
+                    $imgStmt->execute($skus);
+                    $imageMap = $imgStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+                    // Prepare notification insert
+                    $notifStmt = $pdo->prepare("
+                        INSERT INTO notifications (user_id, type, payload, created_at)
+                        VALUES (:user_id, 'new_product', :payload, NOW())
+                    ");
+
+                    // Send notification for each new product to each sales rep
+                    foreach ($newProducts as $product) {
+                        $payload = json_encode([
+                            'message' => 'New product added: ' . $product['item_name'],
+                            'sku' => $product['sku'],
+                            'item_name' => $product['item_name'],
+                            'price_usd' => $product['price_usd'],
+                            'quantity' => $product['quantity'],
+                            'image_url' => $imageMap[$product['sku']] ?? null,
+                        ], JSON_UNESCAPED_UNICODE);
+
+                        foreach ($salesRepIds as $repId) {
+                            $notifStmt->execute([
+                                ':user_id' => $repId,
+                                ':payload' => $payload,
+                            ]);
+                        }
+                    }
+                }
+            } catch (Exception $e) {
+                // Don't fail import if notifications fail
+                $result['warnings'][] = 'Failed to send notifications: ' . $e->getMessage();
+            }
+        }
 
     } catch (Exception $e) {
         $result['ok'] = false;

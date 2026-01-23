@@ -19,8 +19,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $productId = (int)($_POST['product_id'] ?? 0);
     $quantity = (float)($_POST['quantity'] ?? 1);
 
-    error_log("Add to cart request - Customer: {$customerId}, Product: {$productId}, Quantity: {$quantity}");
-
     if ($productId > 0 && $quantity > 0) {
         // Check if product exists and is active
         $productStmt = $pdo->prepare("SELECT id, item_name, min_quantity FROM products WHERE id = ? AND is_active = 1");
@@ -29,11 +27,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         if ($product) {
             $minQuantity = (float)$product['min_quantity'];
-            error_log("Product found: " . $product['item_name'] . ", Min qty: {$minQuantity}");
 
             if ($quantity < $minQuantity) {
                 $error = 'Minimum quantity for this product is ' . number_format($minQuantity, 2);
-                error_log("Quantity too low: {$quantity} < {$minQuantity}");
             } else {
                 // Check if already in cart
                 $cartCheckStmt = $pdo->prepare("SELECT id, quantity FROM customer_cart WHERE customer_id = ? AND product_id = ?");
@@ -46,21 +42,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $updateStmt = $pdo->prepare("UPDATE customer_cart SET quantity = ?, updated_at = NOW() WHERE id = ?");
                     $updateStmt->execute([$newQuantity, $existingCart['id']]);
                     $success = 'Updated quantity in cart!';
-                    error_log("Cart updated - New quantity: {$newQuantity}");
                 } else {
                     // Insert new cart item
                     $insertStmt = $pdo->prepare("INSERT INTO customer_cart (customer_id, product_id, quantity) VALUES (?, ?, ?)");
-                    $result = $insertStmt->execute([$customerId, $productId, $quantity]);
+                    $insertStmt->execute([$customerId, $productId, $quantity]);
                     $success = 'Added to cart successfully!';
-                    error_log("Cart insert result: " . ($result ? 'SUCCESS' : 'FAILED') . " - ID: " . $pdo->lastInsertId());
                 }
             }
         } else {
             $error = 'Product not found or unavailable.';
-            error_log("Product not found or inactive: {$productId}");
         }
-    } else {
-        error_log("Invalid product ID or quantity");
     }
 }
 

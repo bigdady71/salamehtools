@@ -79,8 +79,8 @@ if ($tablesExist && $_SERVER['REQUEST_METHOD'] === 'POST') {
             // End any existing rate for this rep/type
             $stmt = $pdo->prepare("
                 UPDATE commission_rates
-                SET effective_until = DATE_SUB(:effective_from, INTERVAL 1 DAY)
-                WHERE sales_rep_id = :rep_id AND commission_type = :type AND effective_until IS NULL
+                SET effective_to = DATE_SUB(:effective_from, INTERVAL 1 DAY)
+                WHERE sales_rep_id = :rep_id AND commission_type = :type AND effective_to IS NULL
             ");
             $stmt->execute([':effective_from' => $effectiveFrom, ':rep_id' => $salesRepId, ':type' => $commissionType]);
 
@@ -126,7 +126,7 @@ if ($tablesExist) {
         SELECT commission_type, rate_percentage
         FROM commission_rates
         WHERE sales_rep_id IS NULL
-        AND (effective_until IS NULL OR effective_until >= CURDATE())
+        AND (effective_to IS NULL OR effective_to >= CURDATE())
         ORDER BY effective_from DESC
     ");
     $defaultRatesRaw = $defaultRatesStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -143,12 +143,12 @@ if ($tablesExist) {
             cr.commission_type,
             cr.rate_percentage,
             cr.effective_from,
-            cr.effective_until,
+            cr.effective_to,
             cr.created_at
         FROM commission_rates cr
         JOIN users u ON u.id = cr.sales_rep_id
         WHERE cr.sales_rep_id IS NOT NULL
-        AND (cr.effective_until IS NULL OR cr.effective_until >= CURDATE())
+        AND (cr.effective_to IS NULL OR cr.effective_to >= CURDATE())
         ORDER BY u.name, cr.commission_type
     ");
     $overrides = $overridesStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -284,7 +284,7 @@ SOURCE c:/xampp/htdocs/salamehtools/migrations/accounting_module_UP.sql;</pre>
                         </td>
                         <td class="text-center" style="font-weight: 600;"><?= number_format((float)$override['rate_percentage'], 2) ?>%</td>
                         <td><?= date('M j, Y', strtotime($override['effective_from'])) ?></td>
-                        <td><?= $override['effective_until'] ? date('M j, Y', strtotime($override['effective_until'])) : '<span class="text-muted">No end date</span>' ?></td>
+                        <td><?= $override['effective_to'] ? date('M j, Y', strtotime($override['effective_to'])) : '<span class="text-muted">No end date</span>' ?></td>
                         <td>
                             <form method="POST" style="display: inline;">
                                 <?= csrf_field() ?>

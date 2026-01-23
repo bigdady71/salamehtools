@@ -56,9 +56,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $method = $_POST['method'] ?? 'cash';
         $receivedAt = $_POST['received_at'] ?? date('Y-m-d H:i:s');
 
-        $validMethods = ['cash', 'qr_cash', 'card', 'bank', 'other'];
+        $validMethods = ['cash_usd', 'cash_lbp', 'cash', 'qr_cash', 'card', 'bank', 'other'];
         if (!in_array($method, $validMethods, true)) {
-            $method = 'cash';
+            $method = 'cash_usd';
         }
 
         if ($invoiceId > 0 && ($amountUsd > 0 || $amountLbp > 0)) {
@@ -1034,7 +1034,8 @@ admin_render_flashes($flashes);
             <div class="form-field">
                 <label>Payment Method</label>
                 <select name="method" required>
-                    <option value="cash">Cash</option>
+                    <option value="cash_usd">Cash (USD)</option>
+                    <option value="cash_lbp">Cash (LBP)</option>
                     <option value="qr_cash">QR / Cash App</option>
                     <option value="card">Card</option>
                     <option value="bank">Bank Transfer</option>

@@ -147,15 +147,7 @@ function initHamburgerMenu() {
     const overlay = document.getElementById('sidebar-overlay');
     const main = document.getElementById('main-content') || document.querySelector('.main');
 
-    console.log('Hamburger Menu Init:', {
-        hamburgerBtn: !!hamburgerBtn,
-        sidebar: !!sidebar,
-        overlay: !!overlay,
-        main: !!main
-    });
-
     if (!hamburgerBtn || !sidebar || !overlay) {
-        console.error('Missing elements for hamburger menu');
         return;
     }
 
@@ -181,7 +173,6 @@ function initHamburgerMenu() {
 
     // Toggle menu
     function toggleMenu(isOpen) {
-        console.log('Toggle menu:', isOpen);
         if (isOpen) {
             sidebar.classList.add('active');
             overlay.classList.add('active');
@@ -199,7 +190,6 @@ function initHamburgerMenu() {
 
     // Open menu
     hamburgerBtn.addEventListener('click', (e) => {
-        console.log('Hamburger button clicked');
         e.preventDefault();
         e.stopPropagation();
         const isOpen = sidebar.classList.contains('active');
@@ -208,7 +198,6 @@ function initHamburgerMenu() {
 
     // Close menu when clicking overlay
     overlay.addEventListener('click', () => {
-        console.log('Overlay clicked');
         toggleMenu(false);
     });
 
@@ -238,8 +227,6 @@ function initHamburgerMenu() {
             }
         }, 100);
     });
-
-    console.log('Hamburger menu initialized successfully');
 }
 
 // Initialize all enhancements on page load

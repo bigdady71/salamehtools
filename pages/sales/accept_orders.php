@@ -207,7 +207,7 @@ if (isset($_SESSION['error'])) {
         $itemsStmt = $pdo->prepare("
             SELECT
                 oi.quantity,
-                oi.unit_price,
+                oi.unit_price_usd as unit_price,
                 p.sku,
                 p.item_name,
                 p.unit,

@@ -65,7 +65,7 @@ $statsStmt = $pdo->prepare("
     SELECT
         COUNT(*) as total_payments,
         COALESCE(SUM(p.amount_usd), 0) as total_paid_usd,
-        COUNT(CASE WHEN p.method = 'cash' THEN 1 END) as cash_count,
+        COUNT(CASE WHEN p.method IN ('cash', 'cash_usd', 'cash_lbp') THEN 1 END) as cash_count,
         COUNT(CASE WHEN p.method = 'card' THEN 1 END) as card_count,
         COUNT(CASE WHEN p.method = 'bank' THEN 1 END) as bank_count,
         COUNT(CASE WHEN p.method = 'qr_cash' THEN 1 END) as qr_count
@@ -232,7 +232,9 @@ customer_portal_render_layout_start([
             <label for="method">Filter by Payment Method</label>
             <select id="method" name="method" onchange="this.form.submit()">
                 <option value="all" <?= $method === 'all' || $method === '' ? 'selected' : '' ?>>All Methods</option>
-                <option value="cash" <?= $method === 'cash' ? 'selected' : '' ?>>Cash</option>
+                <option value="cash_usd" <?= $method === 'cash_usd' ? 'selected' : '' ?>>Cash (USD)</option>
+                <option value="cash_lbp" <?= $method === 'cash_lbp' ? 'selected' : '' ?>>Cash (LBP)</option>
+                <option value="cash" <?= $method === 'cash' ? 'selected' : '' ?>>Cash (Legacy)</option>
                 <option value="card" <?= $method === 'card' ? 'selected' : '' ?>>Card</option>
                 <option value="bank" <?= $method === 'bank' ? 'selected' : '' ?>>Bank Transfer</option>
                 <option value="qr_cash" <?= $method === 'qr_cash' ? 'selected' : '' ?>>QR Cash</option>

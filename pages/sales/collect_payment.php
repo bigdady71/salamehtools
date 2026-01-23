@@ -108,12 +108,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'collect_payment') {
                 $paidInvoices = [];
 
                 // Apply payment to invoices (oldest first)
-                $paymentStmt = $pdo->prepare("
+                // Prepare statements for currency-specific payments
+                $paymentStmtUSD = $pdo->prepare("
                     INSERT INTO payments (
                         invoice_id, method, amount_usd, amount_lbp,
                         received_by_user_id, received_at
                     ) VALUES (
-                        :invoice_id, 'cash', :amount_usd, :amount_lbp,
+                        :invoice_id, 'cash_usd', :amount_usd, 0,
+                        :received_by, NOW()
+                    )
+                ");
+                $paymentStmtLBP = $pdo->prepare("
+                    INSERT INTO payments (
+                        invoice_id, method, amount_usd, amount_lbp,
+                        received_by_user_id, received_at
+                    ) VALUES (
+                        :invoice_id, 'cash_lbp', :amount_usd, :amount_lbp,
                         :received_by, NOW()
                     )
                 ");
@@ -122,19 +132,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'collect_payment') {
                     UPDATE invoices SET status = 'paid' WHERE id = :id
                 ");
 
+                // Track remaining amounts by currency
+                $remainingUSD = $paymentUSD;
+                $remainingLBPinUSD = $paymentLBPinUSD;
+
                 foreach ($unpaidInvoices as $invoice) {
                     if ($remainingPayment <= 0.01) break;
 
                     $invoiceRemaining = (float)$invoice['remaining_usd'];
                     $paymentForThisInvoice = min($remainingPayment, $invoiceRemaining);
 
-                    // Record payment for this invoice
-                    $paymentStmt->execute([
-                        ':invoice_id' => $invoice['invoice_id'],
-                        ':amount_usd' => $paymentForThisInvoice,
-                        ':amount_lbp' => $paymentForThisInvoice * $exchangeRate,
-                        ':received_by' => $repId,
-                    ]);
+                    // Determine how much of each currency to apply
+                    $usdFromUSD = min($remainingUSD, $paymentForThisInvoice);
+                    $usdFromLBP = $paymentForThisInvoice - $usdFromUSD;
+
+                    // Record USD payment if any
+                    if ($usdFromUSD > 0.01) {
+                        $paymentStmtUSD->execute([
+                            ':invoice_id' => $invoice['invoice_id'],
+                            ':amount_usd' => $usdFromUSD,
+                            ':received_by' => $repId,
+                        ]);
+                        $remainingUSD -= $usdFromUSD;
+                    }
+
+                    // Record LBP payment if any
+                    if ($usdFromLBP > 0.01) {
+                        $paymentStmtLBP->execute([
+                            ':invoice_id' => $invoice['invoice_id'],
+                            ':amount_usd' => $usdFromLBP,
+                            ':amount_lbp' => $usdFromLBP * $exchangeRate,
+                            ':received_by' => $repId,
+                        ]);
+                        $remainingLBPinUSD -= $usdFromLBP;
+                    }
 
                     // Check if invoice is now fully paid
                     $newRemaining = $invoiceRemaining - $paymentForThisInvoice;
