@@ -58,10 +58,10 @@ function get_user_language(): string {
         }
     }
 
-    // Default to English
-    $GLOBALS['current_language'] = 'en';
-    $_SESSION['language'] = 'en';
-    return 'en';
+    // Default to Arabic for sales portal
+    $GLOBALS['current_language'] = 'ar';
+    $_SESSION['language'] = 'ar';
+    return 'ar';
 }
 
 /**

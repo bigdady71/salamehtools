@@ -116,9 +116,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 $flashes = consume_flashes();
 
 sales_portal_render_layout_start([
-    'title' => $title,
-    'heading' => '➕ Add New Customer',
-    'subtitle' => 'Create a new customer that will be automatically assigned to you',
+    'title' => 'إضافة زبون جديد',
+    'heading' => '➕ إضافة زبون جديد',
+    'subtitle' => 'إنشاء زبون جديد سيتم تعيينه لك تلقائياً',
     'user' => $user,
     'active' => 'add_customer' // Highlight "Add Customer" in sidebar
 ]);

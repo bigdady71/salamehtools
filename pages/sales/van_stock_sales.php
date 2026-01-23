@@ -558,9 +558,9 @@ $hasStock = ((int)$hasStockStmt->fetchColumn()) > 0;
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'Van Stock Sales',
-    'heading' => 'Create New Sale',
-    'subtitle' => 'Sell products directly from your van inventory',
+    'title' => 'إنشاء بيع جديد',
+    'heading' => 'إنشاء بيع جديد',
+    'subtitle' => 'بيع المنتجات مباشرة من مخزون سيارتك',
     'active' => 'orders_van',
     'user' => $user,
     'extra_head' => '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>

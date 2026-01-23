@@ -109,9 +109,9 @@ $typeConfig = [
 ];
 
 sales_portal_render_layout_start([
-    'title' => 'Notifications',
-    'heading' => 'Notifications',
-    'subtitle' => 'Stay updated with your orders and stock requests',
+    'title' => 'الإشعارات',
+    'heading' => 'الإشعارات',
+    'subtitle' => 'ابقَ على اطلاع بطلباتك وطلبات المخزون',
     'active' => 'notifications',
     'user' => $user,
 ]);

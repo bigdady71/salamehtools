@@ -275,9 +275,9 @@ $trendLabels = array_map(fn($row) => date('M d', strtotime($row['payment_date'])
 $trendValues = array_map(fn($row) => (float)$row['daily_collected'], $paymentTrends);
 
 sales_portal_render_layout_start([
-    'title' => $title,
-    'heading' => '💰 Collections & Receivables',
-    'subtitle' => 'Manage outstanding payments and track collection activities',
+    'title' => 'التحصيلات والمستحقات',
+    'heading' => '💰 التحصيلات والمستحقات',
+    'subtitle' => 'إدارة المدفوعات المستحقة وتتبع أنشطة التحصيل',
     'user' => $user,
     'active' => 'receivables',
     'extra_head' => '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>'

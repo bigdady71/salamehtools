@@ -157,12 +157,12 @@ $statusStyles = [
     'handed_to_sales_rep' => 'background:#dbeafe;color:#1e40af;',
 ];
 
-$title = 'Accept Orders - Sales Portal';
+$title = 'قبول الطلبات - بوابة المبيعات';
 
 sales_portal_render_layout_start([
     'title' => $title,
-    'heading' => 'Orders Ready for Pickup',
-    'subtitle' => 'Accept orders from warehouse and load to your van',
+    'heading' => 'الطلبات الجاهزة للاستلام',
+    'subtitle' => 'استلام الطلبات من المستودع وتحميلها في سيارتك',
     'user' => $user,
     'active' => 'accept_orders',
 ]);

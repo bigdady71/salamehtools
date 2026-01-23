@@ -489,9 +489,9 @@ $hasStock = count($products) > 0;
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'Quick Sale - Visual Cart',
-    'heading' => 'Quick Sale',
-    'subtitle' => 'Tap products to add to cart',
+    'title' => 'بيع سريع',
+    'heading' => 'بيع سريع',
+    'subtitle' => 'اضغط على المنتجات لإضافتها إلى السلة',
     'active' => 'orders_cart',
     'user' => $user,
     'extra_head' => '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>
@@ -648,7 +648,7 @@ sales_portal_render_layout_start([
         .cart-button {
             position: fixed;
             bottom: 20px;
-            right: 20px;
+            left: 20px;
             background: linear-gradient(135deg, #059669 0%, #047857 100%);
             color: white;
             padding: 18px 28px;
@@ -1114,27 +1114,27 @@ foreach ($flashes as $flash) {
 if (!$canCreateOrder) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">⚠️</div>';
-    echo '<h3>System Unavailable</h3>';
-    echo '<p>The sales system is temporarily unavailable due to missing exchange rate configuration.</p>';
+    echo '<h3>النظام غير متاح</h3>';
+    echo '<p>نظام المبيعات غير متاح حالياً بسبب عدم توفر سعر الصرف.</p>';
     echo '</div>';
 } elseif (!$hasStock) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">📦</div>';
-    echo '<h3>No Products in Van Stock</h3>';
-    echo '<p>You currently have no products in your van inventory.</p>';
-    echo '<p>Please request stock from the warehouse to start making sales.</p>';
+    echo '<h3>لا توجد منتجات في مخزون السيارة</h3>';
+    echo '<p>ليس لديك حالياً أي منتجات في مخزون سيارتك.</p>';
+    echo '<p>يرجى طلب البضاعة من المستودع للبدء بالبيع.</p>';
     echo '</div>';
 } else {
 ?>
     <!-- Filter Bar -->
     <div class="filter-bar">
         <select id="categoryFilter" onchange="filterProducts()">
-            <option value="">All Categories</option>
+            <option value="">جميع الفئات</option>
             <?php foreach ($categories as $cat): ?>
                 <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></option>
             <?php endforeach; ?>
         </select>
-        <input type="text" id="searchFilter" placeholder="Search products..." oninput="filterProducts()">
+        <input type="text" id="searchFilter" placeholder="بحث عن منتجات..." oninput="filterProducts()">
     </div>
 
     <!-- Product Grid -->
@@ -1177,7 +1177,7 @@ if (!$canCreateOrder) {
                 <div class="product-name"><?= $itemName ?></div>
                 <div class="product-price">$<?= number_format($priceUSD, 2) ?></div>
                 <div class="product-stock <?= $stock <= 5 ? 'low' : '' ?>">
-                    Stock: <?= number_format($stock, 1) ?>
+                    المخزون: <?= number_format($stock, 1) ?>
                 </div>
                 <div class="product-controls" id="controls-<?= $product['id'] ?>" onclick="event.stopPropagation();">
                     <button type="button" class="product-qty-btn minus" onclick="decreaseQtyFromCard(<?= $product['id'] ?>)">−</button>
@@ -1201,7 +1201,7 @@ if (!$canCreateOrder) {
     <!-- Cart Panel -->
     <div class="cart-panel" id="cartPanel">
         <div class="cart-header">
-            <h2>🛒 Your Cart</h2>
+            <h2>🛒 سلتك</h2>
             <button class="cart-close" onclick="closeCart()">&times;</button>
         </div>
 
@@ -1213,17 +1213,17 @@ if (!$canCreateOrder) {
             <div class="cart-items" id="cartItems">
                 <div class="empty-state" id="emptyCart">
                     <div class="empty-state-icon">🛒</div>
-                    <p>Your cart is empty. Tap products to add them.</p>
+                    <p>سلتك فارغة. اضغط على المنتجات لإضافتها.</p>
                 </div>
             </div>
 
             <div class="cart-customer">
-                <label>Select Customer</label>
+                <label>اختر الزبون</label>
                 <div class="customer-search-wrapper">
                     <input type="text"
                            id="customerSearch"
                            class="customer-input"
-                           placeholder="Search by name or phone..."
+                           placeholder="بحث بالاسم أو رقم الهاتف..."
                            autocomplete="off">
                     <div id="customerDropdown" class="customer-dropdown"></div>
                 </div>
@@ -1234,66 +1234,66 @@ if (!$canCreateOrder) {
             </div>
 
             <div class="cart-notes">
-                <label>Notes (Optional)</label>
-                <textarea name="notes" id="orderNotes" placeholder="Add any notes..."></textarea>
+                <label>ملاحظات (اختياري)</label>
+                <textarea name="notes" id="orderNotes" placeholder="أضف ملاحظات..."></textarea>
             </div>
 
             <div class="cart-totals">
                 <div class="total-row">
-                    <span>Items:</span>
+                    <span>المنتجات:</span>
                     <span id="totalItems">0</span>
                 </div>
                 <div class="total-row grand">
-                    <span>Total USD:</span>
+                    <span>المجموع بالدولار:</span>
                     <span id="totalUSD">$0.00</span>
                 </div>
                 <div class="total-row">
-                    <span>Total LBP:</span>
-                    <span id="totalLBP">L.L. 0</span>
+                    <span>المجموع بالليرة:</span>
+                    <span id="totalLBP">ل.ل. 0</span>
                 </div>
             </div>
 
             <div class="cart-payment">
-                <h4>Payment</h4>
+                <h4>الدفع</h4>
                 <div class="payment-grid">
                     <div class="payment-group">
-                        <label>USD $</label>
+                        <label>دولار $</label>
                         <input type="number" name="payment_usd" id="paymentUSD" step="0.01" min="0" placeholder="0.00" oninput="updatePaymentDisplay()">
                     </div>
                     <div class="payment-group">
-                        <label>LBP L.L.</label>
+                        <label>ليرة ل.ل.</label>
                         <input type="number" name="payment_lbp" id="paymentLBP" step="1000" min="0" placeholder="0" oninput="updatePaymentDisplay()">
                     </div>
                 </div>
                 <div id="paymentRemaining" class="payment-remaining" style="display:none;">
                     <div class="payment-remaining-row">
-                        <span>Total Due:</span>
+                        <span>المجموع المستحق:</span>
                         <span id="displayTotalDue">$0.00</span>
                     </div>
                     <div class="payment-remaining-row">
-                        <span>Total Paid:</span>
+                        <span>المدفوع:</span>
                         <span id="displayTotalPaid">$0.00</span>
                     </div>
                     <div class="payment-remaining-row highlight">
-                        <span id="remainingLabel">Remaining:</span>
+                        <span id="remainingLabel">المتبقي:</span>
                         <span id="displayRemaining">$0.00</span>
                     </div>
                     <div class="payment-remaining-row" style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,0.1);">
-                        <span>In LBP:</span>
-                        <span id="displayRemainingLBP">L.L. 0</span>
+                        <span>بالليرة:</span>
+                        <span id="displayRemainingLBP">ل.ل. 0</span>
                     </div>
                 </div>
                 <div id="changeDisplay" class="change-display" style="display:none;">
-                    <h5>💵 Change to Return:</h5>
+                    <h5>💵 الباقي:</h5>
                     <div class="change-amount">
-                        <span id="changeUSD">$0.00</span> / <span id="changeLBP">L.L. 0</span>
+                        <span id="changeUSD">$0.00</span> / <span id="changeLBP">ل.ل. 0</span>
                     </div>
                 </div>
             </div>
 
             <div class="cart-submit">
                 <button type="submit" class="btn-submit" id="submitBtn" disabled>
-                    Complete Sale & Print Invoice
+                    إتمام البيع وطباعة الفاتورة
                 </button>
             </div>
 
@@ -1399,7 +1399,7 @@ if (!$canCreateOrder) {
                 cartItems.innerHTML = `
                     <div class="empty-state" id="emptyCart">
                         <div class="empty-state-icon">🛒</div>
-                        <p>Your cart is empty. Tap products to add them.</p>
+                        <p>سلتك فارغة. اضغط على المنتجات لإضافتها.</p>
                     </div>
                 `;
                 cartInputs.innerHTML = '';
@@ -1409,7 +1409,7 @@ if (!$canCreateOrder) {
                 submitBtn.disabled = true;
                 document.getElementById('totalItems').textContent = '0';
                 document.getElementById('totalUSD').textContent = '$0.00';
-                document.getElementById('totalLBP').textContent = 'L.L. 0';
+                document.getElementById('totalLBP').textContent = 'ل.ل. 0';
                 return;
             }
 
@@ -1431,7 +1431,7 @@ if (!$canCreateOrder) {
                         <div class="cart-item-info">
                             <div class="cart-item-sku">${escapeHtml(item.sku || '')}</div>
                             <div class="cart-item-name">${escapeHtml(item.name)}</div>
-                            <div class="cart-item-qty">Qty: ${item.quantity} / Stock: ${item.stock}</div>
+                            <div class="cart-item-qty">الكمية: ${item.quantity} / المخزون: ${item.stock}</div>
                             <div class="cart-item-price">$${item.price.toFixed(2)} × ${item.quantity} = $${subtotal.toFixed(2)}</div>
                         </div>
                         <div class="cart-item-controls">
@@ -1457,7 +1457,7 @@ if (!$canCreateOrder) {
 
             document.getElementById('totalItems').textContent = totalQty;
             document.getElementById('totalUSD').textContent = '$' + totalUSD.toFixed(2);
-            document.getElementById('totalLBP').textContent = 'L.L. ' + Math.round(totalUSD * exchangeRate).toLocaleString();
+            document.getElementById('totalLBP').textContent = 'ل.ل. ' + Math.round(totalUSD * exchangeRate).toLocaleString();
 
             // Enable submit only if customer is selected
             const customerId = document.getElementById('customerId').value;
@@ -1521,12 +1521,12 @@ if (!$canCreateOrder) {
                             customerDropdown.innerHTML = data.results.map(c => `
                                 <div class="customer-option" onclick="selectCustomer(${c.id}, '${escapeHtml(c.name)}', '${escapeHtml(c.phone || '')}', '${escapeHtml(c.city || '')}')">
                                     <strong>${escapeHtml(c.name)}</strong>
-                                    <small>${escapeHtml(c.phone || 'No phone')} ${c.city ? '| ' + escapeHtml(c.city) : ''}</small>
+                                    <small>${escapeHtml(c.phone || 'لا يوجد هاتف')} ${c.city ? '| ' + escapeHtml(c.city) : ''}</small>
                                 </div>
                             `).join('');
                             customerDropdown.classList.add('show');
                         } else {
-                            customerDropdown.innerHTML = '<div class="customer-option" style="cursor:default;">No customers found</div>';
+                            customerDropdown.innerHTML = '<div class="customer-option" style="cursor:default;">لم يتم العثور على زبائن</div>';
                             customerDropdown.classList.add('show');
                         }
                     });
@@ -1592,29 +1592,29 @@ if (!$canCreateOrder) {
 
             if (remainingUSD > 0.01) {
                 // Still owes money
-                document.getElementById('remainingLabel').textContent = 'Remaining:';
+                document.getElementById('remainingLabel').textContent = 'المتبقي:';
                 document.getElementById('displayRemaining').textContent = '$' + remainingUSD.toFixed(2);
-                document.getElementById('displayRemainingLBP').textContent = 'L.L. ' + Math.round(remainingLBP).toLocaleString();
+                document.getElementById('displayRemainingLBP').textContent = 'ل.ل. ' + Math.round(remainingLBP).toLocaleString();
                 paymentRemainingDiv.className = 'payment-remaining';
                 changeDisplayDiv.style.display = 'none';
             } else if (remainingUSD < -0.01) {
                 // Overpaid - show change
                 const changeUSD = Math.abs(remainingUSD);
                 const changeLBP = changeUSD * exchangeRate;
-                document.getElementById('remainingLabel').textContent = 'Overpaid:';
+                document.getElementById('remainingLabel').textContent = 'زيادة:';
                 document.getElementById('displayRemaining').textContent = '$' + changeUSD.toFixed(2);
-                document.getElementById('displayRemainingLBP').textContent = 'L.L. ' + Math.round(changeLBP).toLocaleString();
+                document.getElementById('displayRemainingLBP').textContent = 'ل.ل. ' + Math.round(changeLBP).toLocaleString();
                 paymentRemainingDiv.className = 'payment-remaining overpaid';
 
                 // Show change to return
                 document.getElementById('changeUSD').textContent = '$' + changeUSD.toFixed(2);
-                document.getElementById('changeLBP').textContent = 'L.L. ' + Math.round(changeLBP).toLocaleString();
+                document.getElementById('changeLBP').textContent = 'ل.ل. ' + Math.round(changeLBP).toLocaleString();
                 changeDisplayDiv.style.display = 'block';
             } else {
                 // Exact payment
-                document.getElementById('remainingLabel').textContent = 'Remaining:';
+                document.getElementById('remainingLabel').textContent = 'المتبقي:';
                 document.getElementById('displayRemaining').textContent = '$0.00';
-                document.getElementById('displayRemainingLBP').textContent = 'L.L. 0';
+                document.getElementById('displayRemainingLBP').textContent = 'ل.ل. 0';
                 paymentRemainingDiv.className = 'payment-remaining paid';
                 changeDisplayDiv.style.display = 'none';
             }
@@ -1636,18 +1636,18 @@ if (!$canCreateOrder) {
 
             if (!customerId) {
                 e.preventDefault();
-                alert('Please select a customer.');
+                alert('يرجى اختيار زبون.');
                 return false;
             }
 
             if (itemCount === 0) {
                 e.preventDefault();
-                alert('Please add at least one product.');
+                alert('يرجى إضافة منتج واحد على الأقل.');
                 return false;
             }
 
             document.getElementById('submitBtn').disabled = true;
-            document.getElementById('submitBtn').textContent = 'Processing...';
+            document.getElementById('submitBtn').textContent = 'جاري المعالجة...';
         });
 
         // Add click listeners to all product cards

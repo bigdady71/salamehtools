@@ -11,7 +11,7 @@ require_once __DIR__ . '/../../includes/lang.php';
 
 $user = sales_portal_bootstrap();
 $navLinks = sales_portal_nav_links();
-$title = t('dashboard.title', 'Sales Dashboard');
+$title = 'لوحة التحكم';
 $pdo = db();
 
 $dashboardData = sales_portal_dashboard_data($pdo, (int)$user['id']);
@@ -27,23 +27,25 @@ $vanStockMovements = $dashboardData['van_stock_movements'];
 $errors = $dashboardData['errors'];
 $notices = $dashboardData['notices'];
 
+// Arabic order status labels
 $orderStatusLabels = [
-    'on_hold' => t('order_status.on_hold', 'On Hold'),
-    'approved' => t('order_status.approved', 'Approved'),
-    'preparing' => t('order_status.preparing', 'Preparing'),
-    'ready' => t('order_status.ready', 'Ready for Pickup'),
-    'in_transit' => t('order_status.in_transit', 'In Transit'),
-    'delivered' => t('order_status.delivered', 'Delivered'),
-    'cancelled' => t('order_status.cancelled', 'Cancelled'),
-    'returned' => t('order_status.returned', 'Returned'),
+    'on_hold' => 'قيد الانتظار',
+    'approved' => 'مُوافق عليه',
+    'preparing' => 'قيد التحضير',
+    'ready' => 'جاهز للاستلام',
+    'in_transit' => 'قيد التوصيل',
+    'delivered' => 'تم التسليم',
+    'cancelled' => 'ملغى',
+    'returned' => 'مرتجع',
 ];
 
+// Arabic invoice status labels
 $invoiceStatusLabels = [
-    'draft' => t('invoice_status.draft', 'Pending Draft'),
-    'pending' => t('invoice_status.pending', 'Pending'),
-    'issued' => t('invoice_status.issued', 'Issued'),
-    'paid' => t('invoice_status.paid', 'Paid'),
-    'voided' => t('invoice_status.voided', 'Voided'),
+    'draft' => 'مسودة',
+    'pending' => 'معلق',
+    'issued' => 'صادرة',
+    'paid' => 'مدفوعة',
+    'voided' => 'ملغاة',
 ];
 
 $extraHead = <<<'HTML'
@@ -179,7 +181,7 @@ HTML;
 sales_portal_render_layout_start([
     'title' => $title,
     'heading' => $title,
-    'subtitle' => t('dashboard.subtitle', 'Live view of your pipeline, invoices, deliveries, and van stock.'),
+    'subtitle' => 'عرض مباشر لطلباتك، فواتيرك، التوصيلات، ومخزون السيارة.',
     'user' => $user,
     'nav_links' => $navLinks,
     'active' => 'dashboard',
@@ -311,25 +313,25 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
 <section style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); border-radius: 16px; padding: 24px; margin-bottom: 24px; color: white;">
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
         <div>
-            <h2 style="margin: 0 0 8px 0; font-size: 1.4rem; font-weight: 700; color: white;"><?= t('dashboard.overdue_alert_title', '🚨 Overdue Payments Alert') ?></h2>
-            <p style="margin: 0; opacity: 0.9; font-size: 0.95rem;"><?= t('dashboard.overdue_alert_subtitle', 'These invoices require immediate attention') ?></p>
+            <h2 style="margin: 0 0 8px 0; font-size: 1.4rem; font-weight: 700; color: white;">🚨 تنبيه الدفعات المتأخرة</h2>
+            <p style="margin: 0; opacity: 0.9; font-size: 0.95rem;">هذه الفواتير تتطلب اهتماماً فورياً</p>
         </div>
         <a href="receivables.php" style="background: rgba(255,255,255,0.2); color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.3);">
-            <?= t('dashboard.view_ar_dashboard', 'View AR Dashboard →') ?>
+            عرض لوحة التحصيلات ←
         </a>
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
         <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 16px; backdrop-filter: blur(10px);">
-            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;"><?= t('dashboard.overdue_invoices', 'Overdue Invoices') ?></div>
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;">الفواتير المتأخرة</div>
             <div style="font-size: 2rem; font-weight: 700;"><?= number_format((int)$arSummary['overdue_count']) ?></div>
         </div>
         <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 16px; backdrop-filter: blur(10px);">
-            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;"><?= t('dashboard.total_overdue', 'Total Overdue') ?></div>
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;">إجمالي المتأخر</div>
             <div style="font-size: 2rem; font-weight: 700;">$<?= number_format((float)$arSummary['overdue_usd'], 0) ?></div>
         </div>
         <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 16px; backdrop-filter: blur(10px);">
-            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;"><?= t('dashboard.critical_90_days', 'Critical (90+ days)') ?></div>
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 4px;">حرج (90+ يوم)</div>
             <div style="font-size: 2rem; font-weight: 700;">$<?= number_format((float)$arSummary['critical_usd'], 0) ?></div>
         </div>
     </div>
@@ -338,11 +340,11 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
         <table style="width: 100%; border-collapse: collapse;">
             <thead>
                 <tr style="border-bottom: 2px solid rgba(255,255,255,0.3);">
-                    <th style="text-align: left; padding: 8px; font-size: 0.85rem; opacity: 0.9;"><?= t('dashboard.invoice', 'Invoice') ?></th>
-                    <th style="text-align: left; padding: 8px; font-size: 0.85rem; opacity: 0.9;"><?= t('dashboard.customer', 'Customer') ?></th>
-                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;"><?= t('dashboard.days_overdue', 'Days Overdue') ?></th>
-                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;"><?= t('dashboard.amount', 'Amount') ?></th>
-                    <th style="text-align: center; padding: 8px; font-size: 0.85rem; opacity: 0.9;"><?= t('dashboard.action', 'Action') ?></th>
+                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;">الفاتورة</th>
+                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;">الزبون</th>
+                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;">أيام التأخير</th>
+                    <th style="text-align: right; padding: 8px; font-size: 0.85rem; opacity: 0.9;">المبلغ</th>
+                    <th style="text-align: center; padding: 8px; font-size: 0.85rem; opacity: 0.9;">إجراء</th>
                 </tr>
             </thead>
             <tbody>
@@ -352,7 +354,7 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
                     <td style="padding: 10px;"><?= htmlspecialchars($inv['customer_name'], ENT_QUOTES, 'UTF-8') ?></td>
                     <td style="padding: 10px; text-align: right;">
                         <span style="background: <?= $inv['days_overdue'] > 90 ? '#7f1d1d' : ($inv['days_overdue'] > 60 ? '#991b1b' : '#b91c1c') ?>; padding: 4px 10px; border-radius: 6px; font-weight: 600;">
-                            <?= (int)$inv['days_overdue'] ?> <?= t('dashboard.days', 'days') ?>
+                            <?= (int)$inv['days_overdue'] ?> يوم
                         </span>
                     </td>
                     <td style="padding: 10px; text-align: right; font-weight: 600; font-size: 1.05rem;">
@@ -360,7 +362,7 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
                     </td>
                     <td style="padding: 10px; text-align: center;">
                         <a href="invoices.php" style="background: rgba(255,255,255,0.9); color: #dc2626; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: 600;">
-                            <?= t('dashboard.record_payment', 'Record Payment') ?>
+                            تسجيل دفعة
                         </a>
                     </td>
                 </tr>
@@ -374,44 +376,44 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
 <!-- Sales Quota Performance -->
 <?php if ($monthlyQuota > 0 || $ytdQuota > 0): ?>
 <section style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; padding: 24px; margin-bottom: 32px; color: white;">
-    <h2 style="margin: 0 0 20px 0; font-size: 1.4rem; font-weight: 700; color: white;"><?= t('dashboard.quota_performance', '🎯 Sales Quota Performance') ?></h2>
+    <h2 style="margin: 0 0 20px 0; font-size: 1.4rem; font-weight: 700; color: white;">🎯 أداء حصة المبيعات</h2>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
         <!-- This Month -->
         <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 20px; backdrop-filter: blur(10px);">
-            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;"><?= t('dashboard.this_month', 'This Month') ?></div>
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 8px;">هذا الشهر</div>
             <div style="font-size: 2rem; font-weight: 700; margin-bottom: 8px;">$<?= number_format($monthlySales, 0) ?></div>
-            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 12px;"><?= t('dashboard.of_quota', 'of') ?> $<?= number_format($monthlyQuota, 0) ?> <?= t('dashboard.quota', 'quota') ?></div>
+            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 12px;">من $<?= number_format($monthlyQuota, 0) ?> الحصة</div>
             <div style="background: rgba(255,255,255,0.2); border-radius: 8px; height: 12px; overflow: hidden;">
                 <div style="background: <?= $quotaPercent >= 100 ? '#10b981' : ($quotaPercent >= 75 ? '#f59e0b' : '#ef4444') ?>; height: 100%; width: <?= min(100, $quotaPercent) ?>%; transition: width 0.3s;"></div>
             </div>
             <div style="margin-top: 8px; font-size: 1.2rem; font-weight: 600;">
                 <?= number_format($quotaPercent, 1) ?>%
                 <?php if ($quotaPercent >= 100): ?>
-                    <span style="color: #10b981;">✓ Achieved!</span>
+                    <span style="color: #10b981;">✓ تم تحقيقها!</span>
                 <?php elseif ($quotaPercent >= 75): ?>
-                    <span style="color: #fbbf24;">▲ On Track</span>
+                    <span style="color: #fbbf24;">▲ على المسار</span>
                 <?php else: ?>
-                    <span style="color: #fca5a5;">⚠ Needs Attention</span>
+                    <span style="color: #fca5a5;">⚠ يحتاج اهتمام</span>
                 <?php endif; ?>
             </div>
         </div>
 
         <!-- Year to Date -->
         <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 20px; backdrop-filter: blur(10px);">
-            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">Year to Date</div>
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 8px;">منذ بداية السنة</div>
             <div style="font-size: 2rem; font-weight: 700; margin-bottom: 8px;">$<?= number_format($ytdSales, 0) ?></div>
-            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 12px;">of $<?= number_format($ytdQuota, 0) ?> quota</div>
+            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 12px;">من $<?= number_format($ytdQuota, 0) ?> الحصة</div>
             <div style="background: rgba(255,255,255,0.2); border-radius: 8px; height: 12px; overflow: hidden;">
                 <div style="background: <?= $ytdPercent >= 100 ? '#10b981' : ($ytdPercent >= 75 ? '#f59e0b' : '#ef4444') ?>; height: 100%; width: <?= min(100, $ytdPercent) ?>%; transition: width 0.3s;"></div>
             </div>
             <div style="margin-top: 8px; font-size: 1.2rem; font-weight: 600;">
                 <?= number_format($ytdPercent, 1) ?>%
                 <?php if ($ytdPercent >= 100): ?>
-                    <span style="color: #10b981;">✓ Exceeding!</span>
+                    <span style="color: #10b981;">✓ تجاوزت!</span>
                 <?php elseif ($ytdPercent >= 90): ?>
-                    <span style="color: #fbbf24;">▲ Strong</span>
+                    <span style="color: #fbbf24;">▲ قوي</span>
                 <?php else: ?>
-                    <span style="color: #fca5a5;">⚠ Behind Pace</span>
+                    <span style="color: #fca5a5;">⚠ متأخر</span>
                 <?php endif; ?>
             </div>
         </div>
@@ -419,8 +421,8 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
         <!-- Gap to Quota -->
         <?php $gapAmount = $monthlyQuota - $monthlySales; ?>
         <div style="background: rgba(255,255,255,0.15); border-radius: 12px; padding: 20px; backdrop-filter: blur(10px);">
-            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">
-                <?= $gapAmount > 0 ? 'Gap to Quota' : 'Surplus' ?>
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 8px;">
+                <?= $gapAmount > 0 ? 'الفجوة للحصة' : 'الفائض' ?>
             </div>
             <div style="font-size: 2rem; font-weight: 700; margin-bottom: 8px; color: <?= $gapAmount > 0 ? '#fca5a5' : '#86efac' ?>;">
                 $<?= number_format(abs($gapAmount), 0) ?>
@@ -428,12 +430,12 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
             <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 12px;">
                 <?php
                 $daysLeft = (int)date('t') - (int)date('j');
-                echo $daysLeft . ' days left in month';
+                echo $daysLeft . ' يوم متبقي في الشهر';
                 ?>
             </div>
             <?php if ($gapAmount > 0 && $daysLeft > 0): ?>
                 <div style="font-size: 0.85rem; background: rgba(255,255,255,0.2); padding: 10px; border-radius: 6px; margin-top: 8px;">
-                    <strong>Daily target:</strong> $<?= number_format($gapAmount / $daysLeft, 0) ?>/day
+                    <strong>الهدف اليومي:</strong> $<?= number_format($gapAmount / $daysLeft, 0) ?>/يوم
                 </div>
             <?php endif; ?>
         </div>
@@ -443,52 +445,52 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
 
 <section class="metrics-grid">
     <article class="metric-card">
-        <span class="label">Orders Today</span>
+        <span class="label">طلبات اليوم</span>
         <strong><?= number_format($metrics['orders_today'] ?? 0) ?></strong>
-        <small>Created since midnight</small>
+        <small>منذ منتصف الليل</small>
     </article>
     <article class="metric-card">
-        <span class="label">Open Orders</span>
+        <span class="label">الطلبات المفتوحة</span>
         <strong><?= number_format($metrics['open_orders'] ?? 0) ?></strong>
-        <small>Not yet delivered</small>
+        <small>لم يتم تسليمها بعد</small>
     </article>
     <article class="metric-card">
-        <span class="label">Awaiting Approval</span>
+        <span class="label">بانتظار الموافقة</span>
         <strong><?= number_format($metrics['awaiting_approval'] ?? 0) ?></strong>
-        <small>Still on hold</small>
+        <small>قيد الانتظار</small>
     </article>
     <article class="metric-card">
-        <span class="label">In Transit</span>
+        <span class="label">قيد التوصيل</span>
         <strong><?= number_format($metrics['in_transit'] ?? 0) ?></strong>
-        <small>Orders currently en route</small>
+        <small>الطلبات في الطريق</small>
     </article>
     <article class="metric-card">
-        <span class="label">Deliveries Today</span>
+        <span class="label">توصيلات اليوم</span>
         <strong><?= number_format($deliveriesToday) ?></strong>
-        <small>Scheduled for today</small>
+        <small>مجدولة لليوم</small>
     </article>
     <article class="metric-card">
-        <span class="label">Open Receivables</span>
+        <span class="label">المستحقات المفتوحة</span>
         <strong>$<?= number_format($invoiceTotals['usd'], 2) ?></strong>
-        <small><?= number_format($invoiceTotals['lbp']) ?> LBP</small>
+        <small><?= number_format($invoiceTotals['lbp']) ?> ل.ل.</small>
     </article>
 </section>
 
 <section class="data-grid">
     <article class="data-card">
         <header>
-            <h2>Recent Orders</h2>
-            <span class="badge badge-info">Latest</span>
+            <h2>الطلبات الأخيرة</h2>
+            <span class="badge badge-info">الأحدث</span>
         </header>
         <?php if (!$latestOrders): ?>
-            <div class="empty-state">No orders found.</div>
+            <div class="empty-state">لا توجد طلبات.</div>
         <?php else: ?>
             <table>
                 <thead>
                     <tr>
-                        <th>Order</th>
-                        <th>Status</th>
-                        <th>Total (USD)</th>
+                        <th>الطلب</th>
+                        <th>الحالة</th>
+                        <th>المجموع ($)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -500,7 +502,7 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
                         <tr>
                             <td>
                                 <strong><?= htmlspecialchars($order['order_number'] ?? ('#' . (int)$order['id']), ENT_QUOTES, 'UTF-8') ?></strong><br>
-                                <small><?= htmlspecialchars($order['customer_name'] ?? 'Unassigned', ENT_QUOTES, 'UTF-8') ?></small>
+                                <small><?= htmlspecialchars($order['customer_name'] ?? 'غير معين', ENT_QUOTES, 'UTF-8') ?></small>
                             </td>
                             <td><?= htmlspecialchars($statusLabel, ENT_QUOTES, 'UTF-8') ?></td>
                             <td>$<?= number_format((float)($order['total_usd'] ?? 0), 2) ?></td>
@@ -513,18 +515,18 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
 
     <article class="data-card">
         <header>
-            <h2>Pending Invoices</h2>
-            <span class="badge badge-warning">Receivables</span>
+            <h2>الفواتير المعلقة</h2>
+            <span class="badge badge-warning">المستحقات</span>
         </header>
         <?php if (!$pendingInvoices): ?>
-            <div class="empty-state">No invoices issued yet.</div>
+            <div class="empty-state">لا توجد فواتير صادرة بعد.</div>
         <?php else: ?>
             <table>
                 <thead>
                     <tr>
-                        <th>Invoice</th>
-                        <th>Status</th>
-                        <th>Balance</th>
+                        <th>الفاتورة</th>
+                        <th>الحالة</th>
+                        <th>الرصيد</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -542,7 +544,7 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
                             <td><?= htmlspecialchars($statusLabel, ENT_QUOTES, 'UTF-8') ?></td>
                             <td>
                                 $<?= number_format($balanceUsd, 2) ?><br>
-                                <small><?= number_format(max(0.0, (float)$invoice['total_lbp'] - (float)$invoice['paid_lbp'])) ?> LBP</small>
+                                <small><?= number_format(max(0.0, (float)$invoice['total_lbp'] - (float)$invoice['paid_lbp'])) ?> ل.ل.</small>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -553,18 +555,18 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
 
     <article class="data-card">
         <header>
-            <h2>Upcoming Deliveries</h2>
-            <span class="badge badge-info">Logistics</span>
+            <h2>التوصيلات القادمة</h2>
+            <span class="badge badge-info">اللوجستيات</span>
         </header>
         <?php if (!$upcomingDeliveries): ?>
-            <div class="empty-state">No upcoming deliveries scheduled.</div>
+            <div class="empty-state">لا توجد توصيلات قادمة مجدولة.</div>
         <?php else: ?>
             <table>
                 <thead>
                     <tr>
-                        <th>Customer</th>
-                        <th>When</th>
-                        <th>Status</th>
+                        <th>الزبون</th>
+                        <th>الموعد</th>
+                        <th>الحالة</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -576,7 +578,7 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
                         <tr>
                             <td><?= htmlspecialchars($delivery['customer_name'] ?? '—', ENT_QUOTES, 'UTF-8') ?></td>
                             <td><?= htmlspecialchars($scheduledLabel, ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string)($delivery['status'] ?? 'pending'))), ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars($orderStatusLabels[$delivery['status'] ?? 'pending'] ?? ucwords(str_replace('_', ' ', (string)($delivery['status'] ?? 'pending'))), ENT_QUOTES, 'UTF-8') ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -586,18 +588,18 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
 
     <article class="data-card">
         <header>
-            <h2>Recent Payments</h2>
-            <span class="badge badge-success">Collections</span>
+            <h2>الدفعات الأخيرة</h2>
+            <span class="badge badge-success">التحصيلات</span>
         </header>
         <?php if (!$recentPayments): ?>
-            <div class="empty-state">No payments recorded yet.</div>
+            <div class="empty-state">لا توجد دفعات مسجلة بعد.</div>
         <?php else: ?>
             <table>
                 <thead>
                     <tr>
-                        <th>Invoice</th>
-                        <th>Amount</th>
-                        <th>Received</th>
+                        <th>الفاتورة</th>
+                        <th>المبلغ</th>
+                        <th>الاستلام</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -616,7 +618,7 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
                                     $<?= number_format((float)$payment['amount_usd'], 2) ?><br>
                                 <?php endif; ?>
                                 <?php if ((float)$payment['amount_lbp'] > 0): ?>
-                                    <small><?= number_format((float)$payment['amount_lbp']) ?> LBP</small>
+                                    <small><?= number_format((float)$payment['amount_lbp']) ?> ل.ل.</small>
                                 <?php endif; ?>
                                 <?php if (!(float)$payment['amount_usd'] && !(float)$payment['amount_lbp']): ?>
                                     <small>—</small>
@@ -633,35 +635,35 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
 
 <section class="data-card">
     <header>
-        <h2>Van Stock Snapshot</h2>
-        <span class="badge badge-neutral">Inventory</span>
+        <h2>ملخص مخزون السيارة</h2>
+        <span class="badge badge-neutral">المخزون</span>
     </header>
     <div class="van-stock-summary">
         <div>
-            <span class="label">SKUs</span>
+            <span class="label">عدد المنتجات</span>
             <strong><?= number_format((int)$vanStockSummary['sku_count']) ?></strong>
         </div>
         <div>
-            <span class="label">Units On Hand</span>
+            <span class="label">الكمية المتوفرة</span>
             <strong><?= number_format((float)$vanStockSummary['total_units'], 1) ?></strong>
         </div>
         <div>
-            <span class="label">Stock Value (USD)</span>
+            <span class="label">قيمة المخزون ($)</span>
             <strong>$<?= number_format((float)$vanStockSummary['total_value_usd'], 2) ?></strong>
         </div>
     </div>
 
-    <h3>Latest Movements</h3>
+    <h3>آخر الحركات</h3>
     <?php if (!$vanStockMovements): ?>
-        <div class="empty-state">No van stock movements recorded.</div>
+        <div class="empty-state">لا توجد حركات مخزون مسجلة.</div>
     <?php else: ?>
         <table>
             <thead>
                 <tr>
-                    <th>Date</th>
-                    <th>Item</th>
-                    <th>Change</th>
-                    <th>Reason</th>
+                    <th>التاريخ</th>
+                    <th>المنتج</th>
+                    <th>التغيير</th>
+                    <th>السبب</th>
                 </tr>
             </thead>
             <tbody>
@@ -671,6 +673,16 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
                     $deltaLabel = ($delta > 0 ? '+' : '') . number_format($delta, 1);
                     $movementAt = $movement['created_at'] ?? null;
                     $movementLabel = $movementAt ? date('M j, H:i', strtotime($movementAt)) : '—';
+                    // Translate common reasons
+                    $reasonTranslations = [
+                        'sale' => 'بيع',
+                        'return' => 'إرجاع',
+                        'transfer' => 'نقل',
+                        'adjustment' => 'تعديل',
+                        'loading' => 'تحميل',
+                    ];
+                    $reason = $movement['reason'] ?? '—';
+                    $reasonLabel = $reasonTranslations[$reason] ?? $reason;
                     ?>
                     <tr>
                         <td><?= htmlspecialchars($movementLabel, ENT_QUOTES, 'UTF-8') ?></td>
@@ -679,7 +691,7 @@ $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
                             <small><?= htmlspecialchars($movement['sku'] ?? '', ENT_QUOTES, 'UTF-8') ?></small>
                         </td>
                         <td><?= $deltaLabel ?></td>
-                        <td><?= htmlspecialchars($movement['reason'] ?? '—', ENT_QUOTES, 'UTF-8') ?></td>
+                        <td><?= htmlspecialchars($reasonLabel, ENT_QUOTES, 'UTF-8') ?></td>
                     </tr>
                 <?php endforeach; ?>
             </tbody>

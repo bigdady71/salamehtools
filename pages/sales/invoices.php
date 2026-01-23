@@ -732,9 +732,9 @@ td.text-center { text-align: center; }
 HTML;
 
 sales_portal_render_layout_start([
-    'title' => $title,
-    'heading' => 'Invoices & Collections',
-    'subtitle' => 'Manage invoices and record payments for your customers',
+    'title' => 'الفواتير والتحصيلات',
+    'heading' => 'الفواتير والتحصيلات',
+    'subtitle' => 'إدارة الفواتير وتسجيل المدفوعات لزبائنك',
     'user' => $user,
     'active' => 'invoices',
     'extra_head' => $extraHead,

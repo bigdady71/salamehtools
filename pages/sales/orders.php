@@ -17,18 +17,19 @@ if (!$user || ($user['role'] ?? '') !== 'sales_rep') {
 }
 
 $pdo = db();
-$title = 'Sales · My Orders';
+$title = 'المبيعات · طلباتي';
 $repId = (int)$user['id'];
 
+// Arabic status labels
 $statusLabels = [
-    'on_hold' => 'On Hold',
-    'approved' => 'Approved',
-    'preparing' => 'Preparing',
-    'ready' => 'Ready for Pickup',
-    'in_transit' => 'In Transit',
-    'delivered' => 'Delivered',
-    'cancelled' => 'Cancelled',
-    'returned' => 'Returned',
+    'on_hold' => 'قيد الانتظار',
+    'approved' => 'مُوافق عليه',
+    'preparing' => 'قيد التحضير',
+    'ready' => 'جاهز للاستلام',
+    'in_transit' => 'قيد التوصيل',
+    'delivered' => 'تم التسليم',
+    'cancelled' => 'ملغى',
+    'returned' => 'مرتجع',
 ];
 
 $statusBadgeStyles = [
@@ -451,8 +452,8 @@ $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
 sales_portal_render_layout_start([
     'title' => $title,
-    'heading' => 'My Orders',
-    'subtitle' => 'View and manage orders for your customers',
+    'heading' => 'طلباتي',
+    'subtitle' => 'عرض وإدارة طلبات زبائنك',
     'user' => $user,
     'active' => 'orders',
     'extra_head' => '<style>

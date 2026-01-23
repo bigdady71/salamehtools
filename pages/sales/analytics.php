@@ -574,9 +574,9 @@ $categoryLabels = array_map(fn($row) => $row['category'], $categoryPerformance);
 $categoryValues = array_map(fn($row) => (float)$row['revenue_usd'], $categoryPerformance);
 
 sales_portal_render_layout_start([
-    'title' => $title,
-    'heading' => '📊 Performance Analytics',
-    'subtitle' => 'Your personal sales dashboard for ' . $periodLabel,
+    'title' => 'تحليلات الأداء',
+    'heading' => '📊 تحليلات الأداء',
+    'subtitle' => 'لوحة المبيعات الشخصية الخاصة بك لـ ' . $periodLabel,
     'user' => $user,
     'active' => 'analytics',
     'extra_head' => '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>'

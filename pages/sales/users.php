@@ -664,9 +664,9 @@ $cities = $citiesStmt->fetchAll(PDO::FETCH_COLUMN);
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'My Customers',
-    'heading' => 'My Customers',
-    'subtitle' => 'Manage customers assigned to you',
+    'title' => 'زبائني',
+    'heading' => 'زبائني',
+    'subtitle' => 'إدارة الزبائن المعينين لك',
     'active' => 'users',
     'user' => $user,
     'extra_head' => '<style>

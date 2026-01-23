@@ -391,9 +391,9 @@ $allProducts = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'Van Stock',
-    'heading' => 'Van Stock Inventory',
-    'subtitle' => 'Manage your van inventory and track stock movements with aging insights',
+    'title' => 'مخزون السيارة',
+    'heading' => 'مخزون السيارة',
+    'subtitle' => 'إدارة مخزون سيارتك وتتبع حركات المخزون',
     'active' => 'van_stock',
     'user' => $user,
     'extra_head' => '<style>

@@ -478,7 +478,7 @@ sales_portal_render_layout_start([
         .cart-button {
             position: fixed;
             bottom: 20px;
-            right: 20px;
+            left: 20px;
             background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
             color: white;
             padding: 18px 28px;
