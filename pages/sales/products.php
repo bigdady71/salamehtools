@@ -340,9 +340,9 @@ $extraHead = <<<'HTML'
 HTML;
 
 sales_portal_render_layout_start([
-    'title' => $title,
-    'heading' => 'Product Catalog',
-    'subtitle' => 'Browse active products with pricing and availability',
+    'title' => 'كتالوج المنتجات',
+    'heading' => 'كتالوج المنتجات',
+    'subtitle' => 'تصفح المنتجات النشطة مع الأسعار والتوفر',
     'user' => $user,
     'active' => 'products',
     'extra_head' => $extraHead,

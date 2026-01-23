@@ -86,9 +86,9 @@ $pendingLoadings = get_pending_loadings_for_sales_rep($pdo, $repId);
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'Van Loading Authorization',
-    'heading' => '🔐 Van Loading Authorization',
-    'subtitle' => 'Authorize stock transfers to your van',
+    'title' => 'تصريح تحميل السيارة',
+    'heading' => '🔐 تصريح تحميل السيارة',
+    'subtitle' => 'تصريح نقل المخزون إلى سيارتك',
     'active' => 'stock_auth',
     'user' => $user,
     'extra_head' => '<style>
@@ -351,23 +351,23 @@ echo '<div class="auth-container">';
 
 // Navigation tabs
 echo '<div class="nav-tabs">';
-echo '<a href="stock_adjustment_auth.php" class="nav-tab">Stock Adjustments</a>';
-echo '<a href="van_loading_auth.php" class="nav-tab active">Van Loading</a>';
+echo '<a href="stock_adjustment_auth.php" class="nav-tab">تعديلات المخزون</a>';
+echo '<a href="van_loading_auth.php" class="nav-tab active">تحميل السيارة</a>';
 echo '</div>';
 
 // Info box
 echo '<div class="info-box">';
-echo '<h3>📋 How Van Loading Works</h3>';
-echo '<p>When the warehouse loads stock onto your van, they will share an OTP code with you. ';
-echo 'Enter that code below to confirm that you received the items. ';
-echo 'Both parties must confirm before the stock is added to your van.</p>';
+echo '<h3>📋 كيف يعمل تحميل السيارة</h3>';
+echo '<p>عندما يقوم المستودع بتحميل البضائع على سيارتك، سيشاركون معك رمز OTP. ';
+echo 'أدخل هذا الرمز أدناه لتأكيد استلامك للمنتجات. ';
+echo 'يجب على الطرفين التأكيد قبل إضافة المخزون إلى سيارتك.</p>';
 echo '</div>';
 
 if (empty($pendingLoadings)) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">✅</div>';
-    echo '<h3>No Pending Van Loadings</h3>';
-    echo '<p>You have no van loading requests awaiting your confirmation.</p>';
+    echo '<h3>لا توجد طلبات تحميل معلقة</h3>';
+    echo '<p>ليس لديك طلبات تحميل سيارة تنتظر تأكيدك.</p>';
     echo '</div>';
 } else {
     echo '<div class="pending-loadings">';
@@ -390,34 +390,34 @@ if (empty($pendingLoadings)) {
         if ($salesRepConfirmed) {
             $cardClass .= ' pending-initiator';
             $statusClass = 'status-waiting-initiator';
-            $statusText = '⏳ Waiting for Warehouse';
+            $statusText = '⏳ بانتظار المستودع';
         } else {
             $cardClass .= ' pending-both';
             $statusClass = 'status-waiting-you';
-            $statusText = '⏳ Waiting for Your Confirmation';
+            $statusText = '⏳ بانتظار تأكيدك';
         }
 
         echo '<div class="', $cardClass, '">';
         echo '<div class="loading-header">';
-        echo '<div class="loading-title">🚚 Van Loading from ', $warehouseUserName, '</div>';
+        echo '<div class="loading-title">🚚 تحميل سيارة من ', $warehouseUserName, '</div>';
         echo '<div class="loading-status ', $statusClass, '">', $statusText, '</div>';
         echo '</div>';
 
         echo '<div class="loading-details">';
         echo '<div class="detail-item">';
-        echo '<span class="detail-label">Products</span>';
-        echo '<span class="detail-value">', $itemCount, ' items</span>';
+        echo '<span class="detail-label">المنتجات</span>';
+        echo '<span class="detail-value">', $itemCount, ' منتج</span>';
         echo '</div>';
         echo '<div class="detail-item">';
-        echo '<span class="detail-label">Total Units</span>';
+        echo '<span class="detail-label">إجمالي الوحدات</span>';
         echo '<span class="detail-value">', number_format($totalQuantity, 0), '</span>';
         echo '</div>';
         echo '<div class="detail-item">';
-        echo '<span class="detail-label">From</span>';
+        echo '<span class="detail-label">من</span>';
         echo '<span class="detail-value">', $warehouseUserName, '</span>';
         echo '</div>';
         echo '<div class="detail-item">';
-        echo '<span class="detail-label">Expires At</span>';
+        echo '<span class="detail-label">تنتهي في</span>';
         echo '<span class="detail-value" style="font-size:0.9rem;">', date('M j, g:i A', strtotime($expiresAt)), '</span>';
         echo '</div>';
         echo '</div>';
@@ -426,7 +426,7 @@ if (empty($pendingLoadings)) {
         $items = get_loading_items($pdo, $loading['loading_id']);
         if (!empty($items)) {
             echo '<div class="items-preview">';
-            echo '<div class="items-preview-title">Items to receive:</div>';
+            echo '<div class="items-preview-title">المنتجات للاستلام:</div>';
             foreach (array_slice($items, 0, 5) as $item) {
                 echo '<div class="item-row">';
                 echo '<span>', htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8'), '</span>';
@@ -434,21 +434,21 @@ if (empty($pendingLoadings)) {
                 echo '</div>';
             }
             if (count($items) > 5) {
-                echo '<div style="text-align:center;padding:8px;color:var(--muted);font-size:0.85rem;">... and ', (count($items) - 5), ' more items</div>';
+                echo '<div style="text-align:center;padding:8px;color:var(--muted);font-size:0.85rem;">... و ', (count($items) - 5), ' منتجات أخرى</div>';
             }
             echo '</div>';
         }
 
         if ($note) {
             echo '<div style="padding:12px;background:var(--bg-panel-alt);border-radius:8px;margin-top:12px;">';
-            echo '<strong style="color:var(--muted);font-size:0.85rem;">Note:</strong> ';
+            echo '<strong style="color:var(--muted);font-size:0.85rem;">ملاحظة:</strong> ';
             echo '<span style="color:var(--text);">', $note, '</span>';
             echo '</div>';
         }
 
         if ($salesRepConfirmed) {
             echo '<div class="waiting-message" style="margin-top:16px;">';
-            echo '✓ You have confirmed this loading. Waiting for the warehouse to confirm.';
+            echo '✓ لقد قمت بتأكيد هذا التحميل. بانتظار تأكيد المستودع.';
             echo '</div>';
         } else {
             echo '<form method="POST" class="otp-form" style="margin-top:16px;">';
@@ -456,10 +456,10 @@ if (empty($pendingLoadings)) {
             echo '<input type="hidden" name="action" value="confirm_otp">';
             echo '<input type="hidden" name="loading_id" value="', $loadingId, '">';
             echo '<div class="otp-input-group">';
-            echo '<label>🔐 Enter OTP Code from Warehouse</label>';
+            echo '<label>🔐 أدخل رمز OTP من المستودع</label>';
             echo '<input type="text" name="otp" class="otp-input" placeholder="000000" maxlength="6" pattern="\d{6}" required autocomplete="off">';
             echo '</div>';
-            echo '<button type="submit" class="btn-confirm-otp">✅ Confirm Loading</button>';
+            echo '<button type="submit" class="btn-confirm-otp">✅ تأكيد التحميل</button>';
             echo '</form>';
         }
 

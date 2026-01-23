@@ -123,9 +123,9 @@ $statsStmt = $pdo->query($statsQuery);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
 sales_portal_render_layout_start([
-    'title' => $title,
-    'heading' => 'Warehouse Stock Availability',
-    'subtitle' => 'View warehouse inventory for company order planning (Read-only)',
+    'title' => 'مخزون المستودع',
+    'heading' => 'توفر مخزون المستودع',
+    'subtitle' => 'عرض مخزون المستودع لتخطيط طلبات الشركة (للقراءة فقط)',
     'user' => $user,
     'active' => 'warehouse_stock',
     'extra_head' => '<link rel="stylesheet" href="../../css/sales-common.css">

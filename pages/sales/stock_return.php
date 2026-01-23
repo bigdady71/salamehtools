@@ -165,9 +165,9 @@ $returnHistory = get_return_history_for_sales_rep($pdo, $repId, 10);
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'Stock Return',
-    'heading' => '📦 Stock Return to Warehouse',
-    'subtitle' => 'Return items from your van stock back to the warehouse',
+    'title' => 'إرجاع المخزون',
+    'heading' => '📦 إرجاع المخزون للمستودع',
+    'subtitle' => 'إرجاع العناصر من مخزون سيارتك إلى المستودع',
     'active' => 'stock_return',
     'user' => $user,
     'extra_head' => '<style>

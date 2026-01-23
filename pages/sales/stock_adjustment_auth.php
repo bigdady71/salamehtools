@@ -72,9 +72,9 @@ $pendingAdjustments = get_pending_adjustments_for_sales_rep($pdo, $repId);
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'Stock Adjustment Authorization',
-    'heading' => '🔐 Stock Adjustment Authorization',
-    'subtitle' => 'Review and authorize stock adjustments to your van inventory',
+    'title' => 'تصريح تعديل المخزون',
+    'heading' => '🔐 تصريح تعديل المخزون',
+    'subtitle' => 'مراجعة وتصريح تعديلات المخزون في سيارتك',
     'active' => 'stock_auth',
     'user' => $user,
     'extra_head' => '<style>
@@ -320,23 +320,23 @@ echo '<div class="auth-container">';
 
 // Navigation tabs
 echo '<div class="nav-tabs">';
-echo '<a href="stock_adjustment_auth.php" class="nav-tab active">Stock Adjustments</a>';
-echo '<a href="van_loading_auth.php" class="nav-tab">Van Loading</a>';
+echo '<a href="stock_adjustment_auth.php" class="nav-tab active">تعديلات المخزون</a>';
+echo '<a href="van_loading_auth.php" class="nav-tab">تحميل السيارة</a>';
 echo '</div>';
 
 // Info box
 echo '<div class="info-box">';
-echo '<h3>📋 How It Works</h3>';
-echo '<p>When an administrator or warehouse manager initiates a stock adjustment for your van, they will receive an OTP code. ';
-echo 'They must share that code with you. Enter the code below to authorize the adjustment. ';
-echo 'Both parties must confirm before the adjustment takes effect.</p>';
+echo '<h3>📋 كيف يعمل</h3>';
+echo '<p>عندما يبدأ مدير أو مسؤول المستودع تعديل مخزون لسيارتك، سيتلقون رمز OTP. ';
+echo 'يجب عليهم مشاركة هذا الرمز معك. أدخل الرمز أدناه لتصريح التعديل. ';
+echo 'يجب على الطرفين التأكيد قبل تطبيق التعديل.</p>';
 echo '</div>';
 
 if (empty($pendingAdjustments)) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">✅</div>';
-    echo '<h3>No Pending Authorizations</h3>';
-    echo '<p>You have no stock adjustments awaiting your authorization.</p>';
+    echo '<h3>لا توجد تصاريح معلقة</h3>';
+    echo '<p>ليس لديك تعديلات مخزون تنتظر تصريحك.</p>';
     echo '</div>';
 } else {
     echo '<div class="pending-adjustments">';
@@ -362,11 +362,11 @@ if (empty($pendingAdjustments)) {
         if ($salesRepConfirmed) {
             $cardClass .= ' pending-initiator';
             $statusClass = 'status-waiting-initiator';
-            $statusText = '⏳ Waiting for ' . ucwords(str_replace('_', ' ', $initiatorType));
+            $statusText = '⏳ بانتظار المُبادِر';
         } else {
             $cardClass .= ' pending-both';
             $statusClass = 'status-waiting-you';
-            $statusText = '⏳ Waiting for Your Confirmation';
+            $statusText = '⏳ بانتظار تأكيدك';
         }
 
         $qtyClass = $deltaQty > 0 ? 'qty-increase' : 'qty-decrease';
@@ -380,33 +380,33 @@ if (empty($pendingAdjustments)) {
 
         echo '<div class="adjustment-details">';
         echo '<div class="detail-item">';
-        echo '<span class="detail-label">Quantity Change</span>';
-        echo '<span class="detail-value ', $qtyClass, '">', $qtySign, number_format($deltaQty, 1), ' units</span>';
+        echo '<span class="detail-label">تغيير الكمية</span>';
+        echo '<span class="detail-value ', $qtyClass, '">', $qtySign, number_format($deltaQty, 1), ' وحدة</span>';
         echo '</div>';
         echo '<div class="detail-item">';
-        echo '<span class="detail-label">Reason</span>';
+        echo '<span class="detail-label">السبب</span>';
         echo '<span class="detail-value">', ucwords(str_replace('_', ' ', $reason)), '</span>';
         echo '</div>';
         echo '<div class="detail-item">';
-        echo '<span class="detail-label">Initiated By</span>';
+        echo '<span class="detail-label">بدأها</span>';
         echo '<span class="detail-value">', $initiatorName, '</span>';
         echo '</div>';
         echo '<div class="detail-item">';
-        echo '<span class="detail-label">Expires At</span>';
+        echo '<span class="detail-label">تنتهي في</span>';
         echo '<span class="detail-value" style="font-size:0.9rem;">', date('M j, g:i A', strtotime($expiresAt)), '</span>';
         echo '</div>';
         echo '</div>';
 
         if ($note) {
             echo '<div style="padding:12px;background:var(--bg-panel-alt);border-radius:8px;margin-bottom:16px;">';
-            echo '<strong style="color:var(--muted);font-size:0.85rem;">Note:</strong> ';
+            echo '<strong style="color:var(--muted);font-size:0.85rem;">ملاحظة:</strong> ';
             echo '<span style="color:var(--text);">', $note, '</span>';
             echo '</div>';
         }
 
         if ($salesRepConfirmed) {
             echo '<div class="waiting-message">';
-            echo '✓ You have confirmed this adjustment. Waiting for the initiator to confirm with their OTP code.';
+            echo '✓ لقد قمت بتأكيد هذا التعديل. بانتظار المُبادِر لتأكيد رمز OTP الخاص به.';
             echo '</div>';
         } else {
             echo '<form method="POST" class="otp-form">';
@@ -414,10 +414,10 @@ if (empty($pendingAdjustments)) {
             echo '<input type="hidden" name="action" value="confirm_otp">';
             echo '<input type="hidden" name="adjustment_id" value="', $adjustmentId, '">';
             echo '<div class="otp-input-group">';
-            echo '<label>🔐 Enter OTP Code from Initiator</label>';
+            echo '<label>🔐 أدخل رمز OTP من المُبادِر</label>';
             echo '<input type="text" name="otp" class="otp-input" placeholder="000000" maxlength="6" pattern="\d{6}" required autocomplete="off">';
             echo '</div>';
-            echo '<button type="submit" class="btn-confirm-otp">✅ Confirm Adjustment</button>';
+            echo '<button type="submit" class="btn-confirm-otp">✅ تأكيد التعديل</button>';
             echo '</form>';
         }
 

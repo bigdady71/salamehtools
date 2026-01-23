@@ -315,9 +315,9 @@ sort($categories);
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'Company Order Request',
-    'heading' => 'Create Company Order Request',
-    'subtitle' => 'Tap products to add them to your order',
+    'title' => 'طلب من الشركة',
+    'heading' => 'إنشاء طلب من الشركة',
+    'subtitle' => 'اضغط على المنتجات لإضافتها إلى طلبك',
     'active' => 'orders_request',
     'user' => $user,
     'extra_head' => '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>

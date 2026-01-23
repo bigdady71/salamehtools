@@ -124,20 +124,23 @@ $unreadStmt = $pdo->prepare("
 $unreadStmt->execute([$salesRepId]);
 $unreadCount = (int)$unreadStmt->fetchColumn();
 
-$title = 'Customer Messages Inbox - Sales Portal';
+$title = 'صندوق رسائل الزبائن - بوابة المبيعات';
 
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= $title ?></title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/app.css">
     <style>
         body {
             margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: 'Tajawal', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background: #f8fafc;
             color: #1e293b;
         }
@@ -161,7 +164,7 @@ $title = 'Customer Messages Inbox - Sales Portal';
             border-radius: 12px;
             font-size: 0.85rem;
             font-weight: 600;
-            margin-left: 12px;
+            margin-right: 12px;
         }
         .container {
             max-width: 1200px;
@@ -207,7 +210,7 @@ $title = 'Customer Messages Inbox - Sales Portal';
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
         .message-card.unread {
-            border-left: 4px solid #dc2626;
+            border-right: 4px solid #dc2626;
             background: #fef2f2;
         }
         .message-header {
@@ -323,19 +326,19 @@ $title = 'Customer Messages Inbox - Sales Portal';
     <div class="header">
         <div>
             <h1>
-                Customer Messages
+                رسائل الزبائن
                 <?php if ($unreadCount > 0): ?>
-                    <span class="badge"><?= $unreadCount ?> unread</span>
+                    <span class="badge"><?= $unreadCount ?> غير مقروءة</span>
                 <?php endif; ?>
             </h1>
         </div>
-        <a href="dashboard.php" class="btn btn-secondary">← Back to Dashboard</a>
+        <a href="dashboard.php" class="btn btn-secondary">→ العودة للوحة التحكم</a>
     </div>
 
     <div class="container">
         <?php if (isset($_GET['success'])): ?>
             <div style="background: #dcfce7; color: #166534; padding: 14px 18px; border-radius: 10px; margin-bottom: 24px; border: 1px solid #86efac;">
-                Reply sent successfully!
+                تم إرسال الرد بنجاح!
             </div>
         <?php endif; ?>
 
@@ -347,13 +350,13 @@ $title = 'Customer Messages Inbox - Sales Portal';
 
         <div class="filters">
             <a href="inbox.php?filter=all" class="filter-btn <?= $filter === 'all' ? 'active' : '' ?>">
-                All Messages
+                جميع الرسائل
             </a>
             <a href="inbox.php?filter=unread" class="filter-btn <?= $filter === 'unread' ? 'active' : '' ?>">
-                Unread (<?= $unreadCount ?>)
+                غير مقروءة (<?= $unreadCount ?>)
             </a>
             <a href="inbox.php?filter=from_customers" class="filter-btn <?= $filter === 'from_customers' ? 'active' : '' ?>">
-                From Customers
+                من الزبائن
             </a>
         </div>
 
@@ -363,11 +366,11 @@ $title = 'Customer Messages Inbox - Sales Portal';
                 $isUnread = (int)$msg['is_read'] === 0 && $msg['sender_type'] === 'customer';
                 $timeAgo = time() - strtotime($msg['created_at']);
                 if ($timeAgo < 3600) {
-                    $timeDisplay = floor($timeAgo / 60) . ' minutes ago';
+                    $timeDisplay = 'منذ ' . floor($timeAgo / 60) . ' دقيقة';
                 } elseif ($timeAgo < 86400) {
-                    $timeDisplay = floor($timeAgo / 3600) . ' hours ago';
+                    $timeDisplay = 'منذ ' . floor($timeAgo / 3600) . ' ساعة';
                 } else {
-                    $timeDisplay = date('M j, Y', strtotime($msg['created_at']));
+                    $timeDisplay = date('Y/m/d', strtotime($msg['created_at']));
                 }
 
                 // Format WhatsApp phone
@@ -376,7 +379,7 @@ $title = 'Customer Messages Inbox - Sales Portal';
                     $whatsappPhone = '+961' . ltrim($whatsappPhone, '0');
                 }
                 $customerName = htmlspecialchars($msg['customer_name'], ENT_QUOTES, 'UTF-8');
-                $whatsappMessage = urlencode("Hello {$customerName}, this is regarding: " . $msg['subject']);
+                $whatsappMessage = urlencode("مرحباً {$customerName}، بخصوص: " . $msg['subject']);
                 $whatsappLink = $whatsappPhone ? "https://wa.me/{$whatsappPhone}?text={$whatsappMessage}" : null;
                 ?>
 
@@ -386,7 +389,7 @@ $title = 'Customer Messages Inbox - Sales Portal';
                             <div class="message-customer">
                                 <?= htmlspecialchars($msg['customer_name'], ENT_QUOTES, 'UTF-8') ?>
                                 <span class="sender-badge sender-<?= $msg['sender_type'] ?>">
-                                    <?= $msg['sender_type'] === 'customer' ? 'Customer' : 'You' ?>
+                                    <?= $msg['sender_type'] === 'customer' ? 'زبون' : 'أنت' ?>
                                 </span>
                             </div>
                             <?php if ($msg['shop_name']): ?>
@@ -407,12 +410,12 @@ $title = 'Customer Messages Inbox - Sales Portal';
                         <?php endif; ?>
                         <?php if ($msg['sender_type'] === 'customer'): ?>
                             <button onclick="toggleReply(<?= $msg['id'] ?>); event.stopPropagation();" class="btn btn-info">
-                                Reply
+                                رد
                             </button>
                         <?php endif; ?>
                         <?php if ($isUnread): ?>
                             <a href="inbox.php?mark_read=<?= $msg['id'] ?>" class="btn btn-secondary">
-                                Mark as Read
+                                تحديد كمقروءة
                             </a>
                         <?php endif; ?>
                     </div>
@@ -422,9 +425,9 @@ $title = 'Customer Messages Inbox - Sales Portal';
                             <form method="post" action="inbox.php">
                                 <input type="hidden" name="action" value="reply">
                                 <input type="hidden" name="message_id" value="<?= $msg['id'] ?>">
-                                <textarea name="reply" placeholder="Type your reply here..." required></textarea>
-                                <button type="submit" class="btn btn-success">Send Reply</button>
-                                <button type="button" onclick="toggleReply(<?= $msg['id'] ?>); event.stopPropagation();" class="btn btn-secondary">Cancel</button>
+                                <textarea name="reply" placeholder="اكتب ردك هنا..." required></textarea>
+                                <button type="submit" class="btn btn-success">إرسال الرد</button>
+                                <button type="button" onclick="toggleReply(<?= $msg['id'] ?>); event.stopPropagation();" class="btn btn-secondary">إلغاء</button>
                             </form>
                         </div>
                     <?php endif; ?>
@@ -432,8 +435,8 @@ $title = 'Customer Messages Inbox - Sales Portal';
             <?php endforeach; ?>
         <?php else: ?>
             <div class="empty-state">
-                <h3>No messages yet</h3>
-                <p>Customer messages will appear here</p>
+                <h3>لا توجد رسائل بعد</h3>
+                <p>ستظهر رسائل الزبائن هنا</p>
             </div>
         <?php endif; ?>
     </div>

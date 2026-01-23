@@ -600,9 +600,9 @@ $totals = $totalsStmt->fetch(PDO::FETCH_ASSOC);
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'Customer Returns',
-    'heading' => 'Customer Returns',
-    'subtitle' => 'Process product returns and refunds',
+    'title' => 'مرتجعات الزبائن',
+    'heading' => 'مرتجعات الزبائن',
+    'subtitle' => 'معالجة مرتجعات المنتجات والاسترداد',
     'active' => 'customer_returns',
     'user' => $user,
     'extra_head' => '<style>

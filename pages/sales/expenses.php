@@ -201,9 +201,9 @@ $totals = $totalsStmt->fetch(PDO::FETCH_ASSOC);
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'My Expenses',
-    'heading' => 'My Expenses',
-    'subtitle' => 'Track and manage your business expenses',
+    'title' => 'مصاريفي',
+    'heading' => 'مصاريفي',
+    'subtitle' => 'تتبع وإدارة مصاريف العمل الخاصة بك',
     'active' => 'expenses',
     'user' => $user,
     'extra_head' => '<style>

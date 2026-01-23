@@ -57,7 +57,7 @@ unset($_SESSION['payment_receipt']);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payment Receipt - <?= htmlspecialchars($receipt['receipt_number'], ENT_QUOTES, 'UTF-8') ?></title>
+    <title>إيصال دفعة - <?= htmlspecialchars($receipt['receipt_number'], ENT_QUOTES, 'UTF-8') ?></title>
     <style>
         @media print {
             body {
@@ -310,47 +310,47 @@ unset($_SESSION['payment_receipt']);
         </div>
 
         <div class="section">
-            <div class="section-title">Customer / العميل</div>
+            <div class="section-title">العميل</div>
             <div class="row">
-                <span>Name / الاسم:</span>
+                <span>الاسم:</span>
                 <strong><?= htmlspecialchars($receipt['customer_name'], ENT_QUOTES, 'UTF-8') ?></strong>
             </div>
         </div>
 
         <div class="section">
-            <div class="section-title">Payment Details / تفاصيل الدفع</div>
+            <div class="section-title">تفاصيل الدفع</div>
             <?php if ($receipt['payment_usd'] > 0): ?>
             <div class="row">
-                <span>USD Cash:</span>
+                <span>نقداً بالدولار:</span>
                 <span>$<?= number_format($receipt['payment_usd'], 2) ?></span>
             </div>
             <?php endif; ?>
             <?php if ($receipt['payment_lbp'] > 0): ?>
             <div class="row">
-                <span>LBP Cash:</span>
+                <span>نقداً بالليرة:</span>
                 <span>L.L. <?= number_format($receipt['payment_lbp'], 0) ?></span>
             </div>
             <div class="row" style="font-size:0.85rem; color:#6b7280;">
-                <span>LBP in USD:</span>
+                <span>ما يعادل بالدولار:</span>
                 <span>$<?= number_format($receipt['payment_lbp'] / $exchangeRate, 2) ?></span>
             </div>
             <?php endif; ?>
             <div class="row highlight">
-                <span>Total Received / المبلغ المستلم:</span>
+                <span>المبلغ المستلم:</span>
                 <span>$<?= number_format($receipt['total_usd'], 2) ?></span>
             </div>
         </div>
 
         <?php if (!empty($receipt['paid_invoices'])): ?>
         <div class="section">
-            <div class="section-title">Applied to Invoices / تم تطبيقه على الفواتير</div>
+            <div class="section-title">تم تطبيقه على الفواتير</div>
             <div class="invoices-list">
                 <?php foreach ($receipt['paid_invoices'] as $inv): ?>
                 <div class="invoice-item">
                     <span>
                         <?= htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8') ?>
                         <span class="status <?= $inv['fully_paid'] ? 'paid' : 'partial' ?>">
-                            <?= $inv['fully_paid'] ? 'Paid' : 'Partial' ?>
+                            <?= $inv['fully_paid'] ? 'مدفوعة' : 'جزئي' ?>
                         </span>
                     </span>
                     <span>$<?= number_format($inv['amount'], 2) ?></span>
@@ -363,29 +363,29 @@ unset($_SESSION['payment_receipt']);
         <?php if ($receipt['credit_added'] > 0): ?>
         <div class="section">
             <div class="row success">
-                <span>Added to Credit / اضيف للرصيد:</span>
+                <span>اضيف للرصيد:</span>
                 <span>$<?= number_format($receipt['credit_added'], 2) ?></span>
             </div>
         </div>
         <?php endif; ?>
 
         <div class="section">
-            <div class="section-title">Account Balance / رصيد الحساب</div>
+            <div class="section-title">رصيد الحساب</div>
             <?php if ($remainingBalance > 0): ?>
             <div class="row danger">
-                <span>Still Owes / المتبقي عليه:</span>
+                <span>المتبقي عليه:</span>
                 <span>$<?= number_format($remainingBalance, 2) ?></span>
             </div>
             <?php else: ?>
             <div class="row success">
-                <span>Outstanding Balance:</span>
-                <span>$0.00 - Paid in Full!</span>
+                <span>الرصيد المستحق:</span>
+                <span>$0.00 - مدفوع بالكامل!</span>
             </div>
             <?php endif; ?>
 
             <?php if ($creditBalance > 0): ?>
             <div class="row" style="color:#059669;">
-                <span>Credit Balance / رصيد دائن:</span>
+                <span>رصيد دائن:</span>
                 <span>L.L. <?= number_format($creditBalance, 0) ?></span>
             </div>
             <?php endif; ?>
@@ -393,7 +393,7 @@ unset($_SESSION['payment_receipt']);
 
         <?php if (!empty($receipt['notes'])): ?>
         <div class="section">
-            <div class="section-title">Notes / ملاحظات</div>
+            <div class="section-title">ملاحظات</div>
             <div class="notes">
                 <?= nl2br(htmlspecialchars($receipt['notes'], ENT_QUOTES, 'UTF-8')) ?>
             </div>
@@ -405,22 +405,22 @@ unset($_SESSION['payment_receipt']);
                 <?= date('Y-m-d H:i', strtotime($receipt['date'])) ?>
             </div>
             <div class="rep">
-                Received by: <?= htmlspecialchars($receipt['sales_rep'], ENT_QUOTES, 'UTF-8') ?>
+                استلمها: <?= htmlspecialchars($receipt['sales_rep'], ENT_QUOTES, 'UTF-8') ?>
             </div>
             <div class="rep">
-                Exchange Rate: 1 USD = L.L. <?= number_format($exchangeRate, 0) ?>
+                سعر الصرف: 1 USD = L.L. <?= number_format($exchangeRate, 0) ?>
             </div>
             <div class="thank-you">
-                شكراً لك! Thank you!
+                شكراً لك!
             </div>
         </div>
 
         <div class="action-buttons no-print">
             <button class="btn btn-print" onclick="window.print()">
-                🖨️ Print Receipt
+                🖨️ طباعة الإيصال
             </button>
             <a href="collect_payment.php" class="btn btn-back">
-                ← Back
+                → رجوع
             </a>
         </div>
     </div>

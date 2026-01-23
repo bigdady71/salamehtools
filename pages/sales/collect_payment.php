@@ -273,9 +273,9 @@ $customers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
 $csrfToken = csrf_token();
 
 sales_portal_render_layout_start([
-    'title' => 'Collect Payment',
-    'heading' => 'Collect Payment',
-    'subtitle' => 'Record payments from customers',
+    'title' => 'تحصيل الدفعة',
+    'heading' => '💵 تحصيل الدفعة',
+    'subtitle' => 'تسجيل المدفوعات من الزبائن',
     'active' => 'collect_payment',
     'user' => $user,
     'extra_head' => '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>
@@ -459,14 +459,14 @@ foreach ($flashes as $flash) {
 if ($exchangeRateError || $exchangeRate === null) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">⚠️</div>';
-    echo '<h3>System Unavailable</h3>';
-    echo '<p>Exchange rate is not configured. Please contact your administrator.</p>';
+    echo '<h3>النظام غير متاح</h3>';
+    echo '<p>لم يتم تعيين سعر الصرف. يرجى الاتصال بالمسؤول.</p>';
     echo '</div>';
 } elseif (empty($customers)) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">👥</div>';
-    echo '<h3>No Customers</h3>';
-    echo '<p>You need to have customers assigned to you to collect payments.</p>';
+    echo '<h3>لا يوجد زبائن</h3>';
+    echo '<p>يجب أن يكون لديك زبائن مخصصين لتحصيل المدفوعات.</p>';
     echo '</div>';
 } else {
 ?>
@@ -475,11 +475,11 @@ if ($exchangeRateError || $exchangeRate === null) {
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
 
         <div class="form-section">
-            <h3>👤 Select Customer</h3>
+            <h3>👤 اختيار الزبون</h3>
             <div class="form-group">
-                <label>Customer <span style="color:red;">*</span></label>
+                <label>الزبون <span style="color:red;">*</span></label>
                 <select name="customer_id" id="customerSelect" required onchange="updateCustomerInfo()">
-                    <option value="">-- Select a customer --</option>
+                    <option value="">-- اختر زبون --</option>
                     <?php foreach ($customers as $customer): ?>
                         <option value="<?= $customer['id'] ?>"
                                 data-name="<?= htmlspecialchars($customer['name'], ENT_QUOTES, 'UTF-8') ?>"
@@ -488,7 +488,7 @@ if ($exchangeRateError || $exchangeRate === null) {
                                 data-credit="<?= (float)$customer['credit_lbp'] ?>">
                             <?= htmlspecialchars($customer['name'], ENT_QUOTES, 'UTF-8') ?>
                             <?php if ($customer['outstanding_usd'] > 0): ?>
-                                - Owes: $<?= number_format((float)$customer['outstanding_usd'], 2) ?>
+                                - عليه: $<?= number_format((float)$customer['outstanding_usd'], 2) ?>
                             <?php endif; ?>
                         </option>
                     <?php endforeach; ?>
@@ -498,71 +498,71 @@ if ($exchangeRateError || $exchangeRate === null) {
             <div class="customer-card" id="customerCard">
                 <h4 id="customerName"></h4>
                 <div class="balance-row">
-                    <span>Phone:</span>
+                    <span>الهاتف:</span>
                     <span id="customerPhone"></span>
                 </div>
                 <div class="balance-row outstanding">
-                    <span>Outstanding Balance:</span>
+                    <span>الرصيد المستحق:</span>
                     <span id="customerOutstanding">$0.00</span>
                 </div>
                 <div class="balance-row credit">
-                    <span>Credit Balance:</span>
+                    <span>رصيد الائتمان:</span>
                     <span id="customerCredit">L.L. 0</span>
                 </div>
             </div>
         </div>
 
         <div class="form-section">
-            <h3>💵 Payment Amount</h3>
+            <h3>💵 مبلغ الدفعة</h3>
             <div class="payment-grid">
                 <div class="form-group">
-                    <label>USD $</label>
+                    <label>دولار أمريكي $</label>
                     <input type="number" name="payment_usd" id="paymentUSD" step="0.01" min="0" placeholder="0.00" oninput="updatePaymentSummary()">
                 </div>
                 <div class="form-group">
-                    <label>LBP L.L.</label>
+                    <label>ليرة لبنانية L.L.</label>
                     <input type="number" name="payment_lbp" id="paymentLBP" step="1000" min="0" placeholder="0" oninput="updatePaymentSummary()">
                 </div>
             </div>
 
             <div class="payment-summary" id="paymentSummary" style="display:none;">
-                <h4>Payment Summary</h4>
+                <h4>ملخص الدفعة</h4>
                 <div class="summary-row">
-                    <span>USD Payment:</span>
+                    <span>دفعة بالدولار:</span>
                     <span id="summaryUSD">$0.00</span>
                 </div>
                 <div class="summary-row">
-                    <span>LBP Payment:</span>
+                    <span>دفعة بالليرة:</span>
                     <span id="summaryLBP">L.L. 0</span>
                 </div>
                 <div class="summary-row">
-                    <span>LBP in USD equivalent:</span>
+                    <span>ما يعادل بالدولار:</span>
                     <span id="summaryLBPinUSD">$0.00</span>
                 </div>
                 <div class="summary-row total">
-                    <span>Total Payment:</span>
+                    <span>إجمالي الدفعة:</span>
                     <span id="summaryTotal">$0.00</span>
                 </div>
                 <div class="summary-row" id="remainingRow" style="display:none;">
-                    <span>Remaining Balance After:</span>
+                    <span>الرصيد المتبقي بعد:</span>
                     <span id="summaryRemaining">$0.00</span>
                 </div>
                 <div class="summary-row" id="creditRow" style="display:none; color:#059669;">
-                    <span>Added to Credit:</span>
+                    <span>مضاف للرصيد:</span>
                     <span id="summaryCredit">$0.00</span>
                 </div>
             </div>
         </div>
 
         <div class="form-section">
-            <h3>📝 Notes (Optional)</h3>
+            <h3>📝 ملاحظات (اختياري)</h3>
             <div class="form-group">
-                <textarea name="notes" placeholder="Add any notes about this payment..."></textarea>
+                <textarea name="notes" placeholder="أضف أي ملاحظات حول هذه الدفعة..."></textarea>
             </div>
         </div>
 
         <button type="submit" class="btn-submit" id="submitBtn" disabled>
-            💵 Record Payment & Print Receipt
+            💵 تسجيل الدفعة وطباعة الإيصال
         </button>
     </form>
 
@@ -591,7 +591,7 @@ if ($exchangeRateError || $exchangeRate === null) {
             };
 
             document.getElementById('customerName').textContent = selectedCustomer.name;
-            document.getElementById('customerPhone').textContent = selectedCustomer.phone || 'N/A';
+            document.getElementById('customerPhone').textContent = selectedCustomer.phone || 'غير متوفر';
             document.getElementById('customerOutstanding').textContent = '$' + selectedCustomer.outstanding.toFixed(2);
 
             const creditUSD = selectedCustomer.credit / exchangeRate;
@@ -644,18 +644,18 @@ if ($exchangeRateError || $exchangeRate === null) {
 
             if (!customerId) {
                 e.preventDefault();
-                alert('Please select a customer.');
+                alert('يرجى اختيار زبون.');
                 return false;
             }
 
             if (paymentUSD <= 0 && paymentLBP <= 0) {
                 e.preventDefault();
-                alert('Please enter a payment amount.');
+                alert('يرجى إدخال مبلغ الدفعة.');
                 return false;
             }
 
             document.getElementById('submitBtn').disabled = true;
-            document.getElementById('submitBtn').textContent = 'Processing...';
+            document.getElementById('submitBtn').textContent = 'جاري المعالجة...';
         });
     </script>
 <?php

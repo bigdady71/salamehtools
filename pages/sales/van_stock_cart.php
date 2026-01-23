@@ -971,6 +971,11 @@ sales_portal_render_layout_start([
             font-size: 1.2rem;
             font-weight: 600;
         }
+        .payment-group input::placeholder {
+            color: #059669;
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
         .payment-group input:focus {
             outline: none;
             border-color: var(--accent);
@@ -1563,8 +1568,10 @@ if (!$canCreateOrder) {
 
         // Update payment display with remaining and change
         function updatePaymentDisplay() {
-            const paymentUSD = parseFloat(document.getElementById('paymentUSD').value) || 0;
-            const paymentLBP = parseFloat(document.getElementById('paymentLBP').value) || 0;
+            const paymentUSDInput = document.getElementById('paymentUSD');
+            const paymentLBPInput = document.getElementById('paymentLBP');
+            const paymentUSD = parseFloat(paymentUSDInput.value) || 0;
+            const paymentLBP = parseFloat(paymentLBPInput.value) || 0;
             const paymentRemainingDiv = document.getElementById('paymentRemaining');
             const changeDisplayDiv = document.getElementById('changeDisplay');
 
@@ -1577,6 +1584,9 @@ if (!$canCreateOrder) {
             if (totalDueUSD <= 0) {
                 paymentRemainingDiv.style.display = 'none';
                 changeDisplayDiv.style.display = 'none';
+                // Reset placeholders
+                paymentUSDInput.placeholder = '0.00';
+                paymentLBPInput.placeholder = '0';
                 return;
             }
 
@@ -1585,6 +1595,17 @@ if (!$canCreateOrder) {
             const totalPaidUSD = paymentUSD + paymentLBPinUSD;
             const remainingUSD = totalDueUSD - totalPaidUSD;
             const remainingLBP = remainingUSD * exchangeRate;
+
+            // Update placeholders with remaining amounts
+            if (remainingUSD > 0.01) {
+                // Show remaining in placeholders
+                paymentUSDInput.placeholder = 'المتبقي: $' + remainingUSD.toFixed(2);
+                paymentLBPInput.placeholder = 'المتبقي: ' + Math.round(remainingLBP).toLocaleString();
+            } else {
+                // Paid in full or overpaid
+                paymentUSDInput.placeholder = '0.00';
+                paymentLBPInput.placeholder = '0';
+            }
 
             // Update display
             document.getElementById('displayTotalDue').textContent = '$' + totalDueUSD.toFixed(2);
