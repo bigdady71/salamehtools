@@ -114,6 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
         $items = $_POST['items'] ?? [];
         $paymentAmountUSD = (float)($_POST['payment_usd'] ?? 0);
         $paymentAmountLBP = (float)($_POST['payment_lbp'] ?? 0);
+        $centsDiscountFromClient = (float)($_POST['cents_discount'] ?? 0);
 
         $errors = [];
 
@@ -224,6 +225,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         'unit_price_lbp' => $unitPriceLBP,
                         'discount_percent' => 0,
                     ];
+                }
+
+                // Apply cents discount: if total >= $20 and has decimals, discount the cents
+                $centsDiscount = 0;
+                $cents = $totalUSD - floor($totalUSD);
+                if ($totalUSD >= 20 && $cents > 0.001) {
+                    $centsDiscount = $cents;
+                    $totalUSD = floor($totalUSD);
+                    $totalLBP = $totalUSD * $exchangeRate;
+
+                    // Add discount note
+                    $discountNote = "خصم القروش: $" . number_format($centsDiscount, 2);
+                    if ($notes !== '') {
+                        $notes = $discountNote . "\n" . $notes;
+                    } else {
+                        $notes = $discountNote;
+                    }
                 }
 
                 // Customer balance logic:
@@ -1214,6 +1232,7 @@ if (!$canCreateOrder) {
             <input type="hidden" name="action" value="create_order">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
             <input type="hidden" name="customer_id" id="customerId" value="">
+            <input type="hidden" name="cents_discount" id="centsDiscount" value="0">
 
             <div class="cart-items" id="cartItems">
                 <div class="empty-state" id="emptyCart">
@@ -1247,6 +1266,14 @@ if (!$canCreateOrder) {
                 <div class="total-row">
                     <span>المنتجات:</span>
                     <span id="totalItems">0</span>
+                </div>
+                <div class="total-row" id="subtotalRow">
+                    <span>المجموع الفرعي:</span>
+                    <span id="subtotalUSD">$0.00</span>
+                </div>
+                <div class="total-row" id="discountRow" style="display:none; color:#059669;">
+                    <span>خصم القروش:</span>
+                    <span id="discountAmount">-$0.00</span>
                 </div>
                 <div class="total-row grand">
                     <span>المجموع بالدولار:</span>
@@ -1458,11 +1485,38 @@ if (!$canCreateOrder) {
             cartInputs.innerHTML = inputsHtml;
 
             cartBadge.textContent = keys.length;
-            cartTotal.textContent = '$' + totalUSD.toFixed(2);
+
+            // Calculate cents discount: if total >= $20 and has decimals, discount the cents
+            let centsDiscount = 0;
+            let finalTotalUSD = totalUSD;
+            const cents = totalUSD - Math.floor(totalUSD);
+
+            if (totalUSD >= 20 && cents > 0.001) {
+                centsDiscount = cents;
+                finalTotalUSD = Math.floor(totalUSD);
+            }
+
+            // Update hidden field for backend
+            document.getElementById('centsDiscount').value = centsDiscount.toFixed(2);
+
+            // Show/hide discount row
+            const discountRow = document.getElementById('discountRow');
+            const subtotalRow = document.getElementById('subtotalRow');
+            if (centsDiscount > 0) {
+                subtotalRow.style.display = 'flex';
+                discountRow.style.display = 'flex';
+                document.getElementById('subtotalUSD').textContent = '$' + totalUSD.toFixed(2);
+                document.getElementById('discountAmount').textContent = '-$' + centsDiscount.toFixed(2);
+            } else {
+                subtotalRow.style.display = 'none';
+                discountRow.style.display = 'none';
+            }
+
+            cartTotal.textContent = '$' + finalTotalUSD.toFixed(2);
 
             document.getElementById('totalItems').textContent = totalQty;
-            document.getElementById('totalUSD').textContent = '$' + totalUSD.toFixed(2);
-            document.getElementById('totalLBP').textContent = 'ل.ل. ' + Math.round(totalUSD * exchangeRate).toLocaleString();
+            document.getElementById('totalUSD').textContent = '$' + finalTotalUSD.toFixed(2);
+            document.getElementById('totalLBP').textContent = 'ل.ل. ' + Math.round(finalTotalUSD * exchangeRate).toLocaleString();
 
             // Enable submit only if customer is selected
             const customerId = document.getElementById('customerId').value;
@@ -1575,11 +1629,18 @@ if (!$canCreateOrder) {
             const paymentRemainingDiv = document.getElementById('paymentRemaining');
             const changeDisplayDiv = document.getElementById('changeDisplay');
 
-            // Calculate total due
-            let totalDueUSD = 0;
+            // Calculate total due (before discount)
+            let subtotalUSD = 0;
             Object.keys(cart).forEach(id => {
-                totalDueUSD += cart[id].price * cart[id].quantity;
+                subtotalUSD += cart[id].price * cart[id].quantity;
             });
+
+            // Apply cents discount if applicable
+            let totalDueUSD = subtotalUSD;
+            const cents = subtotalUSD - Math.floor(subtotalUSD);
+            if (subtotalUSD >= 20 && cents > 0.001) {
+                totalDueUSD = Math.floor(subtotalUSD);
+            }
 
             if (totalDueUSD <= 0) {
                 paymentRemainingDiv.style.display = 'none';

@@ -162,6 +162,17 @@ foreach ($items as $item) {
 }
 $finalTotal = $invoice['total_usd'];
 
+// Check for cents discount in notes
+$centsDiscount = 0;
+$originalTotal = $finalTotal;
+if ($invoice['notes']) {
+    // Look for "خصم القروش: $X.XX" pattern in notes
+    if (preg_match('/خصم القروش:\s*\$?([\d.]+)/u', $invoice['notes'], $matches)) {
+        $centsDiscount = (float)$matches[1];
+        $originalTotal = $finalTotal + $centsDiscount;
+    }
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -456,6 +467,17 @@ $finalTotal = $invoice['total_usd'];
 
         <!-- Totals -->
         <div class="totals">
+            <?php if ($centsDiscount > 0): ?>
+            <!-- Show original total with strikethrough, discount, then final -->
+            <div class="total-row" style="font-size: 14px;">
+                <span>المجموع قبل الخصم:</span>
+                <span style="text-decoration: line-through; color: #666;">$<?= number_format($originalTotal, 2) ?></span>
+            </div>
+            <div class="total-row" style="font-size: 14px;">
+                <span>خصم القروش:</span>
+                <span>-$<?= number_format($centsDiscount, 2) ?></span>
+            </div>
+            <?php endif; ?>
             <div class="total-row final">
                 <span>المجموع الكلي:</span>
                 <span>$<?= number_format((float)$finalTotal, 2) ?> USD</span>
@@ -524,10 +546,18 @@ $finalTotal = $invoice['total_usd'];
             <?php endif; ?>
         </div>
 
-        <?php if ($invoice['notes']): ?>
+        <?php
+        // Filter out the cents discount line from notes for display (since it's shown in totals)
+        $displayNotes = $invoice['notes'];
+        if ($centsDiscount > 0 && $displayNotes) {
+            $displayNotes = preg_replace('/خصم القروش:\s*\$?[\d.]+\s*\n?/u', '', $displayNotes);
+            $displayNotes = trim($displayNotes);
+        }
+        ?>
+        <?php if ($displayNotes): ?>
         <div class="notes">
             <div class="notes-title">ملاحظات:</div>
-            <div><?= nl2br(htmlspecialchars($invoice['notes'], ENT_QUOTES, 'UTF-8')) ?></div>
+            <div><?= nl2br(htmlspecialchars($displayNotes, ENT_QUOTES, 'UTF-8')) ?></div>
         </div>
         <?php endif; ?>
 
