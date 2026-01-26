@@ -156,6 +156,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit;
 }
 
+// Handle regenerate OTP for orders already in ready status
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'regenerate_otp') {
+    $orderId = (int)($_POST['order_id'] ?? 0);
+
+    if ($orderId > 0) {
+        // Verify order exists and is in ready status
+        $orderCheck = $pdo->prepare("SELECT id, status, order_number, sales_rep_id FROM orders WHERE id = ?");
+        $orderCheck->execute([$orderId]);
+        $order = $orderCheck->fetch(PDO::FETCH_ASSOC);
+
+        if ($order && in_array($order['status'], ['ready', 'ready_for_handover'])) {
+            // Generate new OTP codes
+            $warehouseOtp = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+            $salesRepOtp = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+            $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
+
+            try {
+                $otpStmt = $pdo->prepare("
+                    INSERT INTO order_transfer_otps (order_id, warehouse_otp, sales_rep_otp, expires_at)
+                    VALUES (?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        warehouse_otp = VALUES(warehouse_otp),
+                        sales_rep_otp = VALUES(sales_rep_otp),
+                        expires_at = VALUES(expires_at),
+                        warehouse_verified_at = NULL,
+                        sales_rep_verified_at = NULL,
+                        warehouse_verified_by = NULL,
+                        sales_rep_verified_by = NULL
+                ");
+                $otpStmt->execute([$orderId, $warehouseOtp, $salesRepOtp, $expiresAt]);
+
+                // Get customer name for notification
+                $custStmt = $pdo->prepare("SELECT c.name FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ?");
+                $custStmt->execute([$orderId]);
+                $custName = $custStmt->fetchColumn() ?: 'Customer';
+
+                // Notify sales rep about new OTP
+                if ($order['sales_rep_id']) {
+                    try {
+                        $notificationStmt = $pdo->prepare("
+                            INSERT INTO notifications (user_id, type, payload, created_at)
+                            VALUES (?, 'order_ready', ?, NOW())
+                        ");
+                        $payload = json_encode([
+                            'order_id' => $orderId,
+                            'order_number' => $order['order_number'],
+                            'customer_name' => $custName,
+                            'message' => 'New OTP generated for order ' . $order['order_number'] . ' - ready for pickup'
+                        ]);
+                        $notificationStmt->execute([$order['sales_rep_id'], $payload]);
+                    } catch (Exception $e) {
+                        error_log("Failed to create notification: " . $e->getMessage());
+                    }
+                }
+
+                $_SESSION['success'] = 'New OTP codes generated successfully! Valid for 24 hours.';
+            } catch (Exception $e) {
+                error_log("Failed to regenerate OTP: " . $e->getMessage());
+                $_SESSION['error'] = 'Failed to generate new OTP codes.';
+            }
+        } else {
+            $_SESSION['error'] = 'Order not found or not in ready status.';
+        }
+    }
+
+    header('Location: orders.php');
+    exit;
+}
+
 // Handle put on hold
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'put_on_hold') {
     $orderId = (int)($_POST['order_id'] ?? 0);
@@ -625,9 +694,13 @@ if (isset($_SESSION['error'])) {
                             <?php endif; ?>
                         </div>
                     <?php else: ?>
-                        <div style="padding:10px 24px;background:#dc2626;color:#fff;font-weight:600;">
-                            OTP EXPIRED - RE-MARK AS READY
-                        </div>
+                        <form method="POST" style="display:inline;" onsubmit="return confirm('OTP has expired. Generate new OTP codes for this order?');">
+                            <input type="hidden" name="action" value="regenerate_otp">
+                            <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
+                            <button type="submit" style="padding:10px 24px;background:#dc2626;color:#fff;border:none;cursor:pointer;font-weight:600;">
+                                🔄 OTP EXPIRED - REGENERATE
+                            </button>
+                        </form>
                     <?php endif; ?>
                 <?php endif; ?>
             </div>

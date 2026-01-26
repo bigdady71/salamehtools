@@ -670,6 +670,9 @@ foreach ($flashes as $flash) {
                             <div class="product-name"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
                             <div class="product-meta">
                                 <span class="product-sku"><?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?></span>
+                                <span class="product-price" style="color: var(--primary); font-weight: 700;">
+                                    $<?= number_format((float)$product['sale_price_usd'], 2) ?>
+                                </span>
                                 <span class="product-stock <?= $stockClass ?>">
                                     المستودع: <?= number_format((float)$product['warehouse_stock'], 1) ?>
                                 </span>
