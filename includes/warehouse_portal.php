@@ -101,6 +101,11 @@ function warehouse_portal_nav_links(): array
             'href' => 'stock_returns.php',
             'icon' => '↩️',
         ],
+        'van_restock' => [
+            'label' => 'Van Restock Requests',
+            'href' => 'van_restock_requests.php',
+            'icon' => '🚚',
+        ],
         'low_stock' => [
             'label' => 'Low Stock Alerts',
             'href' => 'low_stock.php',

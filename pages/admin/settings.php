@@ -428,6 +428,7 @@ $allSidebarLinks = [
     'notifications' => ['label' => '🔔 Notifications', 'description' => 'View notifications'],
     'stock_auth' => ['label' => '🔐 Stock Authorizations', 'description' => 'Van loading authorizations'],
     'stock_return' => ['label' => '↩️ Stock Return', 'description' => 'Return stock to warehouse'],
+    'van_restock' => ['label' => '🚚 Van Restock', 'description' => 'Request products to restock van from warehouse'],
     'customer_returns' => ['label' => '🔄 Customer Returns', 'description' => 'Process customer returns'],
     'warehouse_stock' => ['label' => '🏭 Warehouse Stock', 'description' => 'View warehouse inventory'],
     'orders_request' => ['label' => '🏢 Company Order', 'description' => 'Create company order requests'],

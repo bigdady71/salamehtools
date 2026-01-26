@@ -509,17 +509,17 @@ foreach ($flashes as $flash) {
     <div class="info-box">
         <div class="info-box-icon">📋</div>
         <div class="info-box-text">
-            <strong>How Stock Returns Work</strong>
-            This is an internal inventory movement to return items from your van back to the warehouse.
-            Both you and the warehouse must confirm with OTP codes to complete the transfer.
-            This does not affect sales or create refunds.
+            <strong>كيف يعمل إرجاع المخزون</strong>
+            هذه عملية نقل داخلية لإرجاع المنتجات من سيارتك إلى المستودع.
+            يجب عليك أنت والمستودع التأكيد برموز OTP لإتمام العملية.
+            هذا لا يؤثر على المبيعات ولا ينشئ مرتجعات.
         </div>
     </div>
 
     <?php if (!empty($pendingReturns)): ?>
         <!-- Pending Returns Section -->
         <div class="section-card">
-            <h2 class="section-title">⏳ Pending Return Requests</h2>
+            <h2 class="section-title">⏳ طلبات الإرجاع المعلقة</h2>
 
             <?php foreach ($pendingReturns as $pending):
                 $request = get_stock_return_request($pdo, $pending['return_id']);
@@ -609,20 +609,58 @@ foreach ($flashes as $flash) {
 
     <!-- Create New Return Section -->
     <div class="section-card">
-        <h2 class="section-title">📦 Create Stock Return Request</h2>
+        <h2 class="section-title">📦 إنشاء طلب إرجاع مخزون</h2>
 
         <?php if (empty($vanStock)): ?>
             <p style="color: var(--muted); text-align: center; padding: 40px;">
-                You have no items in your van stock to return.
+                ليس لديك منتجات في مخزون السيارة للإرجاع.
             </p>
         <?php else: ?>
+            <!-- Filter and Search Bar -->
+            <div class="filter-bar" style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+                <input type="text" id="searchFilter" placeholder="بحث بالاسم أو الكود..."
+                       oninput="filterStockItems()"
+                       style="padding: 10px 14px; border: 2px solid var(--border); border-radius: 8px; font-size: 1rem; min-width: 200px;">
+                <select id="categoryFilter" onchange="filterStockItems()"
+                        style="padding: 10px 14px; border: 2px solid var(--border); border-radius: 8px; font-size: 1rem; min-width: 150px;">
+                    <option value="">جميع الفئات</option>
+                    <?php
+                    // Get unique categories from van stock
+                    $stockCategories = [];
+                    foreach ($vanStock as $item) {
+                        $catStmt = $pdo->prepare("SELECT topcat_name FROM products WHERE id = ?");
+                        $catStmt->execute([$item['product_id']]);
+                        $cat = $catStmt->fetchColumn();
+                        if ($cat && !in_array($cat, $stockCategories)) {
+                            $stockCategories[] = $cat;
+                        }
+                    }
+                    sort($stockCategories);
+                    foreach ($stockCategories as $cat):
+                    ?>
+                        <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <button type="button" onclick="clearFilters()" style="padding: 10px 14px; border: 2px solid var(--border); border-radius: 8px; background: #f1f5f9; cursor: pointer;">
+                    مسح الفلاتر
+                </button>
+            </div>
+
             <form method="POST" id="returnForm">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                 <input type="hidden" name="action" value="create_return">
 
                 <div class="stock-grid">
-                    <?php foreach ($vanStock as $item): ?>
-                        <div class="stock-item" id="item-<?= $item['product_id'] ?>">
+                    <?php foreach ($vanStock as $item):
+                        // Get category for this item
+                        $catStmt = $pdo->prepare("SELECT topcat_name FROM products WHERE id = ?");
+                        $catStmt->execute([$item['product_id']]);
+                        $itemCategory = $catStmt->fetchColumn() ?: '';
+                    ?>
+                        <div class="stock-item" id="item-<?= $item['product_id'] ?>"
+                             data-name="<?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                             data-sku="<?= htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') ?>"
+                             data-category="<?= htmlspecialchars($itemCategory, ENT_QUOTES, 'UTF-8') ?>">
                             <div class="stock-item-header">
                                 <?php if (!empty($item['image_url'])): ?>
                                     <img src="<?= htmlspecialchars($item['image_url'], ENT_QUOTES, 'UTF-8') ?>"
@@ -637,10 +675,10 @@ foreach ($flashes as $flash) {
                                 </div>
                             </div>
                             <div class="stock-item-available">
-                                Available: <?= number_format((float)$item['qty_on_hand'], 1) ?> <?= htmlspecialchars($item['unit'] ?? 'pcs', ENT_QUOTES, 'UTF-8') ?>
+                                المتوفر: <?= number_format((float)$item['qty_on_hand'], 1) ?> <?= htmlspecialchars($item['unit'] ?? 'قطعة', ENT_QUOTES, 'UTF-8') ?>
                             </div>
                             <div class="qty-input-group">
-                                <label>Return Qty:</label>
+                                <label>كمية الإرجاع:</label>
                                 <input type="number"
                                        name="qty_<?= $item['product_id'] ?>"
                                        class="qty-input"
@@ -655,15 +693,15 @@ foreach ($flashes as $flash) {
                 </div>
 
                 <div class="submit-section">
-                    <label style="display: block; font-weight: 600; margin-bottom: 8px;">Note (optional)</label>
-                    <textarea name="note" class="note-input" placeholder="Add any notes about this return..."></textarea>
+                    <label style="display: block; font-weight: 600; margin-bottom: 8px;">ملاحظات (اختياري)</label>
+                    <textarea name="note" class="note-input" placeholder="أضف ملاحظات حول هذا الإرجاع..."></textarea>
 
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div id="selectedSummary" style="font-size: 0.9rem; color: var(--muted);">
-                            No items selected
+                            لم يتم اختيار منتجات
                         </div>
                         <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
-                            Create Return Request
+                            إنشاء طلب الإرجاع
                         </button>
                     </div>
                 </div>
@@ -674,31 +712,38 @@ foreach ($flashes as $flash) {
     <?php if (!empty($returnHistory)): ?>
         <!-- Return History Section -->
         <div class="section-card">
-            <h2 class="section-title">📜 Return History</h2>
+            <h2 class="section-title">📜 سجل الإرجاعات</h2>
 
             <table class="history-table">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Items</th>
-                        <th>Units</th>
-                        <th>Status</th>
-                        <th>Completed</th>
+                        <th>التاريخ</th>
+                        <th>المنتجات</th>
+                        <th>الوحدات</th>
+                        <th>الحالة</th>
+                        <th>اكتمل في</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($returnHistory as $history): ?>
                         <tr>
-                            <td><?= date('M j, Y', strtotime($history['created_at'])) ?></td>
-                            <td><?= (int)$history['item_count'] ?> products</td>
+                            <td><?= date('Y/m/d', strtotime($history['created_at'])) ?></td>
+                            <td><?= (int)$history['item_count'] ?> منتج</td>
                             <td><?= number_format((float)$history['total_quantity'], 1) ?></td>
                             <td>
                                 <span class="badge badge-<?= $history['status'] ?>">
-                                    <?= ucfirst($history['status']) ?>
+                                    <?php
+                                    $statusLabels = [
+                                        'completed' => 'مكتمل',
+                                        'pending' => 'معلق',
+                                        'cancelled' => 'ملغى'
+                                    ];
+                                    echo $statusLabels[$history['status']] ?? $history['status'];
+                                    ?>
                                 </span>
                             </td>
                             <td>
-                                <?= $history['completed_at'] ? date('M j, Y g:i A', strtotime($history['completed_at'])) : '-' ?>
+                                <?= $history['completed_at'] ? date('Y/m/d H:i', strtotime($history['completed_at'])) : '-' ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -710,6 +755,29 @@ foreach ($flashes as $flash) {
 
 <script>
 let selectedItems = {};
+
+// Filter stock items
+function filterStockItems() {
+    const search = document.getElementById('searchFilter').value.toLowerCase().trim();
+    const category = document.getElementById('categoryFilter').value;
+
+    document.querySelectorAll('.stock-item').forEach(item => {
+        const name = (item.dataset.name || '').toLowerCase();
+        const sku = (item.dataset.sku || '').toLowerCase();
+        const itemCategory = item.dataset.category || '';
+
+        const matchesSearch = !search || name.includes(search) || sku.includes(search);
+        const matchesCategory = !category || itemCategory === category;
+
+        item.style.display = (matchesSearch && matchesCategory) ? 'block' : 'none';
+    });
+}
+
+function clearFilters() {
+    document.getElementById('searchFilter').value = '';
+    document.getElementById('categoryFilter').value = '';
+    filterStockItems();
+}
 
 function updateItemSelection(productId, qty) {
     const quantity = parseFloat(qty) || 0;
@@ -734,10 +802,10 @@ function updateSummary() {
     const submitBtn = document.getElementById('submitBtn');
 
     if (count === 0) {
-        summaryEl.textContent = 'No items selected';
+        summaryEl.textContent = 'لم يتم اختيار منتجات';
         submitBtn.disabled = true;
     } else {
-        summaryEl.textContent = `${count} product(s), ${totalQty.toFixed(1)} units selected`;
+        summaryEl.textContent = `${count} منتج، ${totalQty.toFixed(1)} وحدة مختارة`;
         submitBtn.disabled = false;
     }
 }
@@ -746,11 +814,11 @@ function updateSummary() {
 document.getElementById('returnForm')?.addEventListener('submit', function(e) {
     if (Object.keys(selectedItems).length === 0) {
         e.preventDefault();
-        alert('Please select at least one item to return.');
+        alert('يرجى اختيار منتج واحد على الأقل للإرجاع.');
         return false;
     }
 
-    return confirm('Are you sure you want to create this stock return request?');
+    return confirm('هل أنت متأكد من إنشاء طلب الإرجاع هذا؟');
 });
 </script>
 

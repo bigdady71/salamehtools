@@ -117,6 +117,10 @@ function sales_portal_nav_links(): array
             'label' => '↩️ إرجاع المخزون',
             'href' => $prefix . 'stock_return.php',
         ],
+        'van_restock' => [
+            'label' => '🚚 تعبئة السيارة',
+            'href' => $prefix . 'van_restock.php',
+        ],
         'customer_returns' => [
             'label' => '🔄 مرتجعات الزبائن',
             'href' => $prefix . 'customer_returns.php',
