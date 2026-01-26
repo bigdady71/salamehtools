@@ -148,7 +148,7 @@ class OrderLifecycle {
         $stmt = $this->pdo->prepare("
             SELECT o.*, u.name as sales_rep_name
             FROM orders o
-            LEFT JOIN users u ON o.user_id = u.id
+            LEFT JOIN users u ON o.sales_rep_id = u.id
             WHERE o.id = :id
             FOR UPDATE
         ");
@@ -552,10 +552,10 @@ class OrderLifecycle {
         $items = $this->getOrderItems($orderId);
 
         // Get sales rep ID from order
-        $orderStmt = $this->pdo->prepare("SELECT user_id FROM orders WHERE id = :id");
+        $orderStmt = $this->pdo->prepare("SELECT sales_rep_id FROM orders WHERE id = :id");
         $orderStmt->execute(['id' => $orderId]);
         $order = $orderStmt->fetch(PDO::FETCH_ASSOC);
-        $salesRepId = $order['user_id'];
+        $salesRepId = $order['sales_rep_id'];
 
         foreach ($items as $item) {
             $productId = $item['product_id'];
@@ -771,7 +771,7 @@ class OrderLifecycle {
                    (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,
                    (SELECT SUM(quantity * unit_price_usd) FROM order_items WHERE order_id = o.id) as total_value
             FROM orders o
-            WHERE o.status = :status AND o.user_id = :sales_rep_id
+            WHERE o.status = :status AND o.sales_rep_id = :sales_rep_id
             ORDER BY o.created_at ASC
         ");
         $stmt->execute([

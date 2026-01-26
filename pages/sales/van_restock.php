@@ -205,12 +205,14 @@ $historyStmt = $pdo->prepare("
 $historyStmt->execute([':rep_id' => $repId]);
 $requestHistory = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Get all active products for adding to cart
+// Get all active products for adding to cart (exclude price = 0 or stock < 8)
 $productsStmt = $pdo->prepare("
     SELECT p.id, p.sku, p.item_name, p.topcat_name as category,
            p.sale_price_usd, p.quantity_on_hand as warehouse_stock
     FROM products p
     WHERE p.is_active = 1
+      AND p.sale_price_usd > 0
+      AND p.quantity_on_hand >= 8
     ORDER BY p.topcat_name, p.item_name
 ");
 $productsStmt->execute();

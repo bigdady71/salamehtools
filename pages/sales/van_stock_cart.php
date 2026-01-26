@@ -1157,7 +1157,7 @@ if (!$canCreateOrder) {
                 <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></option>
             <?php endforeach; ?>
         </select>
-        <input type="text" id="searchFilter" placeholder="بحث عن منتجات..." oninput="filterProducts()">
+        <input type="text" id="searchFilter" placeholder="بحث بالاسم أو الكود..." oninput="filterProducts()">
     </div>
 
     <!-- Product Grid -->
@@ -1347,9 +1347,10 @@ if (!$canCreateOrder) {
             document.querySelectorAll('.product-card').forEach(card => {
                 const cardCategory = (card.dataset.category || '').toLowerCase();
                 const cardName = (card.dataset.name || '').toLowerCase();
+                const cardSku = (card.dataset.sku || '').toLowerCase();
 
                 const matchesCategory = !category || cardCategory === category;
-                const matchesSearch = !search || cardName.includes(search);
+                const matchesSearch = !search || cardName.includes(search) || cardSku.includes(search);
 
                 card.style.display = (matchesCategory && matchesSearch) ? 'block' : 'none';
             });
@@ -1598,7 +1599,7 @@ if (!$canCreateOrder) {
             customerDropdown.classList.remove('show');
 
             document.getElementById('selectedCustomerName').textContent = name;
-            document.getElementById('selectedCustomerInfo').textContent = `${phone || 'No phone'}${city ? ' | ' + city : ''}`;
+            document.getElementById('selectedCustomerInfo').textContent = `${phone || 'لا يوجد هاتف'}${city ? ' | ' + city : ''}`;
             customerSelected.classList.add('show');
 
             // Enable submit if cart has items
