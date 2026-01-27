@@ -1778,6 +1778,9 @@ if (!$canCreateOrder) {
             });
         });
 
+        // Apply filter on page load to hide 0 qty and 0 price items by default
+        filterProducts();
+
     </script>
 <?php
 }

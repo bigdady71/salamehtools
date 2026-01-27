@@ -20,6 +20,67 @@ $pdo = db();
 $title = 'Add New Customer';
 $repId = (int)$user['id'];
 
+// AJAX endpoint: Get cities by governorate
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['action'] === 'get_cities') {
+    header('Content-Type: application/json');
+    $governorate = trim((string)($_GET['governorate'] ?? ''));
+
+    if ($governorate === '') {
+        echo json_encode(['cities' => []]);
+        exit;
+    }
+
+    try {
+        $stmt = $pdo->prepare("SELECT DISTINCT city_name FROM lebanon_cities WHERE governorate = ? ORDER BY city_name");
+        $stmt->execute([$governorate]);
+        $cities = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        echo json_encode(['cities' => $cities]);
+    } catch (PDOException $e) {
+        echo json_encode(['cities' => [], 'error' => 'Database error']);
+    }
+    exit;
+}
+
+// AJAX endpoint: Add new city
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_city') {
+    header('Content-Type: application/json');
+    $cityName = trim((string)($_POST['city_name'] ?? ''));
+    $governorate = trim((string)($_POST['governorate'] ?? ''));
+
+    if ($cityName === '' || $governorate === '') {
+        echo json_encode(['success' => false, 'error' => 'City name and governorate are required']);
+        exit;
+    }
+
+    try {
+        // Check if city already exists
+        $checkStmt = $pdo->prepare("SELECT COUNT(*) FROM lebanon_cities WHERE city_name = ? AND governorate = ?");
+        $checkStmt->execute([$cityName, $governorate]);
+        if ((int)$checkStmt->fetchColumn() > 0) {
+            echo json_encode(['success' => true, 'message' => 'City already exists']);
+            exit;
+        }
+
+        // Add new city
+        $insertStmt = $pdo->prepare("INSERT INTO lebanon_cities (city_name, governorate) VALUES (?, ?)");
+        $insertStmt->execute([$cityName, $governorate]);
+        echo json_encode(['success' => true, 'message' => 'City added successfully']);
+    } catch (PDOException $e) {
+        echo json_encode(['success' => false, 'error' => 'Database error']);
+    }
+    exit;
+}
+
+// Fetch distinct governorates from database
+$governorates = [];
+try {
+    $govStmt = $pdo->query("SELECT DISTINCT governorate FROM lebanon_cities ORDER BY governorate");
+    $governorates = $govStmt->fetchAll(PDO::FETCH_COLUMN);
+} catch (PDOException $e) {
+    // Fallback to hardcoded list if table doesn't exist yet
+    $governorates = ['عكار', 'جبل لبنان', 'بعلبك-الهرمل', 'النبطية', 'الشمال','الجنوب', 'البقاع'];
+}
+
 // Handle customer creation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_customer') {
     if (!verify_csrf($_POST['_csrf'] ?? '')) {
@@ -285,6 +346,99 @@ sales_portal_render_layout_start([
         grid-template-columns: 1fr;
     }
 }
+
+/* City Autocomplete Styles */
+.city-autocomplete-wrapper {
+    position: relative;
+}
+
+.city-autocomplete-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 2px solid var(--accent);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    max-height: 250px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.city-autocomplete-dropdown.show {
+    display: block;
+}
+
+.city-option {
+    padding: 12px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid #e5e7eb;
+    transition: background 0.15s;
+}
+
+.city-option:last-child {
+    border-bottom: none;
+}
+
+.city-option:hover,
+.city-option.highlighted {
+    background: #f0f9ff;
+}
+
+.city-option.add-new {
+    background: #ecfdf5;
+    color: #047857;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.city-option.add-new:hover {
+    background: #d1fae5;
+}
+
+.city-option .match-highlight {
+    background: #fef08a;
+    padding: 0 2px;
+    border-radius: 2px;
+}
+
+.city-input-wrapper {
+    position: relative;
+}
+
+.city-input-wrapper .clear-btn {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #9ca3af;
+    cursor: pointer;
+    font-size: 1.2rem;
+    padding: 0;
+    display: none;
+}
+
+.city-input-wrapper .clear-btn.show {
+    display: block;
+}
+
+.city-input-wrapper .clear-btn:hover {
+    color: #ef4444;
+}
+
+.no-results {
+    padding: 12px 16px;
+    color: #6b7280;
+    text-align: center;
+    font-style: italic;
+}
 </style>
 
 <!-- Flash Messages -->
@@ -344,13 +498,14 @@ sales_portal_render_layout_start([
 
             <!-- Password -->
             <div class="form-group">
-                <label class="form-label" for="password" id="password-label">Password</label>
+                <label class="form-label required" for="password" id="password-label">Password</label>
                 <input
                     type="text"
                     id="password"
                     name="password"
                     class="form-input"
                     placeholder="Enter customer password"
+                    required
                     value="<?= htmlspecialchars($_POST['password'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
                 >
                 <div class="form-help">Required if enabling portal access (min 4 characters)</div>
@@ -372,46 +527,45 @@ sales_portal_render_layout_start([
 
             <!-- Governorate -->
             <div class="form-group">
-                <label class="form-label" for="governorate">Governorate <span style="color:red;">*</span></label>
+                <label class="form-label" for="governorate">Governorate - المحافظة <span style="color:red;">*</span></label>
                 <select
                     id="governorate"
                     name="governorate"
                     class="form-input"
                     required
+                    onchange="loadCities(this.value)"
                 >
-                    <option value="">-- Select Governorate - اختر المحافظة --</option>
-                    <?php
-                    $lebanonGovernorates = [
-                        'Beirut' => 'Beirut - بيروت',
-                        'Mount Lebanon' => 'Mount Lebanon - جبل لبنان',
-                        'North' => 'North - الشمال',
-                        'South' => 'South - الجنوب',
-                        'Beqaa' => 'Beqaa - البقاع',
-                        'Nabatieh' => 'Nabatieh - النبطية',
-                        'Akkar' => 'Akkar - عكار',
-                        'Baalbek-Hermel' => 'Baalbek-Hermel - بعلبك الهرمل'
-                    ];
-                    foreach ($lebanonGovernorates as $value => $label) {
-                        $selected = (($_POST['governorate'] ?? '') === $value) ? 'selected' : '';
-                        echo '<option value="', htmlspecialchars($value, ENT_QUOTES, 'UTF-8'), '" ', $selected, '>', htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), '</option>';
-                    }
-                    ?>
+                    <option value="">-- اختر المحافظة --</option>
+                    <?php foreach ($governorates as $gov): ?>
+                        <option value="<?= htmlspecialchars($gov, ENT_QUOTES, 'UTF-8') ?>" <?= (($_POST['governorate'] ?? '') === $gov) ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($gov, ENT_QUOTES, 'UTF-8') ?>
+                        </option>
+                    <?php endforeach; ?>
                 </select>
-                <div class="form-help">Select the governorate (state) in Lebanon</div>
+                <div class="form-help">اختر المحافظة أولاً</div>
             </div>
 
             <!-- City -->
             <div class="form-group">
-                <label class="form-label" for="city">City / Town</label>
-                <input
-                    type="text"
-                    id="city"
-                    name="city"
-                    class="form-input"
-                    placeholder="e.g., Tripoli, Jounieh, Sidon"
-                    value="<?= htmlspecialchars($_POST['city'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
-                >
-                <div class="form-help">City or town name</div>
+                <label class="form-label" for="city">City - المدينة / البلدة <span style="color:red;">*</span></label>
+                <div class="city-autocomplete-wrapper">
+                    <div class="city-input-wrapper">
+                        <input
+                            type="text"
+                            id="city"
+                            name="city"
+                            class="form-input"
+                            placeholder="-- اختر المحافظة أولاً --"
+                            autocomplete="off"
+                            required
+                            disabled
+                            value="<?= htmlspecialchars($_POST['city'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                        >
+                        <button type="button" class="clear-btn" id="cityClearBtn" title="مسح">&times;</button>
+                    </div>
+                    <div class="city-autocomplete-dropdown" id="cityDropdown"></div>
+                </div>
+                <div class="form-help">ابدأ بالكتابة للبحث أو أضف مدينة جديدة</div>
             </div>
 
             <!-- Full Address -->
@@ -441,7 +595,7 @@ sales_portal_render_layout_start([
                             id="enable_portal"
                             value="1"
                             style="width: 20px; height: 20px; cursor: pointer;"
-                            <?= isset($_POST['enable_portal']) && $_POST['enable_portal'] === '1' ? 'checked' : '' ?>
+                            <?= !isset($_POST['enable_portal']) || $_POST['enable_portal'] === '1' ? 'checked' : '' ?>
                         >
                         <span style="color: #065f46;">🌐 Enable Customer Portal Access</span>
                     </label>
@@ -464,6 +618,236 @@ sales_portal_render_layout_start([
             } else {
                 passwordInput.required = false;
                 passwordLabel.classList.remove('required');
+            }
+        });
+
+        // City autocomplete variables
+        let allCities = [];
+        let highlightedIndex = -1;
+        const cityInput = document.getElementById('city');
+        const cityDropdown = document.getElementById('cityDropdown');
+        const cityClearBtn = document.getElementById('cityClearBtn');
+        const governorateSelect = document.getElementById('governorate');
+
+        // Load cities based on selected governorate
+        function loadCities(governorate) {
+            allCities = [];
+            cityInput.value = '';
+            cityInput.placeholder = 'جاري التحميل...';
+            cityInput.disabled = true;
+            cityClearBtn.classList.remove('show');
+            cityDropdown.classList.remove('show');
+
+            if (!governorate) {
+                cityInput.placeholder = '-- اختر المحافظة أولاً --';
+                return;
+            }
+
+            fetch('?action=get_cities&governorate=' + encodeURIComponent(governorate))
+                .then(response => response.json())
+                .then(data => {
+                    allCities = data.cities || [];
+                    cityInput.disabled = false;
+                    cityInput.placeholder = 'ابدأ بالكتابة للبحث عن المدينة...';
+
+                    // If there was a previous value, keep it
+                    <?php if (isset($_POST['city']) && $_POST['city'] !== ''): ?>
+                    const prevCity = '<?= htmlspecialchars($_POST['city'] ?? '', ENT_QUOTES, 'UTF-8') ?>';
+                    if (prevCity) {
+                        cityInput.value = prevCity;
+                        cityClearBtn.classList.add('show');
+                    }
+                    <?php endif; ?>
+                })
+                .catch(error => {
+                    console.error('Error loading cities:', error);
+                    cityInput.disabled = false;
+                    cityInput.placeholder = 'خطأ في التحميل - يمكنك الكتابة يدوياً';
+                });
+        }
+
+        // Filter and display cities
+        function filterCities(query) {
+            const trimmedQuery = query.trim().toLowerCase();
+            cityDropdown.innerHTML = '';
+            highlightedIndex = -1;
+
+            if (trimmedQuery === '') {
+                // Show all cities when input is focused but empty
+                if (allCities.length > 0) {
+                    allCities.forEach((city, index) => {
+                        const div = document.createElement('div');
+                        div.className = 'city-option';
+                        div.textContent = city;
+                        div.dataset.index = index;
+                        div.onclick = () => selectCity(city);
+                        cityDropdown.appendChild(div);
+                    });
+                    cityDropdown.classList.add('show');
+                }
+                return;
+            }
+
+            // Filter matching cities
+            const matches = allCities.filter(city =>
+                city.toLowerCase().includes(trimmedQuery)
+            );
+
+            if (matches.length > 0) {
+                matches.forEach((city, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'city-option';
+                    div.dataset.index = index;
+
+                    // Highlight matching text
+                    const lowerCity = city.toLowerCase();
+                    const matchIndex = lowerCity.indexOf(trimmedQuery);
+                    if (matchIndex >= 0) {
+                        div.innerHTML =
+                            escapeHtml(city.substring(0, matchIndex)) +
+                            '<span class="match-highlight">' + escapeHtml(city.substring(matchIndex, matchIndex + trimmedQuery.length)) + '</span>' +
+                            escapeHtml(city.substring(matchIndex + trimmedQuery.length));
+                    } else {
+                        div.textContent = city;
+                    }
+
+                    div.onclick = () => selectCity(city);
+                    cityDropdown.appendChild(div);
+                });
+            }
+
+            // Check if exact match exists
+            const exactMatch = allCities.some(city => city.toLowerCase() === trimmedQuery);
+
+            // Add "Add new city" option if no exact match
+            if (!exactMatch && query.trim() !== '') {
+                const addNewDiv = document.createElement('div');
+                addNewDiv.className = 'city-option add-new';
+                addNewDiv.innerHTML = '<span>➕</span> إضافة "' + escapeHtml(query.trim()) + '" كمدينة جديدة';
+                addNewDiv.onclick = () => addNewCity(query.trim());
+                cityDropdown.appendChild(addNewDiv);
+            }
+
+            if (cityDropdown.children.length > 0) {
+                cityDropdown.classList.add('show');
+            } else {
+                cityDropdown.classList.remove('show');
+            }
+        }
+
+        // Select a city
+        function selectCity(city) {
+            cityInput.value = city;
+            cityDropdown.classList.remove('show');
+            cityClearBtn.classList.add('show');
+        }
+
+        // Add new city to database
+        function addNewCity(cityName) {
+            const governorate = governorateSelect.value;
+            if (!governorate) {
+                alert('يرجى اختيار المحافظة أولاً');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'add_city');
+            formData.append('city_name', cityName);
+            formData.append('governorate', governorate);
+
+            fetch('', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Add to local list and select it
+                    if (!allCities.includes(cityName)) {
+                        allCities.push(cityName);
+                        allCities.sort();
+                    }
+                    selectCity(cityName);
+                } else {
+                    alert('خطأ في إضافة المدينة: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error adding city:', error);
+                // Still allow selection even if save fails
+                selectCity(cityName);
+            });
+        }
+
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Event listeners for city input
+        cityInput.addEventListener('input', function() {
+            filterCities(this.value);
+            cityClearBtn.classList.toggle('show', this.value.length > 0);
+        });
+
+        cityInput.addEventListener('focus', function() {
+            if (governorateSelect.value) {
+                filterCities(this.value);
+            }
+        });
+
+        cityInput.addEventListener('keydown', function(e) {
+            const options = cityDropdown.querySelectorAll('.city-option');
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                highlightedIndex = Math.min(highlightedIndex + 1, options.length - 1);
+                updateHighlight(options);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                highlightedIndex = Math.max(highlightedIndex - 1, 0);
+                updateHighlight(options);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (highlightedIndex >= 0 && options[highlightedIndex]) {
+                    options[highlightedIndex].click();
+                }
+            } else if (e.key === 'Escape') {
+                cityDropdown.classList.remove('show');
+            }
+        });
+
+        function updateHighlight(options) {
+            options.forEach((opt, i) => {
+                opt.classList.toggle('highlighted', i === highlightedIndex);
+                if (i === highlightedIndex) {
+                    opt.scrollIntoView({ block: 'nearest' });
+                }
+            });
+        }
+
+        // Clear button
+        cityClearBtn.addEventListener('click', function() {
+            cityInput.value = '';
+            cityInput.focus();
+            cityClearBtn.classList.remove('show');
+            filterCities('');
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!cityInput.contains(e.target) && !cityDropdown.contains(e.target)) {
+                cityDropdown.classList.remove('show');
+            }
+        });
+
+        // Load cities on page load if governorate is already selected
+        document.addEventListener('DOMContentLoaded', function() {
+            const governorate = governorateSelect.value;
+            if (governorate) {
+                loadCities(governorate);
             }
         });
         </script>
