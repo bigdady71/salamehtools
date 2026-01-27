@@ -210,6 +210,7 @@ accounting_render_flashes(consume_flashes());
         <button type="submit" class="btn btn-primary">Filter</button>
         <a href="invoices.php" class="btn">Clear</a>
         <a href="?<?= http_build_query(array_merge($_GET, ['export' => 'csv'])) ?>" class="btn" style="margin-left: auto;">Export CSV</a>
+        <a href="pdf_archive.php" class="btn" style="background: #dc2626; color: white;">📁 PDF Archive</a>
     </form>
 
     <table>

@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../bootstrap.php';
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/sales_portal.php';
 require_once __DIR__ . '/../../includes/counter.php';
+require_once __DIR__ . '/../../includes/InvoicePDF.php';
 
 $user = sales_portal_bootstrap();
 $repId = (int)$user['id'];
@@ -456,6 +457,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 
                     $pdo->commit();
 
+                    // Auto-generate and save PDF for the invoice
+                    try {
+                        $pdfGenerator = new InvoicePDF($pdo);
+                        $pdfGenerator->savePDF($invoiceId);
+                    } catch (Exception $pdfError) {
+                        // Log error but don't fail the sale
+                        error_log("Failed to auto-generate PDF for invoice {$invoiceId}: " . $pdfError->getMessage());
+                    }
+
                     // Redirect to print invoice
                     header("Location: print_invoice.php?invoice_id={$invoiceId}");
                     exit;
@@ -482,15 +492,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
     }
 }
 
-// Get all products with stock > 0 for this sales rep
+// Get all products for this sales rep (including qty=0 and price=0 for toggle filter)
 $productsStmt = $pdo->prepare("
     SELECT
         p.id, p.sku, p.item_name, p.topcat_name as category,
-        p.sale_price_usd, s.qty_on_hand
+        p.sale_price_usd, COALESCE(s.qty_on_hand, 0) as qty_on_hand
     FROM s_stock s
     JOIN products p ON p.id = s.product_id
     WHERE s.salesperson_id = :rep_id
-      AND s.qty_on_hand > 0
       AND p.is_active = 1
     ORDER BY p.topcat_name, p.item_name
 ");
@@ -532,6 +541,23 @@ sales_portal_render_layout_start([
         .filter-bar input:focus {
             outline: none;
             border-color: var(--accent);
+        }
+        .filter-bar input[type="text"] {
+            flex: 1;
+            min-width: 180px;
+        }
+        .toggle-filter {
+            background: var(--bg-panel);
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 2px solid var(--border);
+            white-space: nowrap;
+        }
+        .toggle-filter:hover {
+            border-color: var(--accent);
+        }
+        .toggle-filter input[type="checkbox"] {
+            accent-color: var(--accent);
         }
         .product-grid {
             display: grid;
@@ -1158,6 +1184,10 @@ if (!$canCreateOrder) {
             <?php endforeach; ?>
         </select>
         <input type="text" id="searchFilter" placeholder="بحث بالاسم أو الكود..." oninput="filterProducts()">
+        <label class="toggle-filter" style="display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;">
+            <input type="checkbox" id="hideZeroToggle" checked onchange="filterProducts()" style="width:18px; height:18px; cursor:pointer;">
+            <span style="font-size:0.9rem; color:var(--text);">إخفاء الكمية 0 والسعر 0</span>
+        </label>
     </div>
 
     <!-- Product Grid -->
@@ -1343,16 +1373,20 @@ if (!$canCreateOrder) {
         function filterProducts() {
             const category = document.getElementById('categoryFilter').value.toLowerCase();
             const search = document.getElementById('searchFilter').value.toLowerCase();
+            const hideZero = document.getElementById('hideZeroToggle').checked;
 
             document.querySelectorAll('.product-card').forEach(card => {
                 const cardCategory = (card.dataset.category || '').toLowerCase();
                 const cardName = (card.dataset.name || '').toLowerCase();
                 const cardSku = (card.dataset.sku || '').toLowerCase();
+                const cardStock = parseFloat(card.dataset.stock) || 0;
+                const cardPrice = parseFloat(card.dataset.price) || 0;
 
                 const matchesCategory = !category || cardCategory === category;
                 const matchesSearch = !search || cardName.includes(search) || cardSku.includes(search);
+                const matchesZeroFilter = !hideZero || (cardStock > 0 && cardPrice > 0);
 
-                card.style.display = (matchesCategory && matchesSearch) ? 'block' : 'none';
+                card.style.display = (matchesCategory && matchesSearch && matchesZeroFilter) ? 'block' : 'none';
             });
         }
 

@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../bootstrap.php';
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/sales_portal.php';
 require_once __DIR__ . '/../../includes/counter.php';
+require_once __DIR__ . '/../../includes/InvoicePDF.php';
 
 $user = sales_portal_bootstrap();
 $repId = (int)$user['id'];
@@ -516,6 +517,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     }
 
                     $pdo->commit();
+
+                    // Auto-generate and save PDF for the invoice
+                    try {
+                        $pdfGenerator = new InvoicePDF($pdo);
+                        $pdfGenerator->savePDF($invoiceId);
+                    } catch (Exception $pdfError) {
+                        // Log error but don't fail the sale
+                        error_log("Failed to auto-generate PDF for invoice {$invoiceId}: " . $pdfError->getMessage());
+                    }
 
                     // Redirect to print invoice
                     header("Location: print_invoice.php?invoice_id={$invoiceId}");
