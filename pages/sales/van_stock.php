@@ -1308,13 +1308,16 @@ if (!$stockItems) {
         // Product image path (based on SKU) - check multiple formats
         $imageExists = false;
         $imagePath = '../../images/products/default.jpg';
-        $possibleExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+        $defaultImagePath = __DIR__ . '/../../images/products/default.jpg';
+        $imageVersion = file_exists($defaultImagePath) ? (string)filemtime($defaultImagePath) : null;
+        $possibleExtensions = ['webp', 'jpg', 'jpeg', 'png', 'gif'];
 
         foreach ($possibleExtensions as $ext) {
             // Don't use urlencode - filenames match SKU exactly
             $serverPath = __DIR__ . '/../../images/products/' . $sku . '.' . $ext;
             if (file_exists($serverPath)) {
                 $imagePath = '../../images/products/' . $sku . '.' . $ext;
+                $imageVersion = (string)filemtime($serverPath);
                 $imageExists = true;
                 break;
             }
@@ -1353,7 +1356,9 @@ if (!$stockItems) {
 
         // Product Image
         if ($imageExists) {
-            echo '<img src="', htmlspecialchars($imagePath, ENT_QUOTES, 'UTF-8'), '" alt="', $itemName, '" class="product-image" loading="lazy">';
+            $imageSrc = $imagePath . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
+            $fallbackSrc = '../../images/products/default.jpg' . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
+            echo '<img src="', htmlspecialchars($imageSrc, ENT_QUOTES, 'UTF-8'), '" alt="', $itemName, '" class="product-image lazy-image" loading="lazy" onload="this.classList.add(\'is-loaded\')" onerror="this.src=\'', htmlspecialchars($fallbackSrc, ENT_QUOTES, 'UTF-8'), '\';">';
         } else {
             echo '<div class="product-image-placeholder">📦</div>';
         }

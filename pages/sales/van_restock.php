@@ -12,10 +12,101 @@ $repId = (int)$user['id'];
 $pdo = db();
 $action = (string)($_POST['action'] ?? $_GET['action'] ?? '');
 $flashes = [];
+$wantsJson = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string)$_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+    || (!empty($_SERVER['HTTP_ACCEPT']) && strpos((string)$_SERVER['HTTP_ACCEPT'], 'application/json') !== false);
+
+function render_restock_cart_html(array $cartItems, string $csrfToken): string
+{
+    ob_start();
+    if (empty($cartItems)) {
+        echo '<div class="cart-empty">';
+        echo '<div class="cart-empty-icon">🛒</div>';
+        echo '<p>السلة فارغة</p>';
+        echo '<p style="font-size: 0.9rem;">أضف منتجات من القائمة لبدء طلب التعبئة</p>';
+        echo '</div>';
+    } else {
+        echo '<div class="cart-items">';
+        $totalItems = 0;
+        $totalQty = 0;
+        foreach ($cartItems as $item) {
+            $totalItems++;
+            $totalQty += $item['quantity'];
+            echo '<div class="cart-item">';
+            echo '<div class="cart-item-info">';
+            echo '<div class="cart-item-name">', htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8'), '</div>';
+            echo '<div class="cart-item-sku">', htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8'), '</div>';
+            echo '</div>';
+            echo '<div class="cart-item-controls">';
+            echo '<form method="POST" class="ajax-cart-form" style="display: flex; gap: 4px; align-items: center;">';
+            echo '<input type="hidden" name="csrf_token" value="', htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'), '">';
+            echo '<input type="hidden" name="action" value="update_quantity">';
+            echo '<input type="hidden" name="item_id" value="', (int)$item['id'], '">';
+            echo '<input type="number" name="quantity" class="cart-qty-input" value="', number_format((float)$item['quantity'], 0), '" min="0" step="1" onchange="this.form.requestSubmit()">';
+            echo '</form>';
+            echo '<form method="POST" class="ajax-cart-form">';
+            echo '<input type="hidden" name="csrf_token" value="', htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'), '">';
+            echo '<input type="hidden" name="action" value="remove_item">';
+            echo '<input type="hidden" name="item_id" value="', (int)$item['id'], '">';
+            echo '<button type="submit" class="btn btn-danger" style="padding: 6px 10px;">✕</button>';
+            echo '</form>';
+            echo '</div>';
+            echo '</div>';
+        }
+        echo '</div>';
+        echo '<div class="cart-totals">';
+        echo '<div class="cart-total-row"><span>عدد المنتجات:</span><span>', $totalItems, '</span></div>';
+        echo '<div class="cart-total-row grand"><span>إجمالي الوحدات:</span><span>', number_format((float)$totalQty, 1), '</span></div>';
+        echo '</div>';
+        echo '<div class="submit-section">';
+        echo '<form method="POST">';
+        echo '<input type="hidden" name="csrf_token" value="', htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'), '">';
+        echo '<input type="hidden" name="action" value="submit_request">';
+        echo '<textarea name="notes" placeholder="ملاحظات للمستودع (اختياري)..."></textarea>';
+        echo '<button type="submit" class="btn btn-success btn-submit">📤 إرسال طلب التعبئة للمستودع</button>';
+        echo '</form>';
+        echo '</div>';
+    }
+    return ob_get_clean();
+}
+
+function fetch_restock_cart_items(PDO $pdo, int $repId): array
+{
+    $activeCartStmt = $pdo->prepare("
+        SELECT r.id
+        FROM van_restock_requests r
+        WHERE r.sales_rep_id = :rep_id AND r.status = 'pending'
+        ORDER BY r.created_at DESC LIMIT 1
+    ");
+    $activeCartStmt->execute([':rep_id' => $repId]);
+    $activeCartId = $activeCartStmt->fetchColumn();
+
+    if (!$activeCartId) {
+        return [];
+    }
+
+    $cartItemsStmt = $pdo->prepare("
+        SELECT ri.id, ri.product_id, ri.quantity,
+               p.sku, p.item_name, p.sale_price_usd, p.quantity_on_hand as warehouse_stock
+        FROM van_restock_items ri
+        JOIN products p ON p.id = ri.product_id
+        WHERE ri.request_id = :request_id
+        ORDER BY ri.id DESC
+    ");
+    $cartItemsStmt->execute([':request_id' => (int)$activeCartId]);
+    return $cartItemsStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // Handle adding item to restock cart
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'add_to_cart') {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+        if ($wantsJson) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'ok' => false,
+                'message' => 'رمز الأمان غير صالح.',
+            ]);
+            exit;
+        }
         $flashes[] = ['type' => 'error', 'title' => 'خطأ أمني', 'message' => 'رمز الأمان غير صالح.'];
     } else {
         $productId = (int)($_POST['product_id'] ?? 0);
@@ -70,6 +161,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'add_to_cart') {
             }
 
             $flashes[] = ['type' => 'success', 'title' => 'تمت الإضافة', 'message' => 'تمت إضافة المنتج إلى سلة التعبئة.'];
+            if ($wantsJson) {
+                $cartItems = fetch_restock_cart_items($pdo, $repId);
+                header('Content-Type: application/json');
+                echo json_encode([
+                    'ok' => true,
+                    'message' => 'تمت إضافة المنتج إلى سلة التعبئة.',
+                    'cart_html' => render_restock_cart_html($cartItems, csrf_token()),
+                ]);
+                exit;
+            }
+        } elseif ($wantsJson) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'ok' => false,
+                'message' => 'البيانات غير صالحة لإضافة المنتج.',
+            ]);
+            exit;
         }
     }
 }
@@ -77,6 +185,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'add_to_cart') {
 // Handle updating item quantity
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'update_quantity') {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+        if ($wantsJson) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'ok' => false,
+                'message' => 'رمز الأمان غير صالح.',
+            ]);
+            exit;
+        }
         $flashes[] = ['type' => 'error', 'title' => 'خطأ أمني', 'message' => 'رمز الأمان غير صالح.'];
     } else {
         $itemId = (int)($_POST['item_id'] ?? 0);
@@ -104,6 +220,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'update_quantity') {
             }
         }
     }
+    if ($wantsJson) {
+        $cartItems = fetch_restock_cart_items($pdo, $repId);
+        header('Content-Type: application/json');
+        echo json_encode([
+            'ok' => true,
+            'cart_html' => render_restock_cart_html($cartItems, csrf_token()),
+        ]);
+        exit;
+    }
     // Redirect to avoid form resubmission
     header('Location: van_restock.php');
     exit;
@@ -112,6 +237,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'update_quantity') {
 // Handle removing item from cart
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'remove_item') {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+        if ($wantsJson) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'ok' => false,
+                'message' => 'رمز الأمان غير صالح.',
+            ]);
+            exit;
+        }
         $flashes[] = ['type' => 'error', 'title' => 'خطأ أمني', 'message' => 'رمز الأمان غير صالح.'];
     } else {
         $itemId = (int)($_POST['item_id'] ?? 0);
@@ -125,6 +258,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'remove_item') {
             $deleteItem->execute([':id' => $itemId, ':rep_id' => $repId]);
         }
     }
+    if ($wantsJson) {
+        $cartItems = fetch_restock_cart_items($pdo, $repId);
+        header('Content-Type: application/json');
+        echo json_encode([
+            'ok' => true,
+            'cart_html' => render_restock_cart_html($cartItems, csrf_token()),
+        ]);
+        exit;
+    }
     header('Location: van_restock.php');
     exit;
 }
@@ -132,6 +274,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'remove_item') {
 // Handle submitting the restock request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'submit_request') {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+        if ($wantsJson) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'ok' => false,
+                'message' => 'رمز الأمان غير صالح.',
+            ]);
+            exit;
+        }
         $flashes[] = ['type' => 'error', 'title' => 'خطأ أمني', 'message' => 'رمز الأمان غير صالح.'];
     } else {
         $notes = trim((string)($_POST['notes'] ?? ''));
@@ -160,37 +310,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'submit_request') {
                 $submitRequest->execute([':notes' => $notes ?: null, ':id' => $requestId]);
 
                 $flashes[] = ['type' => 'success', 'title' => 'تم الإرسال', 'message' => 'تم إرسال طلب التعبئة للمستودع. سيتم إشعارك عند الموافقة.'];
+                if ($wantsJson) {
+                    header('Content-Type: application/json');
+                    echo json_encode([
+                        'ok' => true,
+                        'message' => 'تم إرسال طلب التعبئة للمستودع. سيتم إشعارك عند الموافقة.',
+                        'cart_html' => render_restock_cart_html([], csrf_token()),
+                    ]);
+                    exit;
+                }
             } else {
+                if ($wantsJson) {
+                    header('Content-Type: application/json');
+                    echo json_encode([
+                        'ok' => false,
+                        'message' => 'يرجى إضافة منتجات إلى السلة أولاً.',
+                    ]);
+                    exit;
+                }
                 $flashes[] = ['type' => 'error', 'title' => 'خطأ', 'message' => 'يرجى إضافة منتجات إلى السلة أولاً.'];
             }
         }
     }
 }
 
-// Get active (pending) restock cart
-$activeCartStmt = $pdo->prepare("
-    SELECT r.id, r.created_at, r.notes
-    FROM van_restock_requests r
-    WHERE r.sales_rep_id = :rep_id AND r.status = 'pending'
-    ORDER BY r.created_at DESC LIMIT 1
-");
-$activeCartStmt->execute([':rep_id' => $repId]);
-$activeCart = $activeCartStmt->fetch(PDO::FETCH_ASSOC);
-
 // Get items in active cart
-$cartItems = [];
-if ($activeCart) {
-    $cartItemsStmt = $pdo->prepare("
-        SELECT ri.id, ri.product_id, ri.quantity,
-               p.sku, p.item_name, p.sale_price_usd, p.quantity_on_hand as warehouse_stock
-        FROM van_restock_items ri
-        JOIN products p ON p.id = ri.product_id
-        WHERE ri.request_id = :request_id
-        ORDER BY ri.id DESC
-    ");
-    $cartItemsStmt->execute([':request_id' => $activeCart['id']]);
-    $cartItems = $cartItemsStmt->fetchAll(PDO::FETCH_ASSOC);
-}
+$cartItems = fetch_restock_cart_items($pdo, $repId);
 
 // Get submitted/processing requests history
 $historyStmt = $pdo->prepare("
@@ -227,15 +372,18 @@ $csrfToken = csrf_token();
 // Build product image paths
 foreach ($products as &$product) {
     $imagePath = '../../images/products/default.jpg';
-    $possibleExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+    $defaultImagePath = __DIR__ . '/../../images/products/default.jpg';
+    $imageVersion = file_exists($defaultImagePath) ? (string)filemtime($defaultImagePath) : null;
+    $possibleExtensions = ['webp', 'jpg', 'jpeg', 'png', 'gif'];
     foreach ($possibleExtensions as $ext) {
         $serverPath = __DIR__ . '/../../images/products/' . $product['sku'] . '.' . $ext;
         if (file_exists($serverPath)) {
             $imagePath = '../../images/products/' . $product['sku'] . '.' . $ext;
+            $imageVersion = (string)filemtime($serverPath);
             break;
         }
     }
-    $product['image_path'] = $imagePath;
+    $product['image_path'] = $imagePath . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
 }
 unset($product);
 
@@ -652,6 +800,11 @@ foreach ($flashes as $flash) {
                 </div>
             </div>
 
+            <?php
+            $defaultImageFs = __DIR__ . '/../../images/products/default.jpg';
+            $defaultImageVersion = file_exists($defaultImageFs) ? (string)filemtime($defaultImageFs) : null;
+            $defaultImageSrc = '../../images/products/default.jpg' . ($defaultImageVersion ? '?v=' . rawurlencode($defaultImageVersion) : '');
+            ?>
             <div class="product-list card-view" id="productList">
                 <?php foreach ($products as $product):
                     $stockClass = '';
@@ -664,8 +817,10 @@ foreach ($flashes as $flash) {
                          data-category="<?= htmlspecialchars($product['category'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
                         <img src="<?= htmlspecialchars($product['image_path'], ENT_QUOTES, 'UTF-8') ?>"
                              alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                             class="product-image"
-                             onerror="this.src='../../images/products/default.jpg'">
+                             class="product-image lazy-image"
+                             loading="lazy"
+                             onload="this.classList.add('is-loaded')"
+                             onerror="this.src='<?= htmlspecialchars($defaultImageSrc, ENT_QUOTES, 'UTF-8') ?>'">
                         <div class="product-info">
                             <div class="product-name"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
                             <div class="product-meta">
@@ -678,11 +833,11 @@ foreach ($flashes as $flash) {
                                 </span>
                             </div>
                         </div>
-                        <form method="POST" class="add-form">
+                        <form method="POST" class="add-form ajax-cart-form">
                             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                             <input type="hidden" name="action" value="add_to_cart">
                             <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
-                            <input type="number" name="quantity" class="qty-input" value="1" min="0.1" step="0.1">
+                            <input type="number" name="quantity" class="qty-input" value="1" min="1" step="1">
                             <button type="submit" class="btn btn-primary">+ إضافة</button>
                         </form>
                     </div>
@@ -723,69 +878,11 @@ foreach ($flashes as $flash) {
     <div class="cart-section">
         <div class="section-card">
             <h2 class="section-title">🛒 سلة التعبئة</h2>
+            <div id="ajaxFlash"></div>
 
-            <?php if (empty($cartItems)): ?>
-                <div class="cart-empty">
-                    <div class="cart-empty-icon">🛒</div>
-                    <p>السلة فارغة</p>
-                    <p style="font-size: 0.9rem;">أضف منتجات من القائمة لبدء طلب التعبئة</p>
-                </div>
-            <?php else: ?>
-                <div class="cart-items">
-                    <?php
-                    $totalItems = 0;
-                    $totalQty = 0;
-                    foreach ($cartItems as $item):
-                        $totalItems++;
-                        $totalQty += $item['quantity'];
-                    ?>
-                        <div class="cart-item">
-                            <div class="cart-item-info">
-                                <div class="cart-item-name"><?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
-                                <div class="cart-item-sku"><?= htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') ?></div>
-                            </div>
-                            <div class="cart-item-controls">
-                                <form method="POST" style="display: flex; gap: 4px; align-items: center;">
-                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                                    <input type="hidden" name="action" value="update_quantity">
-                                    <input type="hidden" name="item_id" value="<?= $item['id'] ?>">
-                                    <input type="number" name="quantity" class="cart-qty-input"
-                                           value="<?= number_format((float)$item['quantity'], 1) ?>"
-                                           min="0" step="0.1" onchange="this.form.submit()">
-                                </form>
-                                <form method="POST">
-                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                                    <input type="hidden" name="action" value="remove_item">
-                                    <input type="hidden" name="item_id" value="<?= $item['id'] ?>">
-                                    <button type="submit" class="btn btn-danger" style="padding: 6px 10px;">✕</button>
-                                </form>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-
-                <div class="cart-totals">
-                    <div class="cart-total-row">
-                        <span>عدد المنتجات:</span>
-                        <span><?= $totalItems ?></span>
-                    </div>
-                    <div class="cart-total-row grand">
-                        <span>إجمالي الوحدات:</span>
-                        <span><?= number_format($totalQty, 1) ?></span>
-                    </div>
-                </div>
-
-                <div class="submit-section">
-                    <form method="POST">
-                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                        <input type="hidden" name="action" value="submit_request">
-                        <textarea name="notes" placeholder="ملاحظات للمستودع (اختياري)..."></textarea>
-                        <button type="submit" class="btn btn-success btn-submit">
-                            📤 إرسال طلب التعبئة للمستودع
-                        </button>
-                    </form>
-                </div>
-            <?php endif; ?>
+            <div id="cartContent">
+                <?= render_restock_cart_html($cartItems, $csrfToken) ?>
+            </div>
         </div>
     </div>
 </div>
@@ -839,9 +936,64 @@ function filterProducts() {
     });
 }
 
+function showAjaxFlash(type, message) {
+    const host = document.getElementById('ajaxFlash');
+    if (!host) {
+        return;
+    }
+    const title = type === 'success' ? 'تم' : 'خطأ';
+    host.innerHTML = `<div class="flash ${type}"><h4>${title}</h4><p>${message}</p></div>`;
+    host.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function submitCartForm(form) {
+    const formData = new FormData(form);
+    try {
+        const response = await fetch(window.location.href, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json'
+            }
+        });
+        const payload = await response.json();
+        if (!payload.ok) {
+            showAjaxFlash('error', payload.message || 'تعذر تحديث السلة.');
+            return;
+        }
+        if (payload.message) {
+            showAjaxFlash('success', payload.message);
+        }
+        if (payload.cart_html) {
+            const cartContent = document.getElementById('cartContent');
+            if (cartContent) {
+                cartContent.innerHTML = payload.cart_html;
+            }
+        }
+        bindAjaxCartForms();
+    } catch (err) {
+        showAjaxFlash('error', 'تعذر الاتصال بالخادم.');
+    }
+}
+
+function bindAjaxCartForms() {
+    document.querySelectorAll('form.ajax-cart-form, #cartContent form').forEach(form => {
+        if (form.dataset.ajaxBound === '1') {
+            return;
+        }
+        form.dataset.ajaxBound = '1';
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            submitCartForm(form);
+        });
+    });
+}
+
 // Initialize view on page load
 document.addEventListener('DOMContentLoaded', function() {
     setView(currentView);
+    bindAjaxCartForms();
 });
 </script>
 

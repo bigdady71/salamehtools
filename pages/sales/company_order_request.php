@@ -13,6 +13,8 @@ $repId = (int)$user['id'];
 $pdo = db();
 $action = (string)($_POST['action'] ?? $_GET['action'] ?? '');
 $flashes = [];
+$wantsJson = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string)$_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+    || (!empty($_SERVER['HTTP_ACCEPT']) && strpos((string)$_SERVER['HTTP_ACCEPT'], 'application/json') !== false);
 
 
 // Get active exchange rate
@@ -59,10 +61,33 @@ if ($exchangeRateError || $exchangeRate === null) {
 // Handle order creation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+        if ($wantsJson) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'ok' => false,
+                'message' => 'Invalid or expired CSRF token. Please try again.',
+            ]);
+            exit;
+        }
         $flashes[] = [
             'type' => 'error',
             'title' => 'Security Error',
             'message' => 'Invalid or expired CSRF token. Please try again.',
+            'dismissible' => true,
+        ];
+    } elseif (!$canCreateOrder) {
+        if ($wantsJson) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'ok' => false,
+                'message' => 'Exchange rate is unavailable. Please refresh the page and try again.',
+            ]);
+            exit;
+        }
+        $flashes[] = [
+            'type' => 'error',
+            'title' => 'Cannot Create Order',
+            'message' => 'Exchange rate is unavailable. Please refresh the page and try again.',
             'dismissible' => true,
         ];
     } else {
@@ -174,6 +199,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 
                 if ($errors) {
                     $pdo->rollBack();
+                    if ($wantsJson) {
+                        header('Content-Type: application/json');
+                        echo json_encode([
+                            'ok' => false,
+                            'message' => 'Unable to create order. Please fix the errors below.',
+                            'errors' => $errors,
+                        ]);
+                        exit;
+                    }
                     $flashes[] = [
                         'type' => 'error',
                         'title' => 'Validation Failed',
@@ -236,6 +270,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 
                     $pdo->commit();
 
+                    if ($wantsJson) {
+                        header('Content-Type: application/json');
+                        echo json_encode([
+                            'ok' => true,
+                            'message' => "Order request {$orderNumber} has been successfully submitted and is pending approval.",
+                            'order_number' => $orderNumber,
+                        ]);
+                        exit;
+                    }
+
                     $flashes[] = [
                         'type' => 'success',
                         'title' => 'Order Request Submitted',
@@ -250,6 +294,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
             } catch (Exception $e) {
                 $pdo->rollBack();
                 error_log("Failed to create company order request: " . $e->getMessage());
+                if ($wantsJson) {
+                    header('Content-Type: application/json');
+                    echo json_encode([
+                        'ok' => false,
+                        'message' => 'Unable to create order request. Please try again.',
+                    ]);
+                    exit;
+                }
                 $flashes[] = [
                     'type' => 'error',
                     'title' => 'Database Error',
@@ -258,6 +310,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                 ];
             }
         } else {
+            if ($wantsJson) {
+                header('Content-Type: application/json');
+                echo json_encode([
+                    'ok' => false,
+                    'message' => 'Unable to create order. Please fix the errors below.',
+                    'errors' => $errors,
+                ]);
+                exit;
+            }
             $flashes[] = [
                 'type' => 'error',
                 'title' => 'Validation Failed',
@@ -921,6 +982,7 @@ if (empty($customers)) {
         <strong>Note:</strong> This creates an order request that will be fulfilled from warehouse stock.
         The order will be placed on hold pending approval. Orders are fulfilled by the warehouse team, not from your van stock.
     </div>
+    <div id="ajaxFlash"></div>
 
     <!-- Filter Bar -->
     <div class="filter-bar">
@@ -969,18 +1031,23 @@ if (empty($customers)) {
             // Find product image
             $imageExists = false;
             $imagePath = '../../images/products/default.jpg';
-            $possibleExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+            $defaultImagePath = __DIR__ . '/../../images/products/default.jpg';
+            $imageVersion = file_exists($defaultImagePath) ? (string)filemtime($defaultImagePath) : null;
+            $possibleExtensions = ['webp', 'jpg', 'jpeg', 'png', 'gif'];
 
             if ($sku) {
                 foreach ($possibleExtensions as $ext) {
                     $serverPath = __DIR__ . '/../../images/products/' . $sku . '.' . $ext;
                     if (file_exists($serverPath)) {
                         $imagePath = '../../images/products/' . $sku . '.' . $ext;
+                        $imageVersion = (string)filemtime($serverPath);
                         $imageExists = true;
                         break;
                     }
                 }
             }
+            $imageSrc = $imagePath . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
+            $fallbackSrc = '../../images/products/default.jpg' . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
         ?>
             <div class="product-card"
                  data-id="<?= $product['id'] ?>"
@@ -989,10 +1056,12 @@ if (empty($customers)) {
                  data-price="<?= $priceUSD ?>"
                  data-stock="<?= $stock ?>"
                  data-category="<?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>">
-                <img src="<?= htmlspecialchars($imagePath, ENT_QUOTES, 'UTF-8') ?>"
+                <img src="<?= htmlspecialchars($imageSrc, ENT_QUOTES, 'UTF-8') ?>"
                      alt="<?= $itemName ?>"
                      loading="lazy"
-                     onerror="this.src='../../images/products/default.jpg'">
+                     class="lazy-image"
+                     onload="this.classList.add('is-loaded')"
+                     onerror="this.src='<?= htmlspecialchars($fallbackSrc, ENT_QUOTES, 'UTF-8') ?>'">
                 <div class="product-sku"><?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?></div>
                 <div class="product-name"><?= $itemName ?></div>
                 <div class="product-price">$<?= number_format($priceUSD, 2) ?></div>
@@ -1093,7 +1162,7 @@ if (empty($customers)) {
     </div>
 
     <script>
-        const exchangeRate = <?= $exchangeRate ?>;
+        const exchangeRate = <?= json_encode($exchangeRate ?? 0, JSON_UNESCAPED_UNICODE) ?>;
         let cart = {};
 
         // Filter products
@@ -1394,25 +1463,86 @@ if (empty($customers)) {
             return div.innerHTML;
         }
 
-        // Form validation
-        document.getElementById('cartForm').addEventListener('submit', function(e) {
+        function showAjaxFlash(type, title, message, list) {
+            const host = document.getElementById('ajaxFlash');
+            const safeTitle = title || (type === 'success' ? 'Success' : 'Error');
+            let html = `<div class="flash flash-${type}">`;
+            html += `<div class="flash-title">${safeTitle}</div>`;
+            if (message) html += `<div>${message}</div>`;
+            if (Array.isArray(list) && list.length > 0) {
+                html += '<ul class="flash-list">';
+                list.forEach(item => {
+                    html += `<li>${item}</li>`;
+                });
+                html += '</ul>';
+            }
+            html += '</div>';
+            if (host) {
+                host.innerHTML = html;
+                host.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+                alert(message || safeTitle);
+            }
+        }
+
+        // Form validation + AJAX submit
+        document.getElementById('cartForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
             const customerId = document.getElementById('customerId').value;
             const itemCount = Object.keys(cart).length;
+            const submitBtn = document.getElementById('submitBtn');
 
             if (!customerId) {
-                e.preventDefault();
-                alert('Please select a customer.');
+                showAjaxFlash('error', 'Missing Customer', 'Please select a customer.');
                 return false;
             }
 
             if (itemCount === 0) {
-                e.preventDefault();
-                alert('Please add at least one product.');
+                showAjaxFlash('error', 'Empty Order', 'Please add at least one product.');
                 return false;
             }
 
-            document.getElementById('submitBtn').disabled = true;
-            document.getElementById('submitBtn').textContent = 'Processing...';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Processing...';
+
+            try {
+                const formData = new FormData(this);
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json'
+                    }
+                });
+                const payload = await response.json();
+
+                if (!payload.ok) {
+                    showAjaxFlash('error', 'Order Failed', payload.message || 'Unable to create order.', payload.errors || []);
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Submit Order Request';
+                    return;
+                }
+
+                showAjaxFlash('success', 'Order Submitted', payload.message || 'Order request submitted.');
+                cart = {};
+                updateCartDisplay();
+                updateProductCards();
+                closeCart();
+                document.getElementById('customerId').value = '';
+                document.getElementById('customerSearch').value = '';
+                document.getElementById('customerSelected').classList.remove('show');
+                document.getElementById('selectedCustomerName').textContent = '';
+                document.getElementById('selectedCustomerInfo').textContent = '';
+                const notes = document.getElementById('orderNotes');
+                if (notes) notes.value = '';
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Submit Order Request';
+            } catch (err) {
+                showAjaxFlash('error', 'Network Error', 'Unable to submit the order. Please try again.');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit Order Request';
+            }
         });
 
         // Add click listeners to all product cards

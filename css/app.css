@@ -280,3 +280,26 @@ td {
         padding: 0.6rem 0.75rem;
     }
 }
+
+img.lazy-image {
+    background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+    background-size: 200% 100%;
+    animation: img-shimmer 1.2s ease-in-out infinite;
+    filter: blur(6px);
+    transition: filter 0.25s ease, background 0.25s ease;
+}
+
+img.lazy-image.is-loaded {
+    animation: none;
+    filter: none;
+    background: transparent;
+}
+
+@keyframes img-shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}

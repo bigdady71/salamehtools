@@ -182,6 +182,7 @@ function customer_portal_render_layout_start(array $options = []): void
     }
 
     echo '<!doctype html><html lang="en"><head><meta charset="utf-8">';
+    require_once __DIR__ . '/assets.php';
     echo '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes">';
     echo '<title>', $escTitle, ' | Salameh Tools B2B Wholesale Portal</title>';
 
@@ -246,7 +247,7 @@ function customer_portal_render_layout_start(array $options = []): void
     echo '</script>';
 
     echo $extraHead;
-    echo '<link rel="stylesheet" href="../css/app.css?v=2">';
+    echo '<link rel="stylesheet" href="', asset_url('/css/app.css'), '">';
     echo '<style>';
     // MAKASSI Red/Black/White Theme
     echo ':root{';

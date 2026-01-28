@@ -60,10 +60,11 @@ if (!function_exists('admin_render_layout_start')) {
     }
 
     echo '<!doctype html><html lang="en"><head><meta charset="utf-8">';
+    require_once __DIR__ . '/assets.php';
     echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
     echo '<title>', $escTitle, '</title>';
     echo $extraHead;
-    echo '<link rel="stylesheet" href="/css/app.css?v=1">';
+    echo '<link rel="stylesheet" href="', asset_url('/css/app.css'), '">';
     echo '<style>';
     echo ':root{--bg:#f3f4f6;--bg-panel:#ffffff;--bg-panel-alt:#f9fafc;--text:#111827;--muted:#6b7280;';
     echo '--accent:#1f6feb;--accent-2:#0ea5e9;--border:#e5e7eb;}';

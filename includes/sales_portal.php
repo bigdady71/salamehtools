@@ -62,6 +62,7 @@ function sales_portal_nav_links(): array
 {
     // Load translations
     require_once __DIR__ . '/lang.php';
+    require_once __DIR__ . '/assets.php';
 
     // Determine if we're in a subdirectory (like /pages/sales/orders/)
     $scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
@@ -219,7 +220,7 @@ function sales_portal_render_layout_start(array $options = []): void
     echo '<title>', $escTitle, '</title>';
     echo '<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700&display=swap" rel="stylesheet">';
     echo $extraHead;
-    echo '<link rel="stylesheet" href="../css/app.css?v=2">';
+    echo '<link rel="stylesheet" href="', asset_url('/css/app.css'), '">';
     echo '<style>';
     echo ':root{--bg:#f3f4f6;--bg-panel:#ffffff;--bg-panel-alt:#f9fafc;--text:#111827;--muted:#6b7280;';
     echo '--accent:#0ea5e9;--accent-2:#06b6d4;--border:#e5e7eb;--sales-gradient:linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);}';

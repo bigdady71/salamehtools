@@ -51,6 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'search_customers') {
 }
 
 $flashes = [];
+$wantsJson = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string)$_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+    || (!empty($_SERVER['HTTP_ACCEPT']) && strpos((string)$_SERVER['HTTP_ACCEPT'], 'application/json') !== false);
 
 // Get active exchange rate
 $exchangeRate = null;
@@ -96,6 +98,14 @@ if ($exchangeRateError || $exchangeRate === null) {
 // Handle order creation (same logic as van_stock_sales.php)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+        if ($wantsJson) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'ok' => false,
+                'message' => 'Invalid or expired CSRF token. Please try again.',
+            ]);
+            exit;
+        }
         $flashes[] = [
             'type' => 'error',
             'title' => 'Security Error',
@@ -103,6 +113,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
             'dismissible' => true,
         ];
     } elseif (!$canCreateOrder) {
+        if ($wantsJson) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'ok' => false,
+                'message' => 'Exchange rate is unavailable. Please refresh the page and try again.',
+            ]);
+            exit;
+        }
         $flashes[] = [
             'type' => 'error',
             'title' => 'Cannot Create Order',
@@ -466,6 +484,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         error_log("Failed to auto-generate PDF for invoice {$invoiceId}: " . $pdfError->getMessage());
                     }
 
+                    if ($wantsJson) {
+                        header('Content-Type: application/json');
+                        echo json_encode([
+                            'ok' => true,
+                            'message' => 'Sale completed successfully.',
+                            'invoice_id' => $invoiceId,
+                            'redirect_url' => "print_invoice.php?invoice_id={$invoiceId}",
+                        ]);
+                        exit;
+                    }
+
                     // Redirect to print invoice
                     header("Location: print_invoice.php?invoice_id={$invoiceId}");
                     exit;
@@ -473,6 +502,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
             } catch (Exception $e) {
                 $pdo->rollBack();
                 error_log("Failed to create van stock sale: " . $e->getMessage());
+                if ($wantsJson) {
+                    header('Content-Type: application/json');
+                    echo json_encode([
+                        'ok' => false,
+                        'message' => 'Unable to create sale order. Please try again.',
+                    ]);
+                    exit;
+                }
                 $flashes[] = [
                     'type' => 'error',
                     'title' => 'Database Error',
@@ -481,6 +518,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                 ];
             }
         } else {
+            if ($wantsJson) {
+                header('Content-Type: application/json');
+                echo json_encode([
+                    'ok' => false,
+                    'message' => 'Unable to create sale. Please fix the errors below.',
+                    'errors' => $errors,
+                ]);
+                exit;
+            }
             $flashes[] = [
                 'type' => 'error',
                 'title' => 'Validation Failed',
@@ -1116,6 +1162,11 @@ sales_portal_render_layout_start([
             border-color: #dc2626;
             color: #991b1b;
         }
+        .flash.success {
+            background: #d1fae5;
+            border-color: #059669;
+            color: #065f46;
+        }
         .flash h4 {
             margin: 0 0 8px;
         }
@@ -1160,6 +1211,8 @@ foreach ($flashes as $flash) {
     echo '</div>';
 }
 
+echo '<div id="ajaxFlash"></div>';
+
 if (!$canCreateOrder) {
     echo '<div class="empty-state">';
     echo '<div class="empty-state-icon">⚠️</div>';
@@ -1202,18 +1255,23 @@ if (!$canCreateOrder) {
             // Find product image
             $imageExists = false;
             $imagePath = '../../images/products/default.jpg';
-            $possibleExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+            $defaultImagePath = __DIR__ . '/../../images/products/default.jpg';
+            $imageVersion = file_exists($defaultImagePath) ? (string)filemtime($defaultImagePath) : null;
+            $possibleExtensions = ['webp', 'jpg', 'jpeg', 'png', 'gif'];
 
             if ($sku) {
                 foreach ($possibleExtensions as $ext) {
                     $serverPath = __DIR__ . '/../../images/products/' . $sku . '.' . $ext;
                     if (file_exists($serverPath)) {
                         $imagePath = '../../images/products/' . $sku . '.' . $ext;
+                        $imageVersion = (string)filemtime($serverPath);
                         $imageExists = true;
                         break;
                     }
                 }
             }
+            $imageSrc = $imagePath . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
+            $fallbackSrc = '../../images/products/default.jpg' . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
         ?>
             <div class="product-card"
                  data-id="<?= $product['id'] ?>"
@@ -1222,10 +1280,12 @@ if (!$canCreateOrder) {
                  data-price="<?= $priceUSD ?>"
                  data-stock="<?= $stock ?>"
                  data-category="<?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>">
-                <img src="<?= htmlspecialchars($imagePath, ENT_QUOTES, 'UTF-8') ?>"
+                <img src="<?= htmlspecialchars($imageSrc, ENT_QUOTES, 'UTF-8') ?>"
                      alt="<?= $itemName ?>"
                      loading="lazy"
-                     onerror="this.src='../../images/products/default.jpg'">
+                     class="lazy-image"
+                     onload="this.classList.add('is-loaded')"
+                     onerror="this.src='<?= htmlspecialchars($fallbackSrc, ENT_QUOTES, 'UTF-8') ?>'">
                 <div class="product-sku"><?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?></div>
                 <div class="product-name"><?= $itemName ?></div>
                 <div class="product-price">$<?= number_format($priceUSD, 2) ?></div>
@@ -1365,7 +1425,7 @@ if (!$canCreateOrder) {
     </div>
 
     <script>
-        const exchangeRate = <?= $exchangeRate ?>;
+        const exchangeRate = <?= json_encode($exchangeRate ?? 0, JSON_UNESCAPED_UNICODE) ?>;
         let cart = {};
         let debounceTimer = null;
 
@@ -1746,25 +1806,93 @@ if (!$canCreateOrder) {
             updatePaymentDisplay();
         };
 
-        // Form validation
-        document.getElementById('cartForm').addEventListener('submit', function(e) {
+        function showAjaxFlash(type, title, message, list) {
+            const host = document.getElementById('ajaxFlash');
+            const safeTitle = title || (type === 'success' ? 'تم' : 'خطأ');
+            let html = `<div class="flash ${type}">`;
+            html += `<h4>${safeTitle}</h4>`;
+            if (message) html += `<p>${message}</p>`;
+            if (Array.isArray(list) && list.length > 0) {
+                html += '<ul>';
+                list.forEach(item => {
+                    html += `<li>${item}</li>`;
+                });
+                html += '</ul>';
+            }
+            html += '</div>';
+            if (host) {
+                host.innerHTML = html;
+                host.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+                alert(message || safeTitle);
+            }
+        }
+
+        // Form validation + AJAX submit
+        document.getElementById('cartForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
             const customerId = document.getElementById('customerId').value;
             const itemCount = Object.keys(cart).length;
+            const submitBtn = document.getElementById('submitBtn');
 
             if (!customerId) {
-                e.preventDefault();
-                alert('يرجى اختيار زبون.');
+                showAjaxFlash('error', 'يرجى اختيار زبون', 'يرجى اختيار زبون.');
                 return false;
             }
 
             if (itemCount === 0) {
-                e.preventDefault();
-                alert('يرجى إضافة منتج واحد على الأقل.');
+                showAjaxFlash('error', 'السلة فارغة', 'يرجى إضافة منتج واحد على الأقل.');
                 return false;
             }
 
-            document.getElementById('submitBtn').disabled = true;
-            document.getElementById('submitBtn').textContent = 'جاري المعالجة...';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'جاري المعالجة...';
+
+            try {
+                const formData = new FormData(this);
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json'
+                    }
+                });
+                const payload = await response.json();
+
+                if (!payload.ok) {
+                    showAjaxFlash('error', 'فشل الطلب', payload.message || 'تعذر إنشاء الطلب.', payload.errors || []);
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'إتمام البيع';
+                    return;
+                }
+
+                showAjaxFlash('success', 'تمت العملية', payload.message || 'تمت عملية البيع بنجاح.');
+                cart = {};
+                updateCartDisplay();
+                updateProductCards();
+                closeCart();
+                document.getElementById('customerId').value = '';
+                document.getElementById('customerSearch').value = '';
+                document.getElementById('customerSelected').classList.remove('show');
+                document.getElementById('selectedCustomerName').textContent = '';
+                document.getElementById('selectedCustomerInfo').textContent = '';
+                const notes = document.getElementById('orderNotes');
+                if (notes) notes.value = '';
+                document.getElementById('paymentUSD').value = '';
+                document.getElementById('paymentLBP').value = '';
+                updatePaymentDisplay();
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'إتمام البيع';
+
+                if (payload.redirect_url) {
+                    window.open(payload.redirect_url, '_blank');
+                }
+            } catch (err) {
+                showAjaxFlash('error', 'خطأ بالشبكة', 'تعذر إرسال الطلب، حاول مرة أخرى.');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'إتمام البيع';
+            }
         });
 
         // Add click listeners to all product cards

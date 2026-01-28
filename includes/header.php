@@ -9,7 +9,8 @@ if (!isset($pageTitle)) {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?></title>
-    <link rel="stylesheet" href="/css/app.css?v=1">
+    <?php require_once __DIR__ . '/assets.php'; ?>
+    <link rel="stylesheet" href="<?= asset_url('/css/app.css') ?>">
 </head>
 <body class="theme-light">
 <header class="card" role="banner" style="margin:1.5rem auto;max-width:1200px;">
