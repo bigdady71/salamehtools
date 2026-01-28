@@ -228,8 +228,8 @@ function sales_portal_render_layout_start(array $options = []): void
     echo 'background:var(--bg);color:var(--text);display:flex;min-height:100vh;}a{color:var(--accent);text-decoration:none;}';
     echo 'a:hover{text-decoration:underline;}';
     echo '.layout{display:flex;flex:1;}.sidebar{width:280px;background:var(--sales-gradient);border-right:none;padding:28px 20px;display:flex;';
-    echo 'flex-direction:column;gap:32px;box-shadow:-4px 0 12px rgba(0,0,0,0.08);position:fixed;top:0;right:-280px;bottom:0;overflow-y:auto;overflow-x:hidden;z-index:1002;';
-    echo 'transition:right 0.3s ease;}.sidebar.open{right:0;}';
+    echo 'flex-direction:column;gap:32px;box-shadow:-4px 0 12px rgba(0,0,0,0.08);position:fixed;top:0;right:0;bottom:0;overflow-y:auto;overflow-x:hidden;z-index:1002;';
+    echo 'transform:translateX(100%);opacity:0;pointer-events:none;transition:transform 0.3s ease,opacity 0.2s ease;}.sidebar.open{transform:translateX(0);opacity:1;pointer-events:auto;}';
     echo '.brand{font-size:1.7rem;font-weight:800;letter-spacing:.04em;color:#ffffff;text-shadow:0 2px 4px rgba(0,0,0,0.1);}';
     echo '.brand small{display:block;font-size:0.75rem;font-weight:400;opacity:0.9;margin-top:4px;letter-spacing:0.1em;}';
     echo '.nav-links{display:flex;flex-direction:column;gap:6px;}';
