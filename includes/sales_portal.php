@@ -257,6 +257,19 @@ function sales_portal_render_layout_start(array $options = []): void
     echo '.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}';
     echo '.btn-primary:hover{box-shadow:0 0 0 4px rgba(14,165,233,0.18);}';
 
+    // Mobile table horizontal scroll
+    echo '.table-responsive{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:16px;border-radius:12px;border:1px solid var(--border);}';
+    echo '.table-responsive table{margin-bottom:0;border:none;}';
+    echo '.table-responsive::-webkit-scrollbar{height:8px;}';
+    echo '.table-responsive::-webkit-scrollbar-track{background:#f1f5f9;border-radius:4px;}';
+    echo '.table-responsive::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:4px;}';
+    echo '.table-responsive::-webkit-scrollbar-thumb:hover{background:#64748b;}';
+    echo '@media(max-width:768px){';
+    echo '.table-responsive{margin-left:-12px;margin-right:-12px;border-radius:0;border-left:none;border-right:none;}';
+    echo '.table-responsive table{min-width:600px;}';
+    echo '.table-responsive td,.table-responsive th{white-space:nowrap;}';
+    echo '}';
+
     // RTL is now the default - no additional rules needed
     echo '.page-header{text-align:right;}';
 
@@ -362,6 +375,27 @@ function sales_portal_render_layout_start(array $options = []): void
 function sales_portal_render_layout_end(): void
 {
     echo '</main></div>';
+
+    // Global Loading Spinner
+    echo '<div id="globalSpinner" class="global-spinner" style="display:none;">';
+    echo '<div class="spinner-backdrop"></div>';
+    echo '<div class="spinner-content">';
+    echo '<div class="spinner-ring"></div>';
+    echo '<p class="spinner-text">جاري التحميل...</p>';
+    echo '</div>';
+    echo '</div>';
+
+    echo '<style>';
+    echo '.global-spinner{position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;justify-content:center;}';
+    echo '.spinner-backdrop{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);}';
+    echo '.spinner-content{position:relative;display:flex;flex-direction:column;align-items:center;gap:16px;padding:32px;background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);}';
+    echo '.spinner-ring{width:48px;height:48px;border:4px solid #e5e7eb;border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;}';
+    echo '@keyframes spin{to{transform:rotate(360deg);}}';
+    echo '.spinner-text{margin:0;color:#374151;font-weight:600;font-size:0.95rem;}';
+    echo '.btn-loading{position:relative;pointer-events:none;opacity:0.7;}';
+    echo '.btn-loading::after{content:"";position:absolute;width:16px;height:16px;top:50%;right:50%;margin:-8px -8px 0 0;border:2px solid transparent;border-top-color:currentColor;border-radius:50%;animation:spin 0.6s linear infinite;}';
+    echo '</style>';
+
     echo '<script>';
     echo 'function toggleSidebar(){';
     echo '  document.querySelector(".sidebar").classList.toggle("open");';
@@ -378,6 +412,21 @@ function sales_portal_render_layout_end(): void
     echo '    }';
     echo '  });';
     echo '});';
+
+    // Global spinner functions
+    echo 'function showSpinner(text){';
+    echo '  var spinner = document.getElementById("globalSpinner");';
+    echo '  if(text){spinner.querySelector(".spinner-text").textContent = text;}';
+    echo '  spinner.style.display = "flex";';
+    echo '}';
+    echo 'function hideSpinner(){';
+    echo '  document.getElementById("globalSpinner").style.display = "none";';
+    echo '}';
+    // Button loading state helpers
+    echo 'function setButtonLoading(btn, loading){';
+    echo '  if(loading){btn.classList.add("btn-loading");btn.disabled=true;}';
+    echo '  else{btn.classList.remove("btn-loading");btn.disabled=false;}';
+    echo '}';
     echo '</script>';
     echo '</body></html>';
 }

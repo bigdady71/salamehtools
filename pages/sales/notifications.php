@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     } elseif ($_POST['action'] === 'mark_all_read') {
         $stmt = $pdo->prepare("UPDATE notifications SET read_at = NOW() WHERE user_id = ? AND read_at IS NULL");
         $stmt->execute([$salesRepId]);
-        $_SESSION['success'] = 'All notifications marked as read.';
+        $_SESSION['success'] = 'تم تمييز جميع الإشعارات كمقروءة.';
     } elseif ($_POST['action'] === 'delete') {
         $notifId = (int)($_POST['notification_id'] ?? 0);
         if ($notifId > 0) {
@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     } elseif ($_POST['action'] === 'clear_all') {
         $stmt = $pdo->prepare("DELETE FROM notifications WHERE user_id = ? AND read_at IS NOT NULL");
         $stmt->execute([$salesRepId]);
-        $_SESSION['success'] = 'Read notifications cleared.';
+        $_SESSION['success'] = 'تم حذف الإشعارات المقروءة.';
     }
 
     header('Location: notifications.php');
@@ -74,37 +74,37 @@ $typeConfig = [
         'icon' => '📦',
         'color' => '#22c55e',
         'bgColor' => '#dcfce7',
-        'label' => 'Order Ready'
+        'label' => 'الطلب جاهز'
     ],
     'stock_approved' => [
         'icon' => '✅',
         'color' => '#3b82f6',
         'bgColor' => '#dbeafe',
-        'label' => 'Stock Approved'
+        'label' => 'تم اعتماد المخزون'
     ],
     'stock_rejected' => [
         'icon' => '❌',
         'color' => '#dc2626',
         'bgColor' => '#fee2e2',
-        'label' => 'Stock Rejected'
+        'label' => 'تم رفض المخزون'
     ],
     'order_cancelled' => [
         'icon' => '🚫',
         'color' => '#dc2626',
         'bgColor' => '#fee2e2',
-        'label' => 'Order Cancelled'
+        'label' => 'تم إلغاء الطلب'
     ],
     'new_product' => [
         'icon' => '🆕',
         'color' => '#8b5cf6',
         'bgColor' => '#ede9fe',
-        'label' => 'New Product'
+        'label' => 'منتج جديد'
     ],
     'system' => [
         'icon' => '🔔',
         'color' => '#6366f1',
         'bgColor' => '#e0e7ff',
-        'label' => 'System'
+        'label' => 'النظام'
     ]
 ];
 
@@ -291,9 +291,9 @@ sales_portal_render_layout_start([
 
 <div class="notif-header">
     <h1>
-        Notifications
+        الإشعارات
         <?php if ($unreadCount > 0): ?>
-            <span class="notif-badge"><?= $unreadCount ?> unread</span>
+            <span class="notif-badge"><?= $unreadCount ?> غير مقروء</span>
         <?php endif; ?>
     </h1>
 
@@ -302,14 +302,14 @@ sales_portal_render_layout_start([
             <form method="POST">
                 <input type="hidden" name="action" value="mark_all_read">
                 <button type="submit" class="notif-btn notif-btn-secondary">
-                    ✓ Mark All Read
+                    ✓ تمييز الكل كمقروء
                 </button>
             </form>
         <?php endif; ?>
-        <form method="POST" onsubmit="return confirm('Clear all read notifications?');">
+        <form method="POST" onsubmit="return confirm('حذف جميع الإشعارات المقروءة؟');">
             <input type="hidden" name="action" value="clear_all">
             <button type="submit" class="notif-btn notif-btn-secondary">
-                🗑️ Clear Read
+                🗑️ حذف المقروءة
             </button>
         </form>
     </div>
@@ -317,13 +317,13 @@ sales_portal_render_layout_start([
 
 <div class="filters">
     <a href="notifications.php?filter=all" class="filter-btn <?= $filter === 'all' ? 'active' : '' ?>">
-        All
+        الكل
     </a>
     <a href="notifications.php?filter=unread" class="filter-btn <?= $filter === 'unread' ? 'active' : '' ?>">
-        Unread (<?= $unreadCount ?>)
+        غير مقروء (<?= $unreadCount ?>)
     </a>
     <a href="notifications.php?filter=order_ready" class="filter-btn <?= $filter === 'order_ready' ? 'active' : '' ?>">
-        📦 Orders Ready
+        📦 الطلبات الجاهزة
     </a>
 </div>
 
@@ -336,7 +336,7 @@ sales_portal_render_layout_start([
 
         // Parse payload
         $payload = json_decode($notif['payload'] ?? '{}', true) ?: [];
-        $message = $payload['message'] ?? $notif['message'] ?? 'New notification';
+        $message = $payload['message'] ?? $notif['message'] ?? 'إشعار جديد';
         $orderId = $payload['order_id'] ?? null;
         $orderNumber = $payload['order_number'] ?? null;
 
@@ -350,15 +350,15 @@ sales_portal_render_layout_start([
         // Time display
         $timeAgo = time() - strtotime($notif['created_at']);
         if ($timeAgo < 60) {
-            $timeDisplay = 'Just now';
+            $timeDisplay = 'الآن';
         } elseif ($timeAgo < 3600) {
             $mins = floor($timeAgo / 60);
-            $timeDisplay = $mins . ' min ago';
+            $timeDisplay = 'منذ ' . $mins . ' دقيقة';
         } elseif ($timeAgo < 86400) {
             $hours = floor($timeAgo / 3600);
-            $timeDisplay = $hours . ' hours ago';
+            $timeDisplay = 'منذ ' . $hours . ' ساعة';
         } else {
-            $timeDisplay = date('M j, Y H:i', strtotime($notif['created_at']));
+            $timeDisplay = date('Y/m/d H:i', strtotime($notif['created_at']));
         }
         ?>
 
@@ -378,7 +378,7 @@ sales_portal_render_layout_start([
                 <div class="notif-message">
                     <?= htmlspecialchars($message, ENT_QUOTES, 'UTF-8') ?>
                     <?php if ($orderNumber): ?>
-                        <br><strong>Order: <?= htmlspecialchars($orderNumber, ENT_QUOTES, 'UTF-8') ?></strong>
+                        <br><strong>الطلب: <?= htmlspecialchars($orderNumber, ENT_QUOTES, 'UTF-8') ?></strong>
                     <?php endif; ?>
                 </div>
 
@@ -397,7 +397,7 @@ sales_portal_render_layout_start([
                             <span style="color:#059669;font-weight:600;">$<?= number_format((float)$productPrice, 2) ?></span>
                             <?php endif; ?>
                             <?php if ($productQty): ?>
-                            <span style="color:#6366f1;">Qty: <?= number_format((float)$productQty, 0) ?></span>
+                            <span style="color:#6366f1;">الكمية: <?= number_format((float)$productQty, 0) ?></span>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -407,7 +407,7 @@ sales_portal_render_layout_start([
                 <div class="notif-btn-group">
                     <?php if ($type === 'order_ready' && $orderId): ?>
                         <a href="accept_orders.php" class="notif-btn notif-btn-primary">
-                            📥 Accept Order
+                            📥 استلام الطلب
                         </a>
                     <?php endif; ?>
 
@@ -416,12 +416,12 @@ sales_portal_render_layout_start([
                             <input type="hidden" name="action" value="mark_read">
                             <input type="hidden" name="notification_id" value="<?= $notif['id'] ?>">
                             <button type="submit" class="notif-btn notif-btn-secondary">
-                                ✓ Mark Read
+                                ✓ تمييز كمقروء
                             </button>
                         </form>
                     <?php endif; ?>
 
-                    <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this notification?');">
+                    <form method="POST" style="display:inline;" onsubmit="return confirm('حذف هذا الإشعار؟');">
                         <input type="hidden" name="action" value="delete">
                         <input type="hidden" name="notification_id" value="<?= $notif['id'] ?>">
                         <button type="submit" class="notif-btn notif-btn-secondary">
@@ -435,8 +435,8 @@ sales_portal_render_layout_start([
 <?php else: ?>
     <div class="empty-state">
         <div class="icon">🔔</div>
-        <h3>No notifications</h3>
-        <p>You're all caught up! New notifications will appear here.</p>
+        <h3>لا توجد إشعارات</h3>
+        <p>لا توجد إشعارات جديدة! ستظهر الإشعارات الجديدة هنا.</p>
     </div>
 <?php endif; ?>
 

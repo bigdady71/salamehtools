@@ -204,6 +204,36 @@ sales_portal_render_layout_start([
     </div>
 <?php endif; ?>
 
+<!-- Quick Actions -->
+<section style="margin-bottom: 24px;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;">
+        <a href="orders.php?action=new" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 16px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 12px; text-decoration: none; color: white; font-weight: 600; transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(16, 185, 129, 0.3)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+            <span style="font-size: 1.8rem;">📝</span>
+            <span>طلب جديد</span>
+        </a>
+        <a href="add_customer.php" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 16px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); border-radius: 12px; text-decoration: none; color: white; font-weight: 600; transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(59, 130, 246, 0.3)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+            <span style="font-size: 1.8rem;">👤</span>
+            <span>زبون جديد</span>
+        </a>
+        <a href="invoices.php" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 16px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border-radius: 12px; text-decoration: none; color: white; font-weight: 600; transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(245, 158, 11, 0.3)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+            <span style="font-size: 1.8rem;">💵</span>
+            <span>تسجيل دفعة</span>
+        </a>
+        <a href="van_stock.php" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 16px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border-radius: 12px; text-decoration: none; color: white; font-weight: 600; transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(139, 92, 246, 0.3)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+            <span style="font-size: 1.8rem;">📦</span>
+            <span>مخزون السيارة</span>
+        </a>
+        <a href="customers.php" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 16px; background: linear-gradient(135deg, #ec4899 0%, #db2777 100%); border-radius: 12px; text-decoration: none; color: white; font-weight: 600; transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(236, 72, 153, 0.3)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+            <span style="font-size: 1.8rem;">📋</span>
+            <span>قائمة الزبائن</span>
+        </a>
+        <a href="receivables.php" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 16px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); border-radius: 12px; text-decoration: none; color: white; font-weight: 600; transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(239, 68, 68, 0.3)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+            <span style="font-size: 1.8rem;">💰</span>
+            <span>التحصيلات</span>
+        </a>
+    </div>
+</section>
+
 <?php
 // Get current month/year quota and performance
 $currentYear = (int)date('Y');

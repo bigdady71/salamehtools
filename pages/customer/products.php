@@ -14,6 +14,35 @@ $pdo = db();
 $success = null;
 $error = null;
 
+// Handle AJAX favorite toggle
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'toggle_favorite') {
+    header('Content-Type: application/json');
+    $productId = (int)($_POST['product_id'] ?? 0);
+
+    if ($productId <= 0) {
+        echo json_encode(['success' => false, 'error' => 'Invalid product ID']);
+        exit;
+    }
+
+    // Check if already favorited
+    $checkStmt = $pdo->prepare("SELECT id FROM customer_favorites WHERE customer_id = ? AND product_id = ?");
+    $checkStmt->execute([$customerId, $productId]);
+    $existing = $checkStmt->fetch();
+
+    if ($existing) {
+        // Remove from favorites
+        $deleteStmt = $pdo->prepare("DELETE FROM customer_favorites WHERE customer_id = ? AND product_id = ?");
+        $deleteStmt->execute([$customerId, $productId]);
+        echo json_encode(['success' => true, 'action' => 'removed', 'message' => 'Removed from favorites']);
+    } else {
+        // Add to favorites
+        $insertStmt = $pdo->prepare("INSERT INTO customer_favorites (customer_id, product_id) VALUES (?, ?)");
+        $insertStmt->execute([$customerId, $productId]);
+        echo json_encode(['success' => true, 'action' => 'added', 'message' => 'Added to favorites']);
+    }
+    exit;
+}
+
 // Handle add to cart
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_to_cart') {
     $productId = (int)($_POST['product_id'] ?? 0);
@@ -132,6 +161,16 @@ $cartStmt = $pdo->prepare("SELECT COUNT(*) as count FROM customer_cart WHERE cus
 $cartStmt->execute([$customerId]);
 $cartCount = (int)$cartStmt->fetchColumn();
 
+// Get customer favorites
+$favoritesStmt = $pdo->prepare("SELECT product_id FROM customer_favorites WHERE customer_id = ?");
+$favoritesStmt->execute([$customerId]);
+$customerFavorites = array_column($favoritesStmt->fetchAll(PDO::FETCH_ASSOC), 'product_id');
+
+// Get favorites count
+$favCountStmt = $pdo->prepare("SELECT COUNT(*) FROM customer_favorites WHERE customer_id = ?");
+$favCountStmt->execute([$customerId]);
+$favoritesCount = (int)$favCountStmt->fetchColumn();
+
 $title = 'Browse Products - Customer Portal';
 
 customer_portal_render_layout_start([
@@ -141,6 +180,7 @@ customer_portal_render_layout_start([
     'customer' => $customer,
     'active' => 'products',
     'actions' => [
+        ['label' => '❤️ Favorites (' . $favoritesCount . ')', 'href' => 'favorites.php'],
         ['label' => '🛒 View Cart (' . $cartCount . ')', 'href' => 'cart.php', 'variant' => 'primary'],
     ]
 ]);
@@ -408,6 +448,37 @@ customer_portal_render_layout_start([
     margin: 0 0 12px;
     color: var(--text);
 }
+.favorite-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.95);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: all 0.2s;
+    z-index: 10;
+}
+.favorite-btn:hover {
+    transform: scale(1.15);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.favorite-btn.is-favorite {
+    background: #fee2e2;
+}
+.favorite-btn .heart-icon {
+    transition: transform 0.2s;
+}
+.favorite-btn:active .heart-icon {
+    transform: scale(0.8);
+}
 </style>
 
 <?php if ($success): ?>
@@ -523,14 +594,22 @@ customer_portal_render_layout_start([
                 $canOrder = true;
             }
             ?>
+            <?php $isFavorite = in_array($productId, $customerFavorites); ?>
             <div class="product-card">
-                <?php if ($imageExists): ?>
-                    <img src="<?= $imagePath ?>" alt="<?= $itemName ?>" class="product-image" loading="lazy">
-                <?php else: ?>
-                    <div class="product-image-placeholder">
-                        📦
-                    </div>
-                <?php endif; ?>
+                <div style="position: relative;">
+                    <?php if ($imageExists): ?>
+                        <img src="<?= $imagePath ?>" alt="<?= $itemName ?>" class="product-image" loading="lazy">
+                    <?php else: ?>
+                        <div class="product-image-placeholder">
+                            📦
+                        </div>
+                    <?php endif; ?>
+                    <button type="button" class="favorite-btn <?= $isFavorite ? 'is-favorite' : '' ?>"
+                            onclick="toggleFavorite(<?= $productId ?>, this)"
+                            title="<?= $isFavorite ? 'Remove from favorites' : 'Add to favorites' ?>">
+                        <span class="heart-icon"><?= $isFavorite ? '❤️' : '🤍' ?></span>
+                    </button>
+                </div>
                 <div class="product-content">
                 <div class="product-header">
                     <h3><?= $itemName ?></h3>
@@ -699,6 +778,42 @@ customer_portal_render_layout_start([
 </style>
 
 <script>
+// Toggle favorite function
+function toggleFavorite(productId, btn) {
+    const heartIcon = btn.querySelector('.heart-icon');
+    const isFavorite = btn.classList.contains('is-favorite');
+
+    // Optimistic UI update
+    btn.classList.toggle('is-favorite');
+    heartIcon.textContent = isFavorite ? '🤍' : '❤️';
+    btn.title = isFavorite ? 'Add to favorites' : 'Remove from favorites';
+
+    // Send AJAX request
+    const formData = new FormData();
+    formData.append('action', 'toggle_favorite');
+    formData.append('product_id', productId);
+
+    fetch('products.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            // Revert on error
+            btn.classList.toggle('is-favorite');
+            heartIcon.textContent = isFavorite ? '❤️' : '🤍';
+            alert(data.error || 'Failed to update favorite');
+        }
+    })
+    .catch(error => {
+        // Revert on error
+        btn.classList.toggle('is-favorite');
+        heartIcon.textContent = isFavorite ? '❤️' : '🤍';
+        console.error('Error:', error);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Restore scroll position after page reload
     const savedScrollPosition = sessionStorage.getItem('scrollPosition');

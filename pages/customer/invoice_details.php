@@ -111,6 +111,7 @@ customer_portal_render_layout_start([
     'active' => 'invoices',
     'actions' => [
         ['label' => '← Back to Invoices', 'href' => 'invoices.php'],
+        ['label' => '📄 Download PDF', 'href' => 'invoice_pdf.php?invoice_id=' . $invoiceId . '&action=download', 'class' => 'btn-primary'],
     ]
 ]);
 
@@ -452,6 +453,16 @@ if ($daysOverdue > 0 && $invoice['status'] !== 'paid') {
                     <span class="label">Payments Made</span>
                     <span class="value"><?= count($payments) ?></span>
                 </div>
+            </div>
+
+            <!-- PDF Download Button -->
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
+                <a href="invoice_pdf.php?invoice_id=<?= $invoiceId ?>&action=download" class="btn btn-primary" style="width: 100%; text-align: center;">
+                    📄 تحميل الفاتورة PDF
+                </a>
+                <a href="invoice_pdf.php?invoice_id=<?= $invoiceId ?>&action=view" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center; margin-top: 8px;">
+                    👁️ View PDF
+                </a>
             </div>
         </div>
     </div>

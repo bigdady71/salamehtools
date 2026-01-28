@@ -14,6 +14,157 @@ $repId = (int)$user['id'];
 $pdo = db();
 $action = (string)($_POST['action'] ?? $_GET['action'] ?? '');
 
+// Handle AJAX: Get templates list
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_templates') {
+    header('Content-Type: application/json');
+    try {
+        $stmt = $pdo->prepare("
+            SELECT t.id, t.template_name, t.description, t.customer_id, c.name as customer_name,
+                   COUNT(ti.id) as item_count
+            FROM order_templates t
+            LEFT JOIN order_template_items ti ON ti.template_id = t.id
+            LEFT JOIN customers c ON c.id = t.customer_id
+            WHERE t.sales_rep_id = ?
+            GROUP BY t.id
+            ORDER BY t.updated_at DESC
+            LIMIT 50
+        ");
+        $stmt->execute([$repId]);
+        $templates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['success' => true, 'templates' => $templates]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// Handle AJAX: Load template items
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'load_template') {
+    header('Content-Type: application/json');
+    $templateId = (int)($_GET['template_id'] ?? 0);
+    try {
+        // Verify ownership
+        $verifyStmt = $pdo->prepare("SELECT id FROM order_templates WHERE id = ? AND sales_rep_id = ?");
+        $verifyStmt->execute([$templateId, $repId]);
+        if (!$verifyStmt->fetch()) {
+            echo json_encode(['success' => false, 'error' => 'Template not found']);
+            exit;
+        }
+
+        // Get template items with product info and van stock
+        $itemsStmt = $pdo->prepare("
+            SELECT ti.product_id, ti.quantity, p.sku, p.item_name, p.sale_price_usd,
+                   COALESCE(s.qty_on_hand, 0) as van_stock
+            FROM order_template_items ti
+            JOIN products p ON p.id = ti.product_id
+            LEFT JOIN s_stock s ON s.product_id = ti.product_id AND s.salesperson_id = ?
+            WHERE ti.template_id = ? AND p.is_active = 1
+        ");
+        $itemsStmt->execute([$repId, $templateId]);
+        $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['success' => true, 'items' => $items]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// Handle AJAX: Save template
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'save_template') {
+    header('Content-Type: application/json');
+    $templateName = trim((string)($_POST['template_name'] ?? ''));
+    $customerId = (int)($_POST['customer_id'] ?? 0) ?: null;
+    $items = json_decode($_POST['items'] ?? '[]', true);
+
+    if (empty($templateName)) {
+        echo json_encode(['success' => false, 'error' => 'Template name is required']);
+        exit;
+    }
+    if (empty($items) || !is_array($items)) {
+        echo json_encode(['success' => false, 'error' => 'At least one item is required']);
+        exit;
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        $insertTemplate = $pdo->prepare("INSERT INTO order_templates (sales_rep_id, template_name, customer_id) VALUES (?, ?, ?)");
+        $insertTemplate->execute([$repId, $templateName, $customerId]);
+        $templateId = $pdo->lastInsertId();
+
+        $insertItem = $pdo->prepare("INSERT INTO order_template_items (template_id, product_id, quantity) VALUES (?, ?, ?)");
+        foreach ($items as $item) {
+            $insertItem->execute([$templateId, (int)$item['product_id'], (float)$item['quantity']]);
+        }
+
+        $pdo->commit();
+        echo json_encode(['success' => true, 'template_id' => $templateId, 'message' => 'Template saved successfully']);
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// Handle AJAX: Delete template
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'delete_template') {
+    header('Content-Type: application/json');
+    $templateId = (int)($_POST['template_id'] ?? 0);
+    try {
+        // Verify ownership and delete
+        $stmt = $pdo->prepare("DELETE FROM order_templates WHERE id = ? AND sales_rep_id = ?");
+        $stmt->execute([$templateId, $repId]);
+        // Delete items (cascade should handle, but just in case)
+        $pdo->prepare("DELETE FROM order_template_items WHERE template_id = ?")->execute([$templateId]);
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// Handle AJAX: Get customer purchase history (frequently ordered products)
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'customer_history') {
+    header('Content-Type: application/json');
+    $customerId = (int)($_GET['customer_id'] ?? 0);
+
+    if ($customerId <= 0) {
+        echo json_encode(['success' => false, 'error' => 'Invalid customer ID']);
+        exit;
+    }
+
+    try {
+        // Get frequently ordered products by this customer
+        $stmt = $pdo->prepare("
+            SELECT
+                p.id as product_id,
+                p.sku,
+                p.item_name,
+                p.sale_price_usd,
+                COUNT(oi.id) as order_count,
+                SUM(oi.quantity) as total_qty,
+                MAX(o.created_at) as last_ordered,
+                COALESCE(s.qty_on_hand, 0) as van_stock
+            FROM order_items oi
+            JOIN orders o ON o.id = oi.order_id
+            JOIN products p ON p.id = oi.product_id
+            LEFT JOIN s_stock s ON s.product_id = p.id AND s.salesperson_id = ?
+            WHERE o.customer_id = ?
+              AND o.sales_rep_id = ?
+              AND p.is_active = 1
+            GROUP BY p.id
+            ORDER BY order_count DESC, last_ordered DESC
+            LIMIT 10
+        ");
+        $stmt->execute([$repId, $customerId, $repId]);
+        $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['success' => true, 'products' => $products]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // Handle AJAX customer search
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'search_customers') {
     header('Content-Type: application/json');
@@ -1105,6 +1256,11 @@ if (!$canCreateOrder) {
                     <strong id="selectedCustomerName"></strong>
                     <small id="selectedCustomerInfo"></small>
                 </div>
+                <!-- Customer Purchase History Quick-Add -->
+                <div id="purchaseHistory" style="display: none; margin-top: 16px; padding: 16px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 12px;">
+                    <h4 style="margin: 0 0 12px; font-size: 0.95rem; color: #166534;">📦 المنتجات المطلوبة مسبقاً / Frequently Ordered</h4>
+                    <div id="purchaseHistoryItems" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
+                </div>
             </div>
         </div>
 
@@ -1276,11 +1432,70 @@ if (!$canCreateOrder) {
             document.getElementById('selectedCustomerInfo').textContent = `${phone || 'No phone'}${city ? ' | ' + city : ''}`;
             customerSelected.classList.add('show');
 
+            // Load purchase history for this customer
+            loadPurchaseHistory(id);
+
             // Scroll to products section
             document.getElementById('productSearch').scrollIntoView({
                 behavior: 'smooth',
                 block: 'center'
             });
+        }
+
+        function loadPurchaseHistory(customerId) {
+            const historyContainer = document.getElementById('purchaseHistory');
+            const historyItems = document.getElementById('purchaseHistoryItems');
+
+            fetch(`?action=customer_history&customer_id=${customerId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && data.products && data.products.length > 0) {
+                        historyItems.innerHTML = data.products.map(p => {
+                            const hasStock = parseFloat(p.van_stock) > 0;
+                            const btnStyle = hasStock
+                                ? 'background: #fff; border: 1px solid #22c55e; color: #16a34a;'
+                                : 'background: #f3f4f6; border: 1px solid #d1d5db; color: #9ca3af; cursor: not-allowed;';
+                            return `
+                                <button type="button"
+                                    class="quick-add-btn"
+                                    onclick="quickAddProduct(${p.product_id}, '${escapeHtml(p.item_name).replace(/'/g, "\\'")}', ${p.sale_price_usd}, ${p.van_stock})"
+                                    style="padding: 8px 12px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; transition: all 0.2s; ${btnStyle}"
+                                    ${hasStock ? '' : 'disabled'}
+                                    title="${hasStock ? `Stock: ${p.van_stock}` : 'Out of stock'}">
+                                    ${escapeHtml(p.item_name)}
+                                    <span style="font-size: 0.75rem; opacity: 0.7;">(${p.order_count}x)</span>
+                                </button>
+                            `;
+                        }).join('');
+                        historyContainer.style.display = 'block';
+                    } else {
+                        historyContainer.style.display = 'none';
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to load purchase history:', err);
+                    historyContainer.style.display = 'none';
+                });
+        }
+
+        function quickAddProduct(productId, productName, productPrice, productStock) {
+            if (productStock <= 0) {
+                alert('Cannot add out of stock items.');
+                return;
+            }
+            if (selectedProducts[productId]) {
+                alert('This product is already added to the sale.');
+                return;
+            }
+            selectedProducts[productId] = {
+                name: productName,
+                price: parseFloat(productPrice),
+                stock: parseFloat(productStock),
+                quantity: 1,
+                discount: 0
+            };
+            renderSelectedProducts();
+            updateOrderSummary();
         }
 
         function escapeHtml(text) {
@@ -1399,11 +1614,14 @@ if (!$canCreateOrder) {
             container.innerHTML = Object.keys(selectedProducts).map(productId => {
                 const product = selectedProducts[productId];
                 const subtotal = product.price * product.quantity;
+                const isLowStock = product.stock <= 5;
+                const stockWarning = isLowStock ? `<span style="color: #d97706; font-weight: 600; font-size: 0.85rem; display: block; margin-top: 4px;">⚠️ Low stock warning</span>` : '';
+                const cardStyle = isLowStock ? 'border-color: #fbbf24; background: #fffbeb;' : '';
 
                 return `
-                    <div class="selected-product" data-product-id="${productId}">
+                    <div class="selected-product" data-product-id="${productId}" style="${cardStyle}">
                         <div class="selected-product-header">
-                            <div class="selected-product-name">${escapeHtml(product.name)}</div>
+                            <div class="selected-product-name">${escapeHtml(product.name)}${stockWarning}</div>
                             <button type="button" class="remove-btn" onclick="removeProduct(${productId})">Remove</button>
                         </div>
                         <div class="selected-product-controls">
