@@ -206,13 +206,13 @@ class InvoicePDF
         }
 
         body {
-            font-family: DejaVu Sans, Arial, sans-serif;
+            font-family: "XB Riyaz", "Amiri", "Tahoma", "DejaVu Sans", Arial, sans-serif;
             background: white;
             padding: 15px;
             direction: rtl;
             text-align: right;
             font-size: 12px;
-            line-height: 1.4;
+            line-height: 1.6;
         }
 
         .invoice-container {
