@@ -11,6 +11,92 @@ $customerId = (int)$customer['id'];
 // Get database connection
 $pdo = db();
 
+// Handle AJAX reorder request
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'reorder') {
+    header('Content-Type: application/json');
+    $orderId = (int)($_POST['order_id'] ?? 0);
+
+    if ($orderId <= 0) {
+        echo json_encode(['success' => false, 'error' => 'Invalid order ID']);
+        exit;
+    }
+
+    try {
+        // Verify order belongs to customer
+        $orderCheck = $pdo->prepare("SELECT id FROM orders WHERE id = ? AND customer_id = ?");
+        $orderCheck->execute([$orderId, $customerId]);
+        if (!$orderCheck->fetch()) {
+            echo json_encode(['success' => false, 'error' => 'Order not found']);
+            exit;
+        }
+
+        // Get order items
+        $itemsStmt = $pdo->prepare("
+            SELECT oi.product_id, oi.quantity, p.item_name, p.is_active
+            FROM order_items oi
+            JOIN products p ON p.id = oi.product_id
+            WHERE oi.order_id = ?
+        ");
+        $itemsStmt->execute([$orderId]);
+        $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($items)) {
+            echo json_encode(['success' => false, 'error' => 'Order has no items']);
+            exit;
+        }
+
+        $addedCount = 0;
+        $skippedCount = 0;
+        $skippedProducts = [];
+
+        foreach ($items as $item) {
+            // Skip inactive products
+            if (!$item['is_active']) {
+                $skippedCount++;
+                $skippedProducts[] = $item['item_name'];
+                continue;
+            }
+
+            $productId = (int)$item['product_id'];
+            $quantity = (float)$item['quantity'];
+
+            // Check if product already in cart
+            $cartCheck = $pdo->prepare("SELECT id, quantity FROM customer_cart WHERE customer_id = ? AND product_id = ?");
+            $cartCheck->execute([$customerId, $productId]);
+            $existingCart = $cartCheck->fetch(PDO::FETCH_ASSOC);
+
+            if ($existingCart) {
+                // Update quantity
+                $newQty = (float)$existingCart['quantity'] + $quantity;
+                $updateStmt = $pdo->prepare("UPDATE customer_cart SET quantity = ? WHERE id = ?");
+                $updateStmt->execute([$newQty, $existingCart['id']]);
+            } else {
+                // Insert new item
+                $insertStmt = $pdo->prepare("INSERT INTO customer_cart (customer_id, product_id, quantity) VALUES (?, ?, ?)");
+                $insertStmt->execute([$customerId, $productId, $quantity]);
+            }
+            $addedCount++;
+        }
+
+        $message = "تمت إضافة {$addedCount} منتج إلى السلة";
+        if ($skippedCount > 0) {
+            $message .= " ({$skippedCount} منتج غير متوفر)";
+        }
+
+        echo json_encode([
+            'success' => true,
+            'message' => $message,
+            'added' => $addedCount,
+            'skipped' => $skippedCount,
+            'skipped_products' => $skippedProducts
+        ]);
+    } catch (PDOException $e) {
+        error_log("Reorder error: " . $e->getMessage());
+        echo json_encode(['success' => false, 'error' => 'Database error']);
+    }
+    exit;
+}
+
 // Get filters
 $status = trim($_GET['status'] ?? '');
 $search = trim($_GET['search'] ?? '');
@@ -384,9 +470,14 @@ customer_portal_render_layout_start([
                             <td><span class="badge <?= $statusBadgeClass ?>"><?= ucfirst($status) ?></span></td>
                             <td><strong style="color: var(--accent);">$<?= number_format($total, 2) ?></strong></td>
                             <td>
-                                <a href="order_details.php?id=<?= $orderId ?>" class="btn" style="padding: 8px 14px; font-size: 0.85rem;">
-                                    View Details
-                                </a>
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <a href="order_details.php?id=<?= $orderId ?>" class="btn" style="padding: 8px 14px; font-size: 0.85rem;">
+                                        عرض
+                                    </a>
+                                    <button type="button" class="btn btn-reorder" onclick="reorderItems(<?= $orderId ?>)" style="padding: 8px 14px; font-size: 0.85rem; background: #10b981; color: white; border: none;">
+                                        🔄 إعادة الطلب
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -425,6 +516,82 @@ customer_portal_render_layout_start([
         </div>
     <?php endif; ?>
 </div>
+
+<!-- Reorder Toast Notification -->
+<div id="reorderToast" style="display: none; position: fixed; bottom: 20px; right: 20px; background: #10b981; color: white; padding: 16px 24px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); z-index: 9999; max-width: 350px;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 1.5rem;">✓</span>
+        <div>
+            <strong id="toastTitle" style="display: block; margin-bottom: 4px;">تمت الإضافة</strong>
+            <span id="toastMessage" style="font-size: 0.9rem; opacity: 0.9;"></span>
+        </div>
+    </div>
+    <a href="cart.php" style="display: inline-block; margin-top: 12px; background: white; color: #10b981; padding: 8px 16px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 0.9rem;">
+        🛒 عرض السلة
+    </a>
+</div>
+
+<script>
+function reorderItems(orderId) {
+    const btn = event.target;
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ جاري...';
+
+    const formData = new FormData();
+    formData.append('action', 'reorder');
+    formData.append('order_id', orderId);
+
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+
+        if (data.success) {
+            showReorderToast(data.message, true);
+        } else {
+            showReorderToast(data.error || 'حدث خطأ', false);
+        }
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        showReorderToast('حدث خطأ في الاتصال', false);
+    });
+}
+
+function showReorderToast(message, success) {
+    const toast = document.getElementById('reorderToast');
+    const toastTitle = document.getElementById('toastTitle');
+    const toastMessage = document.getElementById('toastMessage');
+
+    toast.style.background = success ? '#10b981' : '#ef4444';
+    toastTitle.textContent = success ? 'تمت الإضافة بنجاح!' : 'خطأ';
+    toastMessage.textContent = message;
+
+    toast.style.display = 'block';
+    toast.style.animation = 'slideIn 0.3s ease-out';
+
+    setTimeout(() => {
+        toast.style.display = 'none';
+    }, 5000);
+}
+</script>
+
+<style>
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+.btn-reorder:hover {
+    background: #059669 !important;
+    transform: translateY(-1px);
+}
+</style>
 
 <?php
 
