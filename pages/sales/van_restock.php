@@ -96,6 +96,19 @@ function fetch_restock_cart_items(PDO $pdo, int $repId): array
     return $cartItemsStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+function normalize_number_string($value): string
+{
+    $value = (string)$value;
+    $map = [
+        '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+        '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+        '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+        '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+        ',' => '.', ' ' => '',
+    ];
+    return strtr($value, $map);
+}
+
 // Handle adding item to restock cart
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'add_to_cart') {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
@@ -109,8 +122,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'add_to_cart') {
         }
         $flashes[] = ['type' => 'error', 'title' => 'خطأ أمني', 'message' => 'رمز الأمان غير صالح.'];
     } else {
-        $productId = (int)($_POST['product_id'] ?? 0);
-        $quantity = (float)($_POST['quantity'] ?? 0);
+        $productIdRaw = normalize_number_string($_POST['product_id'] ?? '');
+        $productId = (int)filter_var($productIdRaw, FILTER_SANITIZE_NUMBER_INT);
+        $skuRaw = normalize_number_string($_POST['sku'] ?? '');
+        $sku = trim((string)$skuRaw);
+        $quantityRaw = normalize_number_string($_POST['quantity'] ?? '');
+        $quantity = (float)preg_replace('/[^0-9.]+/', '', $quantityRaw);
+        if ($quantity <= 0) {
+            $quantity = 1;
+        }
+        if ($productId <= 0 && $sku !== '') {
+            $lookup = $pdo->prepare("SELECT id FROM products WHERE sku = :sku LIMIT 1");
+            $lookup->execute([':sku' => $sku]);
+            $productId = (int)$lookup->fetchColumn();
+        }
 
         if ($productId > 0 && $quantity > 0) {
             // Check if there's an active (pending) restock request for this rep
@@ -175,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'add_to_cart') {
             header('Content-Type: application/json');
             echo json_encode([
                 'ok' => false,
-                'message' => 'البيانات غير صالحة لإضافة المنتج.',
+                'message' => 'البيانات غير صالحة لإضافة المنتج (معرّف المنتج أو الكمية مفقودة).',
             ]);
             exit;
         }
@@ -195,8 +220,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'update_quantity') {
         }
         $flashes[] = ['type' => 'error', 'title' => 'خطأ أمني', 'message' => 'رمز الأمان غير صالح.'];
     } else {
-        $itemId = (int)($_POST['item_id'] ?? 0);
-        $quantity = (float)($_POST['quantity'] ?? 0);
+        $itemIdRaw = normalize_number_string($_POST['item_id'] ?? '0');
+        $itemId = (int)preg_replace('/\D+/', '', $itemIdRaw);
+        $quantity = (float)normalize_number_string($_POST['quantity'] ?? '0');
 
         if ($itemId > 0) {
             if ($quantity <= 0) {
@@ -247,7 +273,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'remove_item') {
         }
         $flashes[] = ['type' => 'error', 'title' => 'خطأ أمني', 'message' => 'رمز الأمان غير صالح.'];
     } else {
-        $itemId = (int)($_POST['item_id'] ?? 0);
+        $itemIdRaw = normalize_number_string($_POST['item_id'] ?? '0');
+        $itemId = (int)preg_replace('/\D+/', '', $itemIdRaw);
         if ($itemId > 0) {
             $deleteItem = $pdo->prepare("
                 DELETE FROM van_restock_items
@@ -833,10 +860,11 @@ foreach ($flashes as $flash) {
                                 </span>
                             </div>
                         </div>
-                        <form method="POST" class="add-form ajax-cart-form">
+                        <form method="POST" class="add-form ajax-cart-form" data-product-id="<?= (int)$product['id'] ?>" data-product-sku="<?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?>">
                             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                             <input type="hidden" name="action" value="add_to_cart">
                             <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
+                            <input type="hidden" name="sku" value="<?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?>">
                             <input type="number" name="quantity" class="qty-input" value="1" min="1" step="1">
                             <button type="submit" class="btn btn-primary">+ إضافة</button>
                         </form>
@@ -947,7 +975,32 @@ function showAjaxFlash(type, message) {
 }
 
 async function submitCartForm(form) {
+    const normalizeDigits = (value) => {
+        const map = {
+            '٠':'0','١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9',
+            '۰':'0','۱':'1','۲':'2','۳':'3','۴':'4','۵':'5','۶':'6','۷':'7','۸':'8','۹':'9'
+        };
+        return (value || '').toString().split('').map(ch => map[ch] ?? ch).join('').replace(/,/g, '.').trim();
+    };
     const formData = new FormData(form);
+    const productIdInput = form.querySelector('[name="product_id"]');
+    const skuInput = form.querySelector('[name="sku"]');
+    const quantityInput = form.querySelector('[name="quantity"]');
+    const productId = normalizeDigits(productIdInput ? productIdInput.value : form.dataset.productId);
+    let quantity = normalizeDigits(quantityInput ? quantityInput.value : '');
+    const sku = normalizeDigits(skuInput ? skuInput.value : form.dataset.productSku);
+    if (!productId && form.dataset.productId) {
+        formData.set('product_id', form.dataset.productId);
+    } else if (productId) {
+        formData.set('product_id', productId);
+    }
+    if (sku) {
+        formData.set('sku', sku);
+    }
+    if (!quantity || Number(quantity) <= 0) {
+        quantity = '1';
+    }
+    formData.set('quantity', quantity);
     try {
         const response = await fetch(window.location.href, {
             method: 'POST',
