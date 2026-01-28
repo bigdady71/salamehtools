@@ -14,35 +14,35 @@ class ComposerStaticInit62e10e6c8df9afc192311b196c75bb33
     );
 
     public static $prefixLengthsPsr4 = array (
-        'Z' =>
+        'Z' => 
         array (
             'ZipStream\\' => 10,
         ),
-        'S' =>
+        'S' => 
         array (
             'Svg\\' => 4,
             'SalamehTools\\' => 13,
             'Sabberworm\\CSS\\' => 15,
         ),
-        'P' =>
+        'P' => 
         array (
             'Psr\\SimpleCache\\' => 16,
             'PhpOffice\\PhpSpreadsheet\\' => 25,
         ),
-        'M' =>
+        'M' => 
         array (
             'Matrix\\' => 7,
             'Masterminds\\' => 12,
         ),
-        'F' =>
+        'F' => 
         array (
             'FontLib\\' => 8,
         ),
-        'D' =>
+        'D' => 
         array (
             'Dompdf\\' => 7,
         ),
-        'C' =>
+        'C' => 
         array (
             'Composer\\Pcre\\' => 14,
             'Complex\\' => 8,
@@ -50,51 +50,51 @@ class ComposerStaticInit62e10e6c8df9afc192311b196c75bb33
     );
 
     public static $prefixDirsPsr4 = array (
-        'ZipStream\\' =>
+        'ZipStream\\' => 
         array (
             0 => __DIR__ . '/..' . '/maennchen/zipstream-php/src',
         ),
-        'Svg\\' =>
+        'Svg\\' => 
         array (
             0 => __DIR__ . '/..' . '/phenx/php-svg-lib/src/Svg',
         ),
-        'SalamehTools\\' =>
+        'SalamehTools\\' => 
         array (
             0 => __DIR__ . '/../..' . '/src',
         ),
-        'Sabberworm\\CSS\\' =>
+        'Sabberworm\\CSS\\' => 
         array (
             0 => __DIR__ . '/..' . '/sabberworm/php-css-parser/src',
         ),
-        'Psr\\SimpleCache\\' =>
+        'Psr\\SimpleCache\\' => 
         array (
             0 => __DIR__ . '/..' . '/psr/simple-cache/src',
         ),
-        'PhpOffice\\PhpSpreadsheet\\' =>
+        'PhpOffice\\PhpSpreadsheet\\' => 
         array (
             0 => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet',
         ),
-        'Matrix\\' =>
+        'Matrix\\' => 
         array (
             0 => __DIR__ . '/..' . '/markbaker/matrix/classes/src',
         ),
-        'Masterminds\\' =>
+        'Masterminds\\' => 
         array (
             0 => __DIR__ . '/..' . '/masterminds/html5/src',
         ),
-        'FontLib\\' =>
+        'FontLib\\' => 
         array (
             0 => __DIR__ . '/..' . '/phenx/php-font-lib/src/FontLib',
         ),
-        'Dompdf\\' =>
+        'Dompdf\\' => 
         array (
             0 => __DIR__ . '/..' . '/dompdf/dompdf/src',
         ),
-        'Composer\\Pcre\\' =>
+        'Composer\\Pcre\\' => 
         array (
             0 => __DIR__ . '/..' . '/composer/pcre/src',
         ),
-        'Complex\\' =>
+        'Complex\\' => 
         array (
             0 => __DIR__ . '/..' . '/markbaker/complex/classes/src',
         ),
@@ -359,7 +359,6 @@ class ComposerStaticInit62e10e6c8df9afc192311b196c75bb33
         'PhpOffice\\PhpSpreadsheet\\Calculation\\Functions' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/Functions.php',
         'PhpOffice\\PhpSpreadsheet\\Calculation\\Information\\ErrorValue' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/Information/ErrorValue.php',
         'PhpOffice\\PhpSpreadsheet\\Calculation\\Information\\ExcelError' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/Information/ExcelError.php',
-        'PhpOffice\\PhpSpreadsheet\\Calculation\\Information\\Info' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/Information/Info.php',
         'PhpOffice\\PhpSpreadsheet\\Calculation\\Information\\Value' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/Information/Value.php',
         'PhpOffice\\PhpSpreadsheet\\Calculation\\Internal\\ExcelArrayPseudoFunctions' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/Internal/ExcelArrayPseudoFunctions.php',
         'PhpOffice\\PhpSpreadsheet\\Calculation\\Internal\\MakeMatrix' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/Internal/MakeMatrix.php',
@@ -466,7 +465,6 @@ class ComposerStaticInit62e10e6c8df9afc192311b196c75bb33
         'PhpOffice\\PhpSpreadsheet\\Calculation\\TextData\\Replace' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/TextData/Replace.php',
         'PhpOffice\\PhpSpreadsheet\\Calculation\\TextData\\Search' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/TextData/Search.php',
         'PhpOffice\\PhpSpreadsheet\\Calculation\\TextData\\Text' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/TextData/Text.php',
-        'PhpOffice\\PhpSpreadsheet\\Calculation\\TextData\\Thai' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/TextData/Thai.php',
         'PhpOffice\\PhpSpreadsheet\\Calculation\\TextData\\Trim' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/TextData/Trim.php',
         'PhpOffice\\PhpSpreadsheet\\Calculation\\Token\\Stack' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/Token/Stack.php',
         'PhpOffice\\PhpSpreadsheet\\Calculation\\Web\\Service' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Calculation/Web/Service.php',
@@ -523,7 +521,6 @@ class ComposerStaticInit62e10e6c8df9afc192311b196c75bb33
         'PhpOffice\\PhpSpreadsheet\\Helper\\Sample' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Helper/Sample.php',
         'PhpOffice\\PhpSpreadsheet\\Helper\\Size' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Helper/Size.php',
         'PhpOffice\\PhpSpreadsheet\\Helper\\TextGrid' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Helper/TextGrid.php',
-        'PhpOffice\\PhpSpreadsheet\\Helper\\TextGridRightAlign' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Helper/TextGridRightAlign.php',
         'PhpOffice\\PhpSpreadsheet\\IComparable' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/IComparable.php',
         'PhpOffice\\PhpSpreadsheet\\IOFactory' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/IOFactory.php',
         'PhpOffice\\PhpSpreadsheet\\NamedFormula' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/NamedFormula.php',
@@ -652,7 +649,6 @@ class ComposerStaticInit62e10e6c8df9afc192311b196c75bb33
         'PhpOffice\\PhpSpreadsheet\\Style\\ConditionalFormatting\\ConditionalFormattingRuleExtension' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Style/ConditionalFormatting/ConditionalFormattingRuleExtension.php',
         'PhpOffice\\PhpSpreadsheet\\Style\\ConditionalFormatting\\ConditionalIconSet' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Style/ConditionalFormatting/ConditionalIconSet.php',
         'PhpOffice\\PhpSpreadsheet\\Style\\ConditionalFormatting\\IconSetValues' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Style/ConditionalFormatting/IconSetValues.php',
-        'PhpOffice\\PhpSpreadsheet\\Style\\ConditionalFormatting\\MergedCellStyle' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Style/ConditionalFormatting/MergedCellStyle.php',
         'PhpOffice\\PhpSpreadsheet\\Style\\ConditionalFormatting\\StyleMerger' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Style/ConditionalFormatting/StyleMerger.php',
         'PhpOffice\\PhpSpreadsheet\\Style\\ConditionalFormatting\\Wizard' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Style/ConditionalFormatting/Wizard.php',
         'PhpOffice\\PhpSpreadsheet\\Style\\ConditionalFormatting\\Wizard\\Blanks' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Style/ConditionalFormatting/Wizard/Blanks.php',
@@ -750,7 +746,6 @@ class ComposerStaticInit62e10e6c8df9afc192311b196c75bb33
         'PhpOffice\\PhpSpreadsheet\\Writer\\Pdf\\Dompdf' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Pdf/Dompdf.php',
         'PhpOffice\\PhpSpreadsheet\\Writer\\Pdf\\Mpdf' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Pdf/Mpdf.php',
         'PhpOffice\\PhpSpreadsheet\\Writer\\Pdf\\Tcpdf' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Pdf/Tcpdf.php',
-        'PhpOffice\\PhpSpreadsheet\\Writer\\Pdf\\TcpdfNoDie' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Pdf/TcpdfNoDie.php',
         'PhpOffice\\PhpSpreadsheet\\Writer\\Xls' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Xls.php',
         'PhpOffice\\PhpSpreadsheet\\Writer\\Xls\\BIFFwriter' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Xls/BIFFwriter.php',
         'PhpOffice\\PhpSpreadsheet\\Writer\\Xls\\CellDataValidation' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Xls/CellDataValidation.php',
@@ -778,7 +773,6 @@ class ComposerStaticInit62e10e6c8df9afc192311b196c75bb33
         'PhpOffice\\PhpSpreadsheet\\Writer\\Xlsx\\Rels' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Xlsx/Rels.php',
         'PhpOffice\\PhpSpreadsheet\\Writer\\Xlsx\\RelsRibbon' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Xlsx/RelsRibbon.php',
         'PhpOffice\\PhpSpreadsheet\\Writer\\Xlsx\\RelsVBA' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Xlsx/RelsVBA.php',
-        'PhpOffice\\PhpSpreadsheet\\Writer\\Xlsx\\RichDataDrawing' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Xlsx/RichDataDrawing.php',
         'PhpOffice\\PhpSpreadsheet\\Writer\\Xlsx\\StringTable' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Xlsx/StringTable.php',
         'PhpOffice\\PhpSpreadsheet\\Writer\\Xlsx\\Style' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Xlsx/Style.php',
         'PhpOffice\\PhpSpreadsheet\\Writer\\Xlsx\\Table' => __DIR__ . '/..' . '/phpoffice/phpspreadsheet/src/PhpSpreadsheet/Writer/Xlsx/Table.php',

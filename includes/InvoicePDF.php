@@ -6,6 +6,9 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
+use Mpdf\Config\ConfigVariables;
+use Mpdf\Config\FontVariables;
+use Mpdf\Mpdf;
 
 /**
  * Invoice PDF Generator
@@ -15,6 +18,7 @@ class InvoicePDF
 {
     private PDO $pdo;
     private string $storagePath;
+    private $arabicShaper = null;
 
     public function __construct(PDO $pdo)
     {
@@ -166,7 +170,7 @@ class InvoicePDF
     /**
      * Generate HTML for the invoice
      */
-    public function generateHTML(array $invoice): string
+    public function generateHTML(array $invoice, bool $shapeArabic = false): string
     {
         $invoiceTotal = (float)$invoice['total_usd'];
         $invoicePaid = (float)$invoice['paid_usd'];
@@ -192,7 +196,10 @@ class InvoicePDF
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-    <title>فاتورة - ' . htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') . '</title>
+    <title>فاتورة - ' . $this->formatText($invoice['invoice_number'] ?? '', $shapeArabic) . '</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap" rel="stylesheet">
     <style>
         @page {
             size: A4;
@@ -206,13 +213,18 @@ class InvoicePDF
         }
 
         body {
-            font-family: "NotoSansArabic", "DejaVu Sans", Arial, sans-serif;
+            font-family: "Noto Sans Arabic", notosansarabic, "NotoSansArabic", "DejaVu Sans", Arial, sans-serif;
             background: white;
             padding: 15px;
             direction: rtl;
             text-align: right;
             font-size: 12px;
             line-height: 1.6;
+        }
+
+        :lang(ar),
+        [lang="ar"] {
+            font-family: "Noto Sans Arabic", notosansarabic, "NotoSansArabic", "DejaVu Sans", Arial, sans-serif !important;
         }
 
         .invoice-container {
@@ -279,6 +291,7 @@ class InvoicePDF
             border-collapse: collapse;
             margin: 15px 0;
             font-size: 11px;
+            direction: rtl;
         }
 
         .items-table th {
@@ -393,7 +406,7 @@ class InvoicePDF
         }
     </style>
 </head>
-<body>
+<body lang="ar" dir="rtl">
     <div class="invoice-container">
         <!-- Header -->
         <div class="header">
@@ -405,7 +418,7 @@ class InvoicePDF
 
         <!-- Invoice Number -->
         <div class="invoice-number">
-            فاتورة رقم: ' . htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') . '
+            فاتورة رقم: ' . $this->formatText($invoice['invoice_number'] ?? '', $shapeArabic) . '
         </div>
 
         <div class="divider"></div>
@@ -419,12 +432,12 @@ class InvoicePDF
             </div>
             <div class="info-row">
                 <span class="info-label">مندوب المبيعات:</span>
-                <span class="info-value">' . htmlspecialchars($invoice['sales_rep_name'], ENT_QUOTES, 'UTF-8') . '</span>
+                <span class="info-value">' . $this->formatText($invoice['sales_rep_name'] ?? '', $shapeArabic) . '</span>
                 <div class="clear"></div>
             </div>
             <div class="info-row">
                 <span class="info-label">العميل:</span>
-                <span class="info-value">' . htmlspecialchars($invoice['customer_name'], ENT_QUOTES, 'UTF-8') . '</span>
+                <span class="info-value">' . $this->formatText($invoice['customer_name'] ?? '', $shapeArabic) . '</span>
                 <div class="clear"></div>
             </div>';
 
@@ -432,7 +445,7 @@ class InvoicePDF
             $html .= '
             <div class="info-row">
                 <span class="info-label">الهاتف:</span>
-                <span class="info-value">' . htmlspecialchars($invoice['customer_phone'], ENT_QUOTES, 'UTF-8') . '</span>
+                <span class="info-value">' . $this->formatText($invoice['customer_phone'] ?? '', $shapeArabic) . '</span>
                 <div class="clear"></div>
             </div>';
         }
@@ -441,7 +454,7 @@ class InvoicePDF
             $html .= '
             <div class="info-row">
                 <span class="info-label">المدينة:</span>
-                <span class="info-value">' . htmlspecialchars($invoice['customer_city'], ENT_QUOTES, 'UTF-8') . '</span>
+                <span class="info-value">' . $this->formatText($invoice['customer_city'] ?? '', $shapeArabic) . '</span>
                 <div class="clear"></div>
             </div>';
         }
@@ -467,8 +480,8 @@ class InvoicePDF
             $html .= '
                 <tr>
                     <td class="item-name">
-                        ' . htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') . '
-                        <br><span class="item-sku">SKU: ' . htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') . '</span>
+                        ' . $this->formatText($item['item_name'] ?? '', $shapeArabic) . '
+                        <br><span class="item-sku">SKU: ' . $this->formatText($item['sku'] ?? '', $shapeArabic) . '</span>
                     </td>
                     <td>' . number_format((float)$item['quantity'], 2) . '</td>
                     <td>$' . number_format((float)$item['unit_price_usd'], 2) . '</td>
@@ -591,7 +604,7 @@ class InvoicePDF
             $html .= '
         <div class="notes">
             <div class="notes-title">ملاحظات:</div>
-            <div>' . nl2br(htmlspecialchars($displayNotes, ENT_QUOTES, 'UTF-8')) . '</div>
+            <div>' . nl2br($this->formatText($displayNotes, $shapeArabic)) . '</div>
         </div>';
         }
 
@@ -613,7 +626,20 @@ class InvoicePDF
      */
     public function generatePDF(array $invoice): string
     {
-        $html = $this->generateHTML($invoice);
+        $html = $this->generateHTML($invoice, false);
+        // Use mPDF for Arabic support (Chrome headless has file access issues on Windows)
+        $useMpdf = class_exists(Mpdf::class);
+        if ($useMpdf) {
+            return $this->generatePDFWithMpdf($html);
+        }
+
+        // Fallback to Chrome if mPDF not available
+        $chromePdf = $this->generatePDFWithChrome($html);
+        if ($chromePdf !== null) {
+            return $chromePdf;
+        }
+
+        $html = $this->generateHTML($invoice, true);
 
         $options = new Options();
         $options->set('isRemoteEnabled', true);
@@ -621,11 +647,17 @@ class InvoicePDF
         $options->set('defaultFont', 'NotoSansArabic');
         $options->set('isFontSubsettingEnabled', true);
         $options->set('chroot', __DIR__ . '/..');
+        $fontDir = __DIR__ . '/../fonts';
+        $options->set('fontDir', $fontDir);
+        $fontCache = __DIR__ . '/../storage/font_cache';
+        if (!is_dir($fontCache)) {
+            mkdir($fontCache, 0755, true);
+        }
+        $options->set('fontCache', $fontCache);
 
         $dompdf = new Dompdf($options);
 
         // Load Arabic font
-        $fontDir = __DIR__ . '/../fonts';
         $arabicFontPath = $fontDir . '/NotoSansArabic-Regular.ttf';
 
         if (file_exists($arabicFontPath)) {
@@ -640,6 +672,143 @@ class InvoicePDF
         $dompdf->render();
 
         return $dompdf->output();
+    }
+
+    private function generatePDFWithChrome(string $html): ?string
+    {
+        $chromePath = $this->findChromePath();
+        if ($chromePath === null) {
+            return null;
+        }
+
+        $tempDir = __DIR__ . '/../storage/chrome_pdf';
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        $stamp = bin2hex(random_bytes(8));
+        $htmlPath = $tempDir . '/invoice_' . $stamp . '.html';
+        $pdfPath = $tempDir . '/invoice_' . $stamp . '.pdf';
+
+        file_put_contents($htmlPath, $html);
+
+        // Use localhost URL instead of file:// to avoid Chrome security restrictions
+        $httpUrl = 'http://localhost/salamehtools/storage/chrome_pdf/invoice_' . $stamp . '.html';
+        $pdfArgPath = str_replace('\\', '/', $pdfPath);
+        $command = '"' . $chromePath . '" --headless=new --disable-gpu --no-sandbox --run-all-compositor-stages-before-draw --virtual-time-budget=10000 --print-to-pdf="' . $pdfArgPath . '" "' . $httpUrl . '"';
+
+        $output = [];
+        $exitCode = 0;
+        exec($command . ' 2>&1', $output, $exitCode);
+
+        $pdfContent = null;
+        if (file_exists($pdfPath)) {
+            $pdfContent = file_get_contents($pdfPath);
+            // Verify the PDF is not an error page (check for PDF magic bytes)
+            if ($pdfContent && strpos($pdfContent, '%PDF') !== 0) {
+                $pdfContent = null; // Invalid PDF, likely an error page
+            }
+        }
+
+        if (file_exists($htmlPath)) {
+            unlink($htmlPath);
+        }
+        if (file_exists($pdfPath)) {
+            unlink($pdfPath);
+        }
+
+        return $pdfContent;
+    }
+
+    private function findChromePath(): ?string
+    {
+        $candidates = [
+            getenv('CHROME_PATH') ?: '',
+            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+            'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+            'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+        ];
+
+        foreach ($candidates as $candidate) {
+            if ($candidate && file_exists($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function formatText(string $text, bool $shapeArabic = false): string
+    {
+        $value = $text;
+
+        if ($shapeArabic && $this->containsArabic($value)) {
+            $value = $this->shapeArabic($value);
+        }
+
+        return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+    }
+
+    private function containsArabic(string $text): bool
+    {
+        return (bool)preg_match('/\p{Arabic}/u', $text);
+    }
+
+    private function shapeArabic(string $text): string
+    {
+        if ($this->arabicShaper === null) {
+            if (!class_exists('I18N_Arabic')) {
+                return $text;
+            }
+            $this->arabicShaper = new \I18N_Arabic('Glyphs');
+        }
+
+        return $this->arabicShaper->utf8Glyphs($text);
+    }
+
+    private function generatePDFWithMpdf(string $html): string
+    {
+        $fontDir = __DIR__ . '/../fonts';
+        $tempDir = __DIR__ . '/../storage/mpdf_tmp';
+
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        $config = (new ConfigVariables())->getDefaults();
+        $fontDirs = $config['fontDir'];
+
+        $fontConfig = (new FontVariables())->getDefaults();
+        $fontData = $fontConfig['fontdata'];
+
+        $fontData['notosansarabic'] = [
+            'R' => 'NotoSansArabic-Regular.ttf',
+            'useOTL' => 0xFF,
+            'useKashida' => 75
+        ];
+
+        $mpdf = new Mpdf([
+            'mode' => 'utf-8',
+            'format' => 'A4',
+            'orientation' => 'P',
+            'tempDir' => $tempDir,
+            'fontDir' => array_merge($fontDirs, [$fontDir]),
+            'fontdata' => $fontData,
+            'default_font' => 'notosansarabic',
+            'directionality' => 'rtl',
+            'autoScriptToLang' => true,
+            'autoLangToFont' => true,
+            'autoArabic' => true,
+            'useLang' => true,
+            'useOTL' => 0xFF
+        ]);
+
+        $mpdf->SetDirectionality('rtl');
+        $mpdf->SetAutoFont();
+        $mpdf->WriteHTML($html);
+
+        return $mpdf->Output('', 'S');
     }
 
     /**
@@ -727,6 +896,16 @@ class InvoicePDF
         }
 
         echo $pdfContent;
+    }
+
+    /**
+     * Convert a local file path into a file:// URL for Dompdf assets.
+     */
+    private function toFileUrl(string $path): string
+    {
+        $normalized = str_replace('\\', '/', $path);
+        $normalized = preg_replace('/^([A-Za-z]):/', '/$1', $normalized);
+        return 'file://' . $normalized;
     }
 
     /**
