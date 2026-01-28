@@ -933,6 +933,22 @@ if (empty($customers)) {
         <input type="text" id="searchFilter" placeholder="Search products..." oninput="filterProducts()">
     </div>
 
+    <!-- Stock Filter Checkboxes -->
+    <div class="filter-checkboxes" style="display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; background: var(--bg-panel); padding: 14px 18px; border-radius: 10px; border: 1px solid var(--border);">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.95rem; font-weight: 500;">
+            <input type="checkbox" id="hideZeroStock" onchange="filterProducts(); saveFilterPrefs();" style="width: 18px; height: 18px; cursor: pointer;">
+            <span>إخفاء المخزون = 0</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.95rem; font-weight: 500;">
+            <input type="checkbox" id="hideZeroPrice" onchange="filterProducts(); saveFilterPrefs();" style="width: 18px; height: 18px; cursor: pointer;">
+            <span>إخفاء السعر = 0</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.95rem; font-weight: 500;">
+            <input type="checkbox" id="hideLowStock" onchange="filterProducts(); saveFilterPrefs();" style="width: 18px; height: 18px; cursor: pointer;">
+            <span>إخفاء المخزون < 8</span>
+        </label>
+    </div>
+
     <!-- Product Grid -->
     <div class="product-grid" id="productGrid">
         <?php foreach ($products as $product):
@@ -1084,18 +1100,63 @@ if (empty($customers)) {
         function filterProducts() {
             const category = document.getElementById('categoryFilter').value.toLowerCase();
             const search = document.getElementById('searchFilter').value.toLowerCase();
+            const hideZeroStock = document.getElementById('hideZeroStock').checked;
+            const hideZeroPrice = document.getElementById('hideZeroPrice').checked;
+            const hideLowStock = document.getElementById('hideLowStock').checked;
 
             document.querySelectorAll('.product-card').forEach(card => {
                 const cardCategory = (card.dataset.category || '').toLowerCase();
                 const cardName = (card.dataset.name || '').toLowerCase();
                 const cardSku = (card.dataset.sku || '').toLowerCase();
+                const cardStock = parseFloat(card.dataset.stock) || 0;
+                const cardPrice = parseFloat(card.dataset.price) || 0;
 
                 const matchesCategory = !category || cardCategory === category;
                 const matchesSearch = !search || cardName.includes(search) || cardSku.includes(search);
 
-                card.style.display = (matchesCategory && matchesSearch) ? 'block' : 'none';
+                // Stock/Price filters
+                const passZeroStock = !hideZeroStock || cardStock > 0;
+                const passZeroPrice = !hideZeroPrice || cardPrice > 0;
+                const passLowStock = !hideLowStock || cardStock >= 8;
+
+                const visible = matchesCategory && matchesSearch && passZeroStock && passZeroPrice && passLowStock;
+                card.style.display = visible ? 'block' : 'none';
             });
         }
+
+        // Save filter preferences to localStorage
+        function saveFilterPrefs() {
+            localStorage.setItem('companyOrderFilters', JSON.stringify({
+                hideZeroStock: document.getElementById('hideZeroStock').checked,
+                hideZeroPrice: document.getElementById('hideZeroPrice').checked,
+                hideLowStock: document.getElementById('hideLowStock').checked
+            }));
+        }
+
+        // Load filter preferences from localStorage
+        function loadFilterPrefs() {
+            const saved = localStorage.getItem('companyOrderFilters');
+            if (saved) {
+                try {
+                    const prefs = JSON.parse(saved);
+                    if (prefs.hideZeroStock !== undefined) {
+                        document.getElementById('hideZeroStock').checked = prefs.hideZeroStock;
+                    }
+                    if (prefs.hideZeroPrice !== undefined) {
+                        document.getElementById('hideZeroPrice').checked = prefs.hideZeroPrice;
+                    }
+                    if (prefs.hideLowStock !== undefined) {
+                        document.getElementById('hideLowStock').checked = prefs.hideLowStock;
+                    }
+                    filterProducts();
+                } catch (e) {
+                    console.error('Error loading filter preferences:', e);
+                }
+            }
+        }
+
+        // Load preferences on page load
+        document.addEventListener('DOMContentLoaded', loadFilterPrefs);
 
         // Toggle item selection (select/deselect)
         function toggleSelectItem(cardElement) {

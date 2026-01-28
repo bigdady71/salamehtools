@@ -206,7 +206,7 @@ class InvoicePDF
         }
 
         body {
-            font-family: "XB Riyaz", "Amiri", "Tahoma", "DejaVu Sans", Arial, sans-serif;
+            font-family: "NotoSansArabic", "DejaVu Sans", Arial, sans-serif;
             background: white;
             padding: 15px;
             direction: rtl;
@@ -618,9 +618,23 @@ class InvoicePDF
         $options = new Options();
         $options->set('isRemoteEnabled', true);
         $options->set('isHtml5ParserEnabled', true);
-        $options->set('defaultFont', 'DejaVu Sans');
+        $options->set('defaultFont', 'NotoSansArabic');
+        $options->set('isFontSubsettingEnabled', true);
+        $options->set('chroot', __DIR__ . '/..');
 
         $dompdf = new Dompdf($options);
+
+        // Load Arabic font
+        $fontDir = __DIR__ . '/../fonts';
+        $arabicFontPath = $fontDir . '/NotoSansArabic-Regular.ttf';
+
+        if (file_exists($arabicFontPath)) {
+            $dompdf->getFontMetrics()->registerFont(
+                ['family' => 'NotoSansArabic', 'style' => 'normal', 'weight' => 'normal'],
+                $arabicFontPath
+            );
+        }
+
         $dompdf->loadHtml($html, 'UTF-8');
         $dompdf->setPaper('A4', 'portrait');
         $dompdf->render();
