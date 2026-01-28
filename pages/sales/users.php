@@ -868,12 +868,15 @@ sales_portal_render_layout_start([
             right: 0;
             bottom: 0;
             background: rgba(0, 0, 0, 0.5);
-            z-index: 1000;
+            z-index: 2000;
             align-items: center;
             justify-content: center;
         }
         .modal.active {
             display: flex;
+        }
+        .modal-content {
+            z-index: 2001;
         }
         .modal-content {
             background: var(--bg-panel);

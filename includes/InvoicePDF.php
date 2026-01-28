@@ -203,7 +203,17 @@ class InvoicePDF
     <style>
         @page {
             size: A4;
-            margin: 10mm;
+            margin: 0;
+        }
+
+        @media print {
+            @page {
+                margin: 0;
+            }
+            html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+            }
         }
 
         * {
@@ -215,7 +225,7 @@ class InvoicePDF
         body {
             font-family: "Noto Sans Arabic", notosansarabic, "NotoSansArabic", "DejaVu Sans", Arial, sans-serif;
             background: white;
-            padding: 15px;
+            padding: 10mm;
             direction: rtl;
             text-align: right;
             font-size: 12px;
@@ -695,7 +705,7 @@ class InvoicePDF
         // Use localhost URL instead of file:// to avoid Chrome security restrictions
         $httpUrl = 'http://localhost/salamehtools/storage/chrome_pdf/invoice_' . $stamp . '.html';
         $pdfArgPath = str_replace('\\', '/', $pdfPath);
-        $command = '"' . $chromePath . '" --headless=new --disable-gpu --no-sandbox --run-all-compositor-stages-before-draw --virtual-time-budget=10000 --print-to-pdf="' . $pdfArgPath . '" "' . $httpUrl . '"';
+        $command = '"' . $chromePath . '" --headless=new --disable-gpu --no-sandbox --run-all-compositor-stages-before-draw --virtual-time-budget=10000 --print-to-pdf-no-header --print-to-pdf="' . $pdfArgPath . '" "' . $httpUrl . '"';
 
         $output = [];
         $exitCode = 0;

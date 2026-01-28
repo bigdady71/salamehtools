@@ -457,24 +457,6 @@ sales_portal_render_layout_start([
     'user' => $user,
     'active' => 'orders',
     'extra_head' => '<style>
-        .page-header {
-            background: white;
-            padding: 20px 24px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            border: 1px solid #e5e7eb;
-        }
-        .page-header h1 {
-            color: #111827;
-            margin: 0 0 4px 0;
-            font-size: 1.5rem;
-            font-weight: 600;
-        }
-        .page-header .subtitle {
-            color: #6b7280;
-            margin: 0;
-            font-size: 0.9rem;
-        }
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -633,13 +615,6 @@ sales_portal_render_layout_start([
     </style>'
 ]);
 ?>
-
-<div class="page-header">
-    <div class="page-title">
-        <h1>📦 My Orders</h1>
-        <p class="subtitle">View and manage orders for your customers</p>
-    </div>
-</div>
 
 <!-- Summary Stats -->
 <div class="stats-grid">

@@ -227,8 +227,9 @@ function sales_portal_render_layout_start(array $options = []): void
     echo 'body{margin:0;font-family:"Tajawal","Segoe UI",system-ui,-apple-system,sans-serif;';
     echo 'background:var(--bg);color:var(--text);display:flex;min-height:100vh;}a{color:var(--accent);text-decoration:none;}';
     echo 'a:hover{text-decoration:underline;}';
-    echo '.layout{display:flex;flex:1;}.sidebar{width:260px;background:var(--sales-gradient);border-right:none;padding:28px 20px;display:flex;';
-    echo 'flex-direction:column;gap:32px;box-shadow:-4px 0 12px rgba(0,0,0,0.08);position:fixed;top:0;right:0;bottom:0;overflow-y:auto;}';
+    echo '.layout{display:flex;flex:1;}.sidebar{width:280px;background:var(--sales-gradient);border-right:none;padding:28px 20px;display:flex;';
+    echo 'flex-direction:column;gap:32px;box-shadow:-4px 0 12px rgba(0,0,0,0.08);position:fixed;top:0;right:-280px;bottom:0;overflow-y:auto;overflow-x:hidden;z-index:1002;';
+    echo 'transition:right 0.3s ease;}.sidebar.open{right:0;}';
     echo '.brand{font-size:1.7rem;font-weight:800;letter-spacing:.04em;color:#ffffff;text-shadow:0 2px 4px rgba(0,0,0,0.1);}';
     echo '.brand small{display:block;font-size:0.75rem;font-weight:400;opacity:0.9;margin-top:4px;letter-spacing:0.1em;}';
     echo '.nav-links{display:flex;flex-direction:column;gap:6px;}';
@@ -242,7 +243,7 @@ function sales_portal_render_layout_start(array $options = []): void
     echo '.lang-switcher a{display:inline-block;padding:8px 12px;background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.9);';
     echo 'border-radius:8px;font-size:0.85rem;font-weight:600;text-decoration:none;transition:all 0.2s;border:1px solid rgba(255,255,255,0.2);}';
     echo '.lang-switcher a:hover{background:rgba(255,255,255,0.2);color:#ffffff;}';
-    echo '.main{flex:1;padding:36px;display:flex;flex-direction:column;gap:24px;margin-right:260px;}';
+    echo '.main{flex:1;padding:80px 36px 36px 36px;display:flex;flex-direction:column;gap:24px;}';
     echo '.page-header{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:18px;}';
     echo '.page-header h1{margin:0;font-size:2rem;}';
     echo '.page-header p{margin:4px 0 0;color:var(--muted);font-size:0.95rem;}';
@@ -273,34 +274,23 @@ function sales_portal_render_layout_start(array $options = []): void
     // RTL is now the default - no additional rules needed
     echo '.page-header{text-align:right;}';
 
-    // Mobile responsive styles with hamburger menu
-    echo '.hamburger{display:none;background:none;border:none;cursor:pointer;padding:8px;z-index:1001;}';
+    // Hamburger menu - always visible on all screen sizes
+    echo '.hamburger{display:block;position:fixed;top:16px;right:16px;background:var(--accent);border:none;cursor:pointer;padding:10px;z-index:1003;border-radius:8px;}';
     echo '.hamburger span{display:block;width:24px;height:3px;background:#fff;margin:5px 0;border-radius:2px;transition:0.3s;}';
-    echo '.sidebar-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:999;}';
+    echo '.sidebar-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1001;}';
+    echo '.sidebar-overlay.open{display:block;}';
     echo '.sidebar-close{display:none;position:absolute;top:16px;left:16px;background:rgba(255,255,255,0.2);border:none;';
     echo 'color:#fff;font-size:1.5rem;width:36px;height:36px;border-radius:50%;cursor:pointer;}';
-    echo '@media (max-width:900px){';
-    echo 'body{overflow-x:hidden;}';
-    echo '.layout{overflow-x:hidden;}';
-    echo '.hamburger{display:block;position:fixed;top:16px;right:16px;z-index:1001;background:var(--accent);border-radius:8px;padding:10px;}';
-    echo '.sidebar{position:fixed;top:0;right:0;bottom:0;transform:translateX(100%);transition:transform 0.3s ease;z-index:1000;width:280px;overflow-y:auto;}';
-    echo '.sidebar.open{transform:translateX(0);}';
-    echo '.sidebar-overlay.open{display:block;}';
-    echo '.sidebar-close{display:block;}';
-    echo '.main{margin-right:0;padding:80px 20px 20px 20px;width:100%;}';
+    echo '.sidebar.open .sidebar-close{display:block;}';
+    // Responsive adjustments for different screen sizes
+    echo '@media (max-width:768px){';
+    echo '.main{padding:70px 20px 20px 20px;}';
     echo '.page-header h1{font-size:1.5rem;}';
     echo '.page-header{flex-direction:column;align-items:flex-start;}';
     echo '}';
     echo '@media (max-width:480px){';
     echo '.main{padding:70px 12px 12px 12px;}';
     echo '.card{padding:16px;border-radius:12px;}';
-    echo '}';
-    // Tablet specific improvements (600-900px)
-    echo '@media (min-width:600px) and (max-width:900px){';
-    echo '.main{padding:80px 24px 24px 24px;}';
-    echo '.page-header{gap:12px;}';
-    echo '.actions{gap:8px;}';
-    echo '.btn{padding:8px 12px;font-size:0.9rem;}';
     echo '}';
     echo '</style></head><body class="theme-light">';
 
@@ -402,14 +392,12 @@ function sales_portal_render_layout_end(): void
     echo '  document.querySelector(".sidebar-overlay").classList.toggle("open");';
     echo '  document.body.style.overflow = document.querySelector(".sidebar").classList.contains("open") ? "hidden" : "";';
     echo '}';
-    // Close sidebar when clicking a nav link on mobile
+    // Close sidebar when clicking a nav link (always, since sidebar is always hamburger-based)
     echo 'document.querySelectorAll(".nav-links a").forEach(function(link){';
     echo '  link.addEventListener("click", function(){';
-    echo '    if(window.innerWidth <= 900){';
-    echo '      document.querySelector(".sidebar").classList.remove("open");';
-    echo '      document.querySelector(".sidebar-overlay").classList.remove("open");';
-    echo '      document.body.style.overflow = "";';
-    echo '    }';
+    echo '    document.querySelector(".sidebar").classList.remove("open");';
+    echo '    document.querySelector(".sidebar-overlay").classList.remove("open");';
+    echo '    document.body.style.overflow = "";';
     echo '  });';
     echo '});';
 
