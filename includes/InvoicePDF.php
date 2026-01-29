@@ -6,7 +6,6 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
-use Mpdf\Mpdf;
 
 /**
  * Invoice PDF Generator
@@ -16,7 +15,6 @@ class InvoicePDF
 {
     private PDO $pdo;
     private string $storagePath;
-    private $arabicShaper = null;
 
     public function __construct(PDO $pdo)
     {
@@ -168,7 +166,7 @@ class InvoicePDF
     /**
      * Generate HTML for the invoice
      */
-    public function generateHTML(array $invoice, bool $shapeArabic = false, bool $embedLocalFont = true): string
+    public function generateHTML(array $invoice): string
     {
         $invoiceTotal = (float)$invoice['total_usd'];
         $invoicePaid = (float)$invoice['paid_usd'];
@@ -189,55 +187,38 @@ class InvoicePDF
             $displayNotes = trim($displayNotes);
         }
 
-        $fontFaceCss = $embedLocalFont ? $this->getFontFaceCss() : '';
-
         $html = '<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-    <title>فاتورة - ' . $this->formatText($invoice['invoice_number'] ?? '', $shapeArabic) . '</title>
+    <title>فاتورة - ' . htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') . '</title>
     <style>
-        ' . $fontFaceCss . '
         @page {
             size: A4;
-            margin: 0;
-        }
-
-        @media print {
-            @page {
-                margin: 0;
-            }
-            html, body {
-                margin: 0 !important;
-                padding: 0 !important;
-            }
+            margin: 10mm;
         }
 
         * {
             margin: 0;
+            
             padding: 0;
             box-sizing: border-box;
         }
 
         body {
-            font-family: xbriyaz, "XB Riyaz", "DejaVu Sans", Arial, sans-serif;
+            font-family: "DejaVu Sans", Arial, sans-serif;
             background: white;
-            padding: 10mm;
+            padding: 15px;
             direction: rtl;
             text-align: right;
             font-size: 12px;
             line-height: 1.6;
         }
 
-        * {
-            font-family: xbriyaz, "XB Riyaz", "DejaVu Sans", Arial, sans-serif;
-        }
-
-        :lang(ar),
-        [lang="ar"] {
-            font-family: xbriyaz, "XB Riyaz", "DejaVu Sans", Arial, sans-serif !important;
-            direction: rtl;
+        .ltr {
+            direction: ltr;
+            unicode-bidi: bidi-override;
         }
 
         .invoice-container {
@@ -304,7 +285,6 @@ class InvoicePDF
             border-collapse: collapse;
             margin: 15px 0;
             font-size: 11px;
-            direction: rtl;
         }
 
         .items-table th {
@@ -334,7 +314,6 @@ class InvoicePDF
         .item-sku {
             font-size: 9px;
             color: #666;
-            direction: ltr;
         }
 
         .totals {
@@ -420,19 +399,19 @@ class InvoicePDF
         }
     </style>
 </head>
-<body lang="ar" dir="rtl">
+<body>
     <div class="invoice-container">
         <!-- Header -->
         <div class="header">
-            <div class="company-name">SALAMEH TOOLS</div>
-            <div class="company-contact">TEL: 71/394022 - 71/404393</div>
+            <div class="company-name ltr">SALAMEH TOOLS</div>
+            <div class="company-contact ltr">TEL: 71/394022 - 71/404393</div>
         </div>
 
         <div class="divider"></div>
 
         <!-- Invoice Number -->
         <div class="invoice-number">
-            فاتورة رقم: ' . $this->formatText($invoice['invoice_number'] ?? '', $shapeArabic) . '
+            فاتورة رقم: <span class="ltr">' . htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') . '</span>
         </div>
 
         <div class="divider"></div>
@@ -441,17 +420,17 @@ class InvoicePDF
         <div class="invoice-info">
             <div class="info-row">
                 <span class="info-label">التاريخ:</span>
-                <span class="info-value">' . date('d/m/Y', strtotime($invoice['issued_at'])) . '</span>
+                <span class="info-value ltr">' . date('d/m/Y', strtotime($invoice['issued_at'])) . '</span>
                 <div class="clear"></div>
             </div>
             <div class="info-row">
                 <span class="info-label">مندوب المبيعات:</span>
-                <span class="info-value">' . $this->formatText($invoice['sales_rep_name'] ?? '', $shapeArabic) . '</span>
+                <span class="info-value">' . htmlspecialchars($invoice['sales_rep_name'], ENT_QUOTES, 'UTF-8') . '</span>
                 <div class="clear"></div>
             </div>
             <div class="info-row">
                 <span class="info-label">العميل:</span>
-                <span class="info-value">' . $this->formatText($invoice['customer_name'] ?? '', $shapeArabic) . '</span>
+                <span class="info-value">' . htmlspecialchars($invoice['customer_name'], ENT_QUOTES, 'UTF-8') . '</span>
                 <div class="clear"></div>
             </div>';
 
@@ -459,7 +438,7 @@ class InvoicePDF
             $html .= '
             <div class="info-row">
                 <span class="info-label">الهاتف:</span>
-                <span class="info-value">' . $this->formatText($invoice['customer_phone'] ?? '', $shapeArabic) . '</span>
+                <span class="info-value ltr">' . htmlspecialchars($invoice['customer_phone'], ENT_QUOTES, 'UTF-8') . '</span>
                 <div class="clear"></div>
             </div>';
         }
@@ -468,7 +447,7 @@ class InvoicePDF
             $html .= '
             <div class="info-row">
                 <span class="info-label">المدينة:</span>
-                <span class="info-value">' . $this->formatText($invoice['customer_city'] ?? '', $shapeArabic) . '</span>
+                <span class="info-value">' . htmlspecialchars($invoice['customer_city'], ENT_QUOTES, 'UTF-8') . '</span>
                 <div class="clear"></div>
             </div>';
         }
@@ -494,8 +473,8 @@ class InvoicePDF
             $html .= '
                 <tr>
                     <td class="item-name">
-                        ' . $this->formatText($item['item_name'] ?? '', $shapeArabic) . '
-                        <br><span class="item-sku">SKU: ' . $this->formatText($item['sku'] ?? '', $shapeArabic) . '</span>
+                        ' . htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') . '
+                        <br><span class="item-sku ltr">SKU: ' . htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') . '</span>
                     </td>
                     <td>' . number_format((float)$item['quantity'], 2) . '</td>
                     <td>$' . number_format((float)$item['unit_price_usd'], 2) . '</td>
@@ -618,7 +597,7 @@ class InvoicePDF
             $html .= '
         <div class="notes">
             <div class="notes-title">ملاحظات:</div>
-            <div>' . nl2br($this->formatText($displayNotes, $shapeArabic)) . '</div>
+            <div>' . nl2br(htmlspecialchars($displayNotes, ENT_QUOTES, 'UTF-8')) . '</div>
         </div>';
         }
 
@@ -626,13 +605,13 @@ class InvoicePDF
         <div class="footer">
             شكراً لتعاملكم معنا - SALAMEH TOOLS<br>
             طبع بتاريخ: ' . date('d/m/Y H:i') . '<br>
-            www.salameh-tools.com
+            <span class="ltr">www.salameh-tools.com</span>
         </div>
     </div>
 </body>
 </html>';
 
-        return $html;
+        return $this->shapeArabicText($html);
     }
 
     /**
@@ -640,142 +619,21 @@ class InvoicePDF
      */
     public function generatePDF(array $invoice): string
     {
-        $html = $this->generateHTML($invoice, false, true);
+        $html = $this->generateHTML($invoice);
 
-        // Try mPDF first for Arabic support
-        if (class_exists(Mpdf::class)) {
-            try {
-                return $this->generatePDFWithMpdf($html);
-            } catch (\Exception $e) {
-                // mPDF failed, log error and try fallback
-                error_log('mPDF failed: ' . $e->getMessage());
-            }
-        }
-
-        // Fallback to Chrome if mPDF not available or failed
-        $chromePdf = $this->generatePDFWithChrome($html);
-        if ($chromePdf !== null) {
-            return $chromePdf;
-        }
-
-        // Final fallback to Dompdf with Arabic shaping
-        $html = $this->generateHTML($invoice, true, true);
-        return $this->generatePDFWithDompdf($html);
-    }
-
-    private function generatePDFWithChrome(string $html): ?string
-    {
-        $chromePath = $this->findChromePath();
-        if ($chromePath === null) {
-            return null;
-        }
-
-        $tempDir = __DIR__ . '/../storage/chrome_pdf';
-        if (!is_dir($tempDir)) {
-            mkdir($tempDir, 0755, true);
-        }
-
-        $stamp = bin2hex(random_bytes(8));
-        $htmlPath = $tempDir . '/invoice_' . $stamp . '.html';
-        $pdfPath = $tempDir . '/invoice_' . $stamp . '.pdf';
-
-        file_put_contents($htmlPath, $html);
-
-        // Use localhost URL instead of file:// to avoid Chrome security restrictions
-        $httpUrl = 'http://localhost/salamehtools/storage/chrome_pdf/invoice_' . $stamp . '.html';
-        $pdfArgPath = str_replace('\\', '/', $pdfPath);
-        $command = '"' . $chromePath . '" --headless=new --disable-gpu --no-sandbox --run-all-compositor-stages-before-draw --virtual-time-budget=10000 --print-to-pdf-no-header --print-to-pdf="' . $pdfArgPath . '" "' . $httpUrl . '"';
-
-        $output = [];
-        $exitCode = 0;
-        exec($command . ' 2>&1', $output, $exitCode);
-
-        $pdfContent = null;
-        if (file_exists($pdfPath)) {
-            $pdfContent = file_get_contents($pdfPath);
-            // Verify the PDF is not an error page (check for PDF magic bytes)
-            if ($pdfContent && strpos($pdfContent, '%PDF') !== 0) {
-                $pdfContent = null; // Invalid PDF, likely an error page
-            }
-        }
-
-        if (file_exists($htmlPath)) {
-            unlink($htmlPath);
-        }
-        if (file_exists($pdfPath)) {
-            unlink($pdfPath);
-        }
-
-        return $pdfContent;
-    }
-
-    private function findChromePath(): ?string
-    {
-        $candidates = [
-            getenv('CHROME_PATH') ?: '',
-            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-            'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-            'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
-        ];
-
-        foreach ($candidates as $candidate) {
-            if ($candidate && file_exists($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
-    }
-
-    private function formatText(string $text, bool $shapeArabic = false): string
-    {
-        $value = $text;
-
-        if ($shapeArabic && $this->containsArabic($value)) {
-            $value = $this->shapeArabic($value);
-        }
-
-        return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-    }
-
-    private function containsArabic(string $text): bool
-    {
-        return (bool)preg_match('/\p{Arabic}/u', $text);
-    }
-
-    private function shapeArabic(string $text): string
-    {
-        if ($this->arabicShaper === null) {
-            if (!class_exists(\ArPHP\I18N\Arabic::class)) {
-                return $text;
-            }
-            $this->arabicShaper = new \ArPHP\I18N\Arabic();
-        }
-
-        return $this->arabicShaper->utf8Glyphs($text);
-    }
-
-    private function generatePDFWithDompdf(string $html): string
-    {
         $options = new Options();
         $options->set('isRemoteEnabled', true);
         $options->set('isHtml5ParserEnabled', true);
-        $options->set('defaultFont', 'NotoSansArabic');
+        $options->set('defaultFont', 'DejaVu Sans');
         $options->set('isFontSubsettingEnabled', true);
         $options->set('chroot', __DIR__ . '/..');
-        $fontDir = __DIR__ . '/../fonts';
-        $options->set('fontDir', $fontDir);
-        $fontCache = __DIR__ . '/../storage/font_cache';
-        if (!is_dir($fontCache)) {
-            mkdir($fontCache, 0755, true);
-        }
-        $options->set('fontCache', $fontCache);
 
         $dompdf = new Dompdf($options);
 
         // Load Arabic font
+        $fontDir = __DIR__ . '/../fonts';
         $arabicFontPath = $fontDir . '/NotoSansArabic-Regular.ttf';
+
         if (file_exists($arabicFontPath)) {
             $dompdf->getFontMetrics()->registerFont(
                 ['family' => 'NotoSansArabic', 'style' => 'normal', 'weight' => 'normal'],
@@ -790,63 +648,210 @@ class InvoicePDF
         return $dompdf->output();
     }
 
-    private function getFontFaceCss(): string
+    /**
+     * Apply basic Arabic shaping so Dompdf can render connected glyphs.
+     */
+    private function shapeArabicText(string $text): string
     {
-        $regularPath = __DIR__ . '/../fonts/NotoSansArabic-Regular.ttf';
-        $boldPath = __DIR__ . '/../fonts/NotoSansArabic-Bold.ttf';
-        $regularUrl = file_exists($regularPath) ? $this->toFileUrl($regularPath) : '';
-        $boldUrl = file_exists($boldPath) ? $this->toFileUrl($boldPath) : '';
-
-        $css = '';
-        if ($regularUrl) {
-            $css .= "@font-face{font-family:'NotoSansArabic';src:url('{$regularUrl}') format('truetype');font-weight:400;font-style:normal;}\n";
-            $css .= "@font-face{font-family:'Noto Sans Arabic';src:url('{$regularUrl}') format('truetype');font-weight:400;font-style:normal;}\n";
-            $css .= "@font-face{font-family:'notosansarabic';src:url('{$regularUrl}') format('truetype');font-weight:400;font-style:normal;}\n";
-        }
-        if ($boldUrl) {
-            $css .= "@font-face{font-family:'NotoSansArabic';src:url('{$boldUrl}') format('truetype');font-weight:700;font-style:normal;}\n";
-            $css .= "@font-face{font-family:'Noto Sans Arabic';src:url('{$boldUrl}') format('truetype');font-weight:700;font-style:normal;}\n";
-            $css .= "@font-face{font-family:'notosansarabic';src:url('{$boldUrl}') format('truetype');font-weight:700;font-style:normal;}\n";
+        if ($text === '' || !preg_match('/[\x{0600}-\x{06FF}]/u', $text)) {
+            return $text;
         }
 
-        return $css;
-    }
+        $chars = preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY);
+        if ($chars === false) {
+            return $text;
+        }
 
-    private function generatePDFWithMpdf(string $html): string
-    {
-        $tempDir = __DIR__ . '/../storage/mpdf_tmp';
+        $map = $this->getArabicCharMap();
+        $ligatures = $this->getLamAlefLigatures();
+        $len = count($chars);
+        $result = [];
 
-        if (!is_dir($tempDir)) {
-            if (!@mkdir($tempDir, 0755, true)) {
-                throw new \Exception('Cannot create mPDF temp directory: ' . $tempDir);
+        for ($i = 0; $i < $len; $i++) {
+            $char = $chars[$i];
+            $code = $this->unicodeOrd($char);
+
+            if (!isset($map[$code])) {
+                $result[] = $char;
+                continue;
+            }
+
+            if ($code === 0x0644 && $i + 1 < $len) {
+                $nextCode = $this->unicodeOrd($chars[$i + 1]);
+                if (isset($ligatures[$nextCode])) {
+                    $prevCode = $this->findPrevArabicCode($chars, $i - 1, $map);
+                    $connectPrev = $prevCode !== null
+                        && $this->canConnectNext($prevCode, $map)
+                        && $this->canConnectPrev($code, $map);
+                    $ligatureCode = $ligatures[$nextCode][$connectPrev ? 'final' : 'isolated'];
+                    $result[] = $this->unicodeChr($ligatureCode);
+                    $i++;
+                    continue;
+                }
+            }
+
+            $prevCode = $this->findPrevArabicCode($chars, $i - 1, $map);
+            $nextCode = $this->findNextArabicCode($chars, $i + 1, $map);
+
+            $connectPrev = $prevCode !== null
+                && $this->canConnectNext($prevCode, $map)
+                && $this->canConnectPrev($code, $map);
+            $connectNext = $nextCode !== null
+                && $this->canConnectPrev($nextCode, $map)
+                && $this->canConnectNext($code, $map);
+
+            $forms = $map[$code]['forms'];
+            if ($connectPrev && $connectNext) {
+                $result[] = $this->unicodeChr($forms['medial']);
+            } elseif ($connectPrev) {
+                $result[] = $this->unicodeChr($forms['final']);
+            } elseif ($connectNext) {
+                $result[] = $this->unicodeChr($forms['initial']);
+            } else {
+                $result[] = $this->unicodeChr($forms['isolated']);
             }
         }
 
-        if (!is_writable($tempDir)) {
-            throw new \Exception('mPDF temp directory is not writable: ' . $tempDir);
+        return implode('', $result);
+    }
+
+    private function findPrevArabicCode(array $chars, int $index, array $map): ?int
+    {
+        for ($i = $index; $i >= 0; $i--) {
+            $code = $this->unicodeOrd($chars[$i]);
+            if ($this->isArabicDiacritic($code)) {
+                continue;
+            }
+            return isset($map[$code]) ? $code : null;
+        }
+        return null;
+    }
+
+    private function findNextArabicCode(array $chars, int $index, array $map): ?int
+    {
+        $len = count($chars);
+        for ($i = $index; $i < $len; $i++) {
+            $code = $this->unicodeOrd($chars[$i]);
+            if ($this->isArabicDiacritic($code)) {
+                continue;
+            }
+            return isset($map[$code]) ? $code : null;
+        }
+        return null;
+    }
+
+    private function canConnectPrev(int $code, array $map): bool
+    {
+        return $map[$code]['join'] !== 'U';
+    }
+
+    private function canConnectNext(int $code, array $map): bool
+    {
+        return $map[$code]['join'] === 'D';
+    }
+
+    private function isArabicDiacritic(int $code): bool
+    {
+        return ($code >= 0x064B && $code <= 0x065F)
+            || $code === 0x0670
+            || ($code >= 0x06D6 && $code <= 0x06ED);
+    }
+
+    private function unicodeOrd(string $char): int
+    {
+        if (function_exists('mb_ord')) {
+            return mb_ord($char, 'UTF-8');
+        }
+        if (class_exists('IntlChar')) {
+            return \IntlChar::ord($char);
+        }
+        $converted = @iconv('UTF-8', 'UCS-4BE', $char);
+        if ($converted === false) {
+            return 0;
+        }
+        $unpacked = unpack('N', $converted);
+        return $unpacked[1] ?? 0;
+    }
+
+    private function unicodeChr(int $code): string
+    {
+        if (function_exists('mb_chr')) {
+            return mb_chr($code, 'UTF-8');
+        }
+        if (class_exists('IntlChar')) {
+            return \IntlChar::chr($code);
+        }
+        $packed = pack('N', $code);
+        $converted = @iconv('UCS-4BE', 'UTF-8', $packed);
+        return $converted !== false ? $converted : '';
+    }
+
+    private function getLamAlefLigatures(): array
+    {
+        return [
+            0x0622 => ['isolated' => 0xFEF5, 'final' => 0xFEF6],
+            0x0623 => ['isolated' => 0xFEF7, 'final' => 0xFEF8],
+            0x0625 => ['isolated' => 0xFEF9, 'final' => 0xFEFA],
+            0x0627 => ['isolated' => 0xFEFB, 'final' => 0xFEFC],
+        ];
+    }
+
+    private function getArabicCharMap(): array
+    {
+        static $map = null;
+        if ($map !== null) {
+            return $map;
         }
 
-        // Use mPDF's built-in xbriyaz font for Arabic - it has proper OTL tables
-        $mpdf = new Mpdf([
-            'mode' => 'utf-8',
-            'format' => 'A4',
-            'orientation' => 'P',
-            'tempDir' => $tempDir,
-            'default_font' => 'xbriyaz',
-            'directionality' => 'rtl',
-            'autoScriptToLang' => true,
-            'autoLangToFont' => true,
-            'autoArabic' => true,
-            'useLang' => true,
-            'useOTL' => 0xFF,
-            'biDirectional' => true
-        ]);
+        $map = [
+            0x0621 => ['forms' => ['isolated' => 0xFE80, 'final' => 0xFE80, 'initial' => 0xFE80, 'medial' => 0xFE80], 'join' => 'U'],
+            0x0622 => ['forms' => ['isolated' => 0xFE81, 'final' => 0xFE82, 'initial' => 0xFE81, 'medial' => 0xFE82], 'join' => 'R'],
+            0x0623 => ['forms' => ['isolated' => 0xFE83, 'final' => 0xFE84, 'initial' => 0xFE83, 'medial' => 0xFE84], 'join' => 'R'],
+            0x0624 => ['forms' => ['isolated' => 0xFE85, 'final' => 0xFE86, 'initial' => 0xFE85, 'medial' => 0xFE86], 'join' => 'R'],
+            0x0625 => ['forms' => ['isolated' => 0xFE87, 'final' => 0xFE88, 'initial' => 0xFE87, 'medial' => 0xFE88], 'join' => 'R'],
+            0x0626 => ['forms' => ['isolated' => 0xFE89, 'final' => 0xFE8A, 'initial' => 0xFE8B, 'medial' => 0xFE8C], 'join' => 'D'],
+            0x0627 => ['forms' => ['isolated' => 0xFE8D, 'final' => 0xFE8E, 'initial' => 0xFE8D, 'medial' => 0xFE8E], 'join' => 'R'],
+            0x0628 => ['forms' => ['isolated' => 0xFE8F, 'final' => 0xFE90, 'initial' => 0xFE91, 'medial' => 0xFE92], 'join' => 'D'],
+            0x0629 => ['forms' => ['isolated' => 0xFE93, 'final' => 0xFE94, 'initial' => 0xFE93, 'medial' => 0xFE94], 'join' => 'R'],
+            0x062A => ['forms' => ['isolated' => 0xFE95, 'final' => 0xFE96, 'initial' => 0xFE97, 'medial' => 0xFE98], 'join' => 'D'],
+            0x062B => ['forms' => ['isolated' => 0xFE99, 'final' => 0xFE9A, 'initial' => 0xFE9B, 'medial' => 0xFE9C], 'join' => 'D'],
+            0x062C => ['forms' => ['isolated' => 0xFE9D, 'final' => 0xFE9E, 'initial' => 0xFE9F, 'medial' => 0xFEA0], 'join' => 'D'],
+            0x062D => ['forms' => ['isolated' => 0xFEA1, 'final' => 0xFEA2, 'initial' => 0xFEA3, 'medial' => 0xFEA4], 'join' => 'D'],
+            0x062E => ['forms' => ['isolated' => 0xFEA5, 'final' => 0xFEA6, 'initial' => 0xFEA7, 'medial' => 0xFEA8], 'join' => 'D'],
+            0x062F => ['forms' => ['isolated' => 0xFEA9, 'final' => 0xFEAA, 'initial' => 0xFEA9, 'medial' => 0xFEAA], 'join' => 'R'],
+            0x0630 => ['forms' => ['isolated' => 0xFEAB, 'final' => 0xFEAC, 'initial' => 0xFEAB, 'medial' => 0xFEAC], 'join' => 'R'],
+            0x0631 => ['forms' => ['isolated' => 0xFEAD, 'final' => 0xFEAE, 'initial' => 0xFEAD, 'medial' => 0xFEAE], 'join' => 'R'],
+            0x0632 => ['forms' => ['isolated' => 0xFEAF, 'final' => 0xFEB0, 'initial' => 0xFEAF, 'medial' => 0xFEB0], 'join' => 'R'],
+            0x0633 => ['forms' => ['isolated' => 0xFEB1, 'final' => 0xFEB2, 'initial' => 0xFEB3, 'medial' => 0xFEB4], 'join' => 'D'],
+            0x0634 => ['forms' => ['isolated' => 0xFEB5, 'final' => 0xFEB6, 'initial' => 0xFEB7, 'medial' => 0xFEB8], 'join' => 'D'],
+            0x0635 => ['forms' => ['isolated' => 0xFEB9, 'final' => 0xFEBA, 'initial' => 0xFEBB, 'medial' => 0xFEBC], 'join' => 'D'],
+            0x0636 => ['forms' => ['isolated' => 0xFEBD, 'final' => 0xFEBE, 'initial' => 0xFEBF, 'medial' => 0xFEC0], 'join' => 'D'],
+            0x0637 => ['forms' => ['isolated' => 0xFEC1, 'final' => 0xFEC2, 'initial' => 0xFEC3, 'medial' => 0xFEC4], 'join' => 'D'],
+            0x0638 => ['forms' => ['isolated' => 0xFEC5, 'final' => 0xFEC6, 'initial' => 0xFEC7, 'medial' => 0xFEC8], 'join' => 'D'],
+            0x0639 => ['forms' => ['isolated' => 0xFEC9, 'final' => 0xFECA, 'initial' => 0xFECB, 'medial' => 0xFECC], 'join' => 'D'],
+            0x063A => ['forms' => ['isolated' => 0xFECD, 'final' => 0xFECE, 'initial' => 0xFECF, 'medial' => 0xFED0], 'join' => 'D'],
+            0x0640 => ['forms' => ['isolated' => 0x0640, 'final' => 0x0640, 'initial' => 0x0640, 'medial' => 0x0640], 'join' => 'D'],
+            0x0641 => ['forms' => ['isolated' => 0xFED1, 'final' => 0xFED2, 'initial' => 0xFED3, 'medial' => 0xFED4], 'join' => 'D'],
+            0x0642 => ['forms' => ['isolated' => 0xFED5, 'final' => 0xFED6, 'initial' => 0xFED7, 'medial' => 0xFED8], 'join' => 'D'],
+            0x0643 => ['forms' => ['isolated' => 0xFED9, 'final' => 0xFEDA, 'initial' => 0xFEDB, 'medial' => 0xFEDC], 'join' => 'D'],
+            0x0644 => ['forms' => ['isolated' => 0xFEDD, 'final' => 0xFEDE, 'initial' => 0xFEDF, 'medial' => 0xFEE0], 'join' => 'D'],
+            0x0645 => ['forms' => ['isolated' => 0xFEE1, 'final' => 0xFEE2, 'initial' => 0xFEE3, 'medial' => 0xFEE4], 'join' => 'D'],
+            0x0646 => ['forms' => ['isolated' => 0xFEE5, 'final' => 0xFEE6, 'initial' => 0xFEE7, 'medial' => 0xFEE8], 'join' => 'D'],
+            0x0647 => ['forms' => ['isolated' => 0xFEE9, 'final' => 0xFEEA, 'initial' => 0xFEEB, 'medial' => 0xFEEC], 'join' => 'D'],
+            0x0648 => ['forms' => ['isolated' => 0xFEED, 'final' => 0xFEEE, 'initial' => 0xFEED, 'medial' => 0xFEEE], 'join' => 'R'],
+            0x0649 => ['forms' => ['isolated' => 0xFEEF, 'final' => 0xFEF0, 'initial' => 0xFEEF, 'medial' => 0xFEF0], 'join' => 'R'],
+            0x064A => ['forms' => ['isolated' => 0xFEF1, 'final' => 0xFEF2, 'initial' => 0xFEF3, 'medial' => 0xFEF4], 'join' => 'D'],
+            0x0671 => ['forms' => ['isolated' => 0xFB50, 'final' => 0xFB51, 'initial' => 0xFB50, 'medial' => 0xFB51], 'join' => 'R'],
+            0x067E => ['forms' => ['isolated' => 0xFB56, 'final' => 0xFB57, 'initial' => 0xFB58, 'medial' => 0xFB59], 'join' => 'D'],
+            0x0686 => ['forms' => ['isolated' => 0xFB7A, 'final' => 0xFB7B, 'initial' => 0xFB7C, 'medial' => 0xFB7D], 'join' => 'D'],
+            0x0698 => ['forms' => ['isolated' => 0xFB8A, 'final' => 0xFB8B, 'initial' => 0xFB8A, 'medial' => 0xFB8B], 'join' => 'R'],
+            0x06A4 => ['forms' => ['isolated' => 0xFB6A, 'final' => 0xFB6B, 'initial' => 0xFB6C, 'medial' => 0xFB6D], 'join' => 'D'],
+            0x06A9 => ['forms' => ['isolated' => 0xFB8E, 'final' => 0xFB8F, 'initial' => 0xFB90, 'medial' => 0xFB91], 'join' => 'D'],
+            0x06AF => ['forms' => ['isolated' => 0xFB92, 'final' => 0xFB93, 'initial' => 0xFB94, 'medial' => 0xFB95], 'join' => 'D'],
+            0x06CC => ['forms' => ['isolated' => 0xFBFC, 'final' => 0xFBFD, 'initial' => 0xFBFE, 'medial' => 0xFBFF], 'join' => 'D'],
+        ];
 
-        $mpdf->SetDirectionality('rtl');
-        $mpdf->SetAutoFont();
-        $mpdf->WriteHTML($html);
-
-        return $mpdf->Output('', 'S');
+        return $map;
     }
 
     /**
@@ -934,16 +939,6 @@ class InvoicePDF
         }
 
         echo $pdfContent;
-    }
-
-    /**
-     * Convert a local file path into a file:// URL for Dompdf assets.
-     */
-    private function toFileUrl(string $path): string
-    {
-        $normalized = str_replace('\\', '/', $path);
-        $normalized = preg_replace('/^([A-Za-z]):/', '/$1', $normalized);
-        return 'file://' . $normalized;
     }
 
     /**

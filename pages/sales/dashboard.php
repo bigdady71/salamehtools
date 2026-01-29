@@ -237,105 +237,121 @@ sales_portal_render_layout_start([
 <?php
 // Get current month/year quota and performance
 $currentYear = (int)date('Y');
-$currentMonth = (int)date('M');
+$currentMonth = (int)date('n');
 $repId = (int)$user['id'];
 
-// Get this month's quota
-$quotaStmt = $pdo->prepare("
-    SELECT quota_usd
-    FROM sales_quotas
-    WHERE sales_rep_id = :rep_id AND year = :year AND month = :month
-");
-$quotaStmt->execute([':rep_id' => $repId, ':year' => $currentYear, ':month' => $currentMonth]);
-$monthlyQuota = (float)($quotaStmt->fetchColumn() ?: 0);
+$monthlyQuota = 0.0;
+$monthlySales = 0.0;
+$ytdQuota = 0.0;
+$ytdSales = 0.0;
 
-// Get this month's actual sales (delivered orders only)
-$salesStmt = $pdo->prepare("
-    SELECT COALESCE(SUM(o.total_usd), 0) as monthly_sales
-    FROM orders o
-    INNER JOIN customers c ON c.id = o.customer_id
-    WHERE c.assigned_sales_rep_id = :rep_id
-      AND o.status = 'delivered'
-      AND YEAR(o.created_at) = :year
-      AND MONTH(o.created_at) = :month
-");
-$salesStmt->execute([':rep_id' => $repId, ':year' => $currentYear, ':month' => $currentMonth]);
-$monthlySales = (float)($salesStmt->fetchColumn() ?: 0);
+try {
+    // Get this month's quota
+    $quotaStmt = $pdo->prepare("
+        SELECT quota_usd
+        FROM sales_quotas
+        WHERE sales_rep_id = :rep_id AND year = :year AND month = :month
+    ");
+    $quotaStmt->execute([':rep_id' => $repId, ':year' => $currentYear, ':month' => $currentMonth]);
+    $monthlyQuota = (float)($quotaStmt->fetchColumn() ?: 0);
 
-// Calculate YTD
-$ytdStmt = $pdo->prepare("
-    SELECT
-        COALESCE(SUM(sq.quota_usd), 0) as ytd_quota,
-        COALESCE(SUM(o.total_usd), 0) as ytd_sales
-    FROM sales_quotas sq
-    LEFT JOIN customers c ON c.assigned_sales_rep_id = sq.sales_rep_id
-    LEFT JOIN orders o ON o.customer_id = c.id
-        AND o.status = 'delivered'
-        AND YEAR(o.created_at) = sq.year
-        AND MONTH(o.created_at) = sq.month
-    WHERE sq.sales_rep_id = :rep_id
-      AND sq.year = :year
-");
-$ytdStmt->execute([':rep_id' => $repId, ':year' => $currentYear]);
-$ytdData = $ytdStmt->fetch(PDO::FETCH_ASSOC);
-$ytdQuota = (float)($ytdData['ytd_quota'] ?: 0);
-$ytdSales = (float)($ytdData['ytd_sales'] ?: 0);
+    // Get this month's actual sales (delivered orders only)
+    $salesStmt = $pdo->prepare("
+        SELECT COALESCE(SUM(o.total_usd), 0) as monthly_sales
+        FROM orders o
+        INNER JOIN customers c ON c.id = o.customer_id
+        WHERE c.assigned_sales_rep_id = :rep_id
+          AND o.status = 'delivered'
+          AND YEAR(o.created_at) = :year
+          AND MONTH(o.created_at) = :month
+    ");
+    $salesStmt->execute([':rep_id' => $repId, ':year' => $currentYear, ':month' => $currentMonth]);
+    $monthlySales = (float)($salesStmt->fetchColumn() ?: 0);
+
+    // Calculate YTD
+    $ytdStmt = $pdo->prepare("
+        SELECT
+            COALESCE(SUM(sq.quota_usd), 0) as ytd_quota,
+            COALESCE(SUM(o.total_usd), 0) as ytd_sales
+        FROM sales_quotas sq
+        LEFT JOIN customers c ON c.assigned_sales_rep_id = sq.sales_rep_id
+        LEFT JOIN orders o ON o.customer_id = c.id
+            AND o.status = 'delivered'
+            AND YEAR(o.created_at) = sq.year
+            AND MONTH(o.created_at) = sq.month
+        WHERE sq.sales_rep_id = :rep_id
+          AND sq.year = :year
+    ");
+    $ytdStmt->execute([':rep_id' => $repId, ':year' => $currentYear]);
+    $ytdData = $ytdStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $ytdQuota = (float)($ytdData['ytd_quota'] ?? 0);
+    $ytdSales = (float)($ytdData['ytd_sales'] ?? 0);
+} catch (PDOException $e) {
+    $errors[] = 'Quota/Performance: ' . $e->getMessage();
+}
 
 $quotaPercent = $monthlyQuota > 0 ? ($monthlySales / $monthlyQuota) * 100 : 0;
 $ytdPercent = $ytdQuota > 0 ? ($ytdSales / $ytdQuota) * 100 : 0;
 
-// Get overdue invoices
-$overdueStmt = $pdo->prepare("
-    SELECT
-        i.invoice_number,
-        c.id as customer_id,
-        c.name as customer_name,
-        i.issued_at,
-        i.due_date,
-        DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) as days_overdue,
-        (i.total_usd - COALESCE(pay.paid_usd, 0)) as balance_usd,
-        (i.total_lbp - COALESCE(pay.paid_lbp, 0)) as balance_lbp
-    FROM invoices i
-    INNER JOIN orders o ON o.id = i.order_id
-    INNER JOIN customers c ON c.id = o.customer_id
-    LEFT JOIN (
-        SELECT invoice_id, SUM(amount_usd) as paid_usd, SUM(amount_lbp) as paid_lbp
-        FROM payments
-        GROUP BY invoice_id
-    ) pay ON pay.invoice_id = i.id
-    WHERE c.assigned_sales_rep_id = :rep_id
-      AND i.status != 'paid'
-      AND i.status != 'voided'
-      AND (i.total_usd - COALESCE(pay.paid_usd, 0) > 0.01 OR i.total_lbp - COALESCE(pay.paid_lbp, 0) > 0.01)
-      AND DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) > 30
-    ORDER BY days_overdue DESC
-    LIMIT 10
-");
-$overdueStmt->execute([':rep_id' => $repId]);
-$overdueInvoices = $overdueStmt->fetchAll(PDO::FETCH_ASSOC);
+$overdueInvoices = [];
+$arSummary = ['overdue_count' => 0, 'overdue_usd' => 0, 'critical_usd' => 0];
 
-// Get critical AR summary
-$arSummaryStmt = $pdo->prepare("
-    SELECT
-        COUNT(DISTINCT i.id) as overdue_count,
-        SUM(i.total_usd - COALESCE(pay.paid_usd, 0)) as overdue_usd,
-        SUM(CASE WHEN DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) > 90 THEN (i.total_usd - COALESCE(pay.paid_usd, 0)) ELSE 0 END) as critical_usd
-    FROM invoices i
-    INNER JOIN orders o ON o.id = i.order_id
-    INNER JOIN customers c ON c.id = o.customer_id
-    LEFT JOIN (
-        SELECT invoice_id, SUM(amount_usd) as paid_usd
-        FROM payments
-        GROUP BY invoice_id
-    ) pay ON pay.invoice_id = i.id
-    WHERE c.assigned_sales_rep_id = :rep_id
-      AND i.status != 'paid'
-      AND i.status != 'voided'
-      AND (i.total_usd - COALESCE(pay.paid_usd, 0) > 0.01)
-      AND DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) > 30
-");
-$arSummaryStmt->execute([':rep_id' => $repId]);
-$arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC);
+try {
+    // Get overdue invoices
+    $overdueStmt = $pdo->prepare("
+        SELECT
+            i.invoice_number,
+            c.id as customer_id,
+            c.name as customer_name,
+            i.issued_at,
+            i.due_date,
+            DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) as days_overdue,
+            (i.total_usd - COALESCE(pay.paid_usd, 0)) as balance_usd,
+            (i.total_lbp - COALESCE(pay.paid_lbp, 0)) as balance_lbp
+        FROM invoices i
+        INNER JOIN orders o ON o.id = i.order_id
+        INNER JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN (
+            SELECT invoice_id, SUM(amount_usd) as paid_usd, SUM(amount_lbp) as paid_lbp
+            FROM payments
+            GROUP BY invoice_id
+        ) pay ON pay.invoice_id = i.id
+        WHERE c.assigned_sales_rep_id = :rep_id
+          AND i.status != 'paid'
+          AND i.status != 'voided'
+          AND (i.total_usd - COALESCE(pay.paid_usd, 0) > 0.01 OR i.total_lbp - COALESCE(pay.paid_lbp, 0) > 0.01)
+          AND DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) > 30
+        ORDER BY days_overdue DESC
+        LIMIT 10
+    ");
+    $overdueStmt->execute([':rep_id' => $repId]);
+    $overdueInvoices = $overdueStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Get critical AR summary
+    $arSummaryStmt = $pdo->prepare("
+        SELECT
+            COUNT(DISTINCT i.id) as overdue_count,
+            SUM(i.total_usd - COALESCE(pay.paid_usd, 0)) as overdue_usd,
+            SUM(CASE WHEN DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) > 90 THEN (i.total_usd - COALESCE(pay.paid_usd, 0)) ELSE 0 END) as critical_usd
+        FROM invoices i
+        INNER JOIN orders o ON o.id = i.order_id
+        INNER JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN (
+            SELECT invoice_id, SUM(amount_usd) as paid_usd
+            FROM payments
+            GROUP BY invoice_id
+        ) pay ON pay.invoice_id = i.id
+        WHERE c.assigned_sales_rep_id = :rep_id
+          AND i.status != 'paid'
+          AND i.status != 'voided'
+          AND (i.total_usd - COALESCE(pay.paid_usd, 0) > 0.01)
+          AND DATEDIFF(NOW(), COALESCE(i.due_date, i.issued_at)) > 30
+    ");
+    $arSummaryStmt->execute([':rep_id' => $repId]);
+    $arSummary = $arSummaryStmt->fetch(PDO::FETCH_ASSOC) ?: $arSummary;
+} catch (PDOException $e) {
+    $errors[] = 'Receivables: ' . $e->getMessage();
+}
 ?>
 
 <!-- Overdue Payment Alerts -->

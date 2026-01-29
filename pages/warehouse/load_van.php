@@ -128,11 +128,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get products with stock
 $products = $pdo->query("
-    SELECT id, sku, item_name, unit, quantity_on_hand, image_url
+    SELECT id, sku, item_name, unit, quantity_on_hand, image_url, barcode, topcat_name, midcat_name
     FROM products
     WHERE is_active = 1 AND quantity_on_hand > 0
     ORDER BY item_name ASC
 ")->fetchAll(PDO::FETCH_ASSOC);
+
+$categories = [];
+$units = [];
+
+foreach ($products as $product) {
+    $topcat = trim((string)($product['topcat_name'] ?? ''));
+    $midcat = trim((string)($product['midcat_name'] ?? ''));
+
+    if ($topcat !== '') {
+        $categories[$topcat] = true;
+    }
+    if ($midcat !== '') {
+        $categories[$midcat] = true;
+    }
+
+    $unitValue = trim((string)($product['unit'] ?? ''));
+    if ($unitValue === '') {
+        $unitValue = 'pcs';
+    }
+    $units[$unitValue] = true;
+}
+
+$categories = array_keys($categories);
+sort($categories, SORT_NATURAL | SORT_FLAG_CASE);
+
+$units = array_keys($units);
+sort($units, SORT_NATURAL | SORT_FLAG_CASE);
 
 // Get pending loading requests for this warehouse user
 $pendingLoadings = get_pending_loadings_for_warehouse($pdo, (int)$user['id']);
@@ -173,18 +200,34 @@ warehouse_portal_render_layout_start([
         margin: 0;
         opacity: 0.9;
     }
-    .product-search {
+    .product-filters {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
         margin-bottom: 20px;
     }
-    .product-search input {
+    .product-filters .filter-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .product-filters label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text);
+    }
+    .product-filters input,
+    .product-filters select {
         width: 100%;
-        padding: 14px 16px;
-        font-size: 1rem;
+        padding: 12px 14px;
+        font-size: 0.95rem;
         border: 2px solid var(--border);
         border-radius: 10px;
         transition: border-color 0.2s;
+        background: white;
     }
-    .product-search input:focus {
+    .product-filters input:focus,
+    .product-filters select:focus {
         outline: none;
         border-color: var(--primary);
     }
@@ -455,18 +498,54 @@ warehouse_portal_render_layout_start([
     <div class="card">
         <h2>Select Products to Load</h2>
 
-        <div class="product-search">
-            <input type="text" id="productSearch" placeholder="Search by name, SKU, or barcode..." autocomplete="off">
+        <div class="product-filters">
+            <div class="filter-field">
+                <label for="productSearch">Search</label>
+                <input type="text" id="productSearch" placeholder="Search by name, SKU, or barcode..." autocomplete="off">
+            </div>
+            <div class="filter-field">
+                <label for="categoryFilter">Category</label>
+                <select id="categoryFilter">
+                    <option value="">All Categories</option>
+                    <?php foreach ($categories as $category): ?>
+                        <option value="<?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>">
+                            <?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="filter-field">
+                <label for="unitFilter">Unit</label>
+                <select id="unitFilter">
+                    <option value="">All Units</option>
+                    <?php foreach ($units as $unit): ?>
+                        <option value="<?= htmlspecialchars($unit, ENT_QUOTES, 'UTF-8') ?>">
+                            <?= htmlspecialchars($unit, ENT_QUOTES, 'UTF-8') ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
         </div>
 
         <div class="product-grid" id="productGrid">
             <?php foreach ($products as $product): ?>
+                <?php
+                $productUnit = trim((string)($product['unit'] ?? ''));
+                $productUnit = $productUnit !== '' ? $productUnit : 'pcs';
+                $productTopcat = trim((string)($product['topcat_name'] ?? ''));
+                $productMidcat = trim((string)($product['midcat_name'] ?? ''));
+                $productBarcode = trim((string)($product['barcode'] ?? ''));
+                $productStock = number_format((float)$product['quantity_on_hand'], 2, '.', '');
+                ?>
                 <div class="product-card"
                      data-product-id="<?= $product['id'] ?>"
                      data-product-name="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
                      data-product-sku="<?= htmlspecialchars($product['sku'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
-                     data-product-stock="<?= number_format((float)$product['quantity_on_hand'], 2) ?>"
-                     data-product-unit="<?= htmlspecialchars($product['unit'] ?? 'pcs', ENT_QUOTES, 'UTF-8') ?>">
+                     data-product-barcode="<?= htmlspecialchars($productBarcode, ENT_QUOTES, 'UTF-8') ?>"
+                     data-product-topcat="<?= htmlspecialchars($productTopcat, ENT_QUOTES, 'UTF-8') ?>"
+                     data-product-midcat="<?= htmlspecialchars($productMidcat, ENT_QUOTES, 'UTF-8') ?>"
+                     data-product-stock="<?= htmlspecialchars($productStock, ENT_QUOTES, 'UTF-8') ?>"
+                     data-product-unit="<?= htmlspecialchars($productUnit, ENT_QUOTES, 'UTF-8') ?>">
                     <?php if (!empty($product['image_url'])): ?>
                         <img src="<?= htmlspecialchars($product['image_url'], ENT_QUOTES, 'UTF-8') ?>"
                              alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
@@ -476,7 +555,7 @@ warehouse_portal_render_layout_start([
                     <?php endif; ?>
                     <div class="product-name"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
                     <div class="product-sku"><?= htmlspecialchars($product['sku'] ?? 'No SKU', ENT_QUOTES, 'UTF-8') ?></div>
-                    <div class="product-stock"><?= number_format((float)$product['quantity_on_hand'], 0) ?> <?= htmlspecialchars($product['unit'] ?? 'pcs', ENT_QUOTES, 'UTF-8') ?></div>
+                    <div class="product-stock"><?= number_format((float)$product['quantity_on_hand'], 0) ?> <?= htmlspecialchars($productUnit, ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
             <?php endforeach; ?>
         </div>
@@ -551,20 +630,36 @@ warehouse_portal_render_layout_start([
 
 <script>
     let selectedProducts = {};
+    let selectedProductOrder = [];
 
-    // Product search
-    document.getElementById('productSearch').addEventListener('input', function(e) {
-        const search = e.target.value.toLowerCase();
+    const searchInput = document.getElementById('productSearch');
+    const categoryFilter = document.getElementById('categoryFilter');
+    const unitFilter = document.getElementById('unitFilter');
+
+    function applyFilters() {
+        const search = (searchInput.value || '').trim().toLowerCase();
+        const category = (categoryFilter.value || '').trim().toLowerCase();
+        const unit = (unitFilter.value || '').trim().toLowerCase();
+
         document.querySelectorAll('.product-card').forEach(card => {
-            const name = card.dataset.productName.toLowerCase();
-            const sku = card.dataset.productSku.toLowerCase();
-            if (name.includes(search) || sku.includes(search)) {
-                card.style.display = '';
-            } else {
-                card.style.display = 'none';
-            }
+            const name = (card.dataset.productName || '').toLowerCase();
+            const sku = (card.dataset.productSku || '').toLowerCase();
+            const barcode = (card.dataset.productBarcode || '').toLowerCase();
+            const topcat = (card.dataset.productTopcat || '').toLowerCase();
+            const midcat = (card.dataset.productMidcat || '').toLowerCase();
+            const cardUnit = (card.dataset.productUnit || '').toLowerCase();
+
+            const matchesSearch = search === '' || name.includes(search) || sku.includes(search) || barcode.includes(search);
+            const matchesCategory = category === '' || topcat === category || midcat === category;
+            const matchesUnit = unit === '' || cardUnit === unit;
+
+            card.style.display = matchesSearch && matchesCategory && matchesUnit ? '' : 'none';
         });
-    });
+    }
+
+    searchInput.addEventListener('input', applyFilters);
+    categoryFilter.addEventListener('change', applyFilters);
+    unitFilter.addEventListener('change', applyFilters);
 
     // Product selection
     document.querySelectorAll('.product-card').forEach(card => {
@@ -576,9 +671,8 @@ warehouse_portal_render_layout_start([
             const productUnit = this.dataset.productUnit;
 
             if (selectedProducts[productId]) {
-                // Already selected, remove it
-                delete selectedProducts[productId];
-                this.classList.remove('selected');
+                removeProduct(productId);
+                return;
             } else {
                 // Add to selection
                 selectedProducts[productId] = {
@@ -588,6 +682,7 @@ warehouse_portal_render_layout_start([
                     unit: productUnit,
                     quantity: 1
                 };
+                selectedProductOrder.push(productId);
                 this.classList.add('selected');
             }
 
@@ -600,7 +695,7 @@ warehouse_portal_render_layout_start([
         const list = document.getElementById('selectedProductsList');
         const submitBtn = document.getElementById('submitBtn');
 
-        const productIds = Object.keys(selectedProducts);
+        const productIds = selectedProductOrder.filter(productId => selectedProducts[productId]);
 
         if (productIds.length === 0) {
             container.style.display = 'none';
@@ -650,6 +745,7 @@ warehouse_portal_render_layout_start([
 
     function removeProduct(productId) {
         delete selectedProducts[productId];
+        selectedProductOrder = selectedProductOrder.filter(id => id !== productId);
         document.querySelector(`.product-card[data-product-id="${productId}"]`)?.classList.remove('selected');
         updateSelectedProductsUI();
     }
