@@ -119,7 +119,14 @@ $totalSkus = array_sum(array_column($repStats, 'total_skus'));
 $totalUnits = array_sum(array_column($repStats, 'total_units'));
 $totalValue = array_sum(array_column($repStats, 'total_value'));
 
-admin_page_start($title);
+admin_render_layout_start([
+    'title' => $title,
+    'heading' => 'Sales Rep Van Stock Overview',
+    'subtitle' => 'Monitor field inventory across all sales representatives',
+    'user' => $user,
+    'active' => 'warehouse',
+]);
+
 ?>
 
 <div class="page-header">
@@ -298,5 +305,5 @@ admin_page_start($title);
 <?php endif; ?>
 
 <?php
-admin_page_end();
+admin_render_layout_end();
 ?>
