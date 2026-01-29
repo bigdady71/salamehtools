@@ -811,7 +811,8 @@ class InvoicePDF
             'autoLangToFont' => true,
             'autoArabic' => true,
             'useLang' => true,
-            'useOTL' => 0xFF
+            'useOTL' => 0xFF,
+            'biDirectional' => true
         ]);
 
         $mpdf->SetDirectionality('rtl');

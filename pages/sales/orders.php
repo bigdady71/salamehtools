@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/db.php';
 require_once __DIR__ . '/../../includes/sales_portal.php';
 require_once __DIR__ . '/../../includes/flash.php';
+require_once __DIR__ . '/../../includes/counter.php';
 
 // Sales rep authentication
 require_login();
@@ -149,9 +150,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $pdo->beginTransaction();
 
-                // Verify order belongs to sales rep's customer
+                // Verify order belongs to sales rep's customer and get full order details
                 $orderStmt = $pdo->prepare("
-                    SELECT o.id, o.order_number, o.status, o.order_type, c.assigned_sales_rep_id
+                    SELECT o.id, o.order_number, o.status, o.order_type, o.total_usd, o.total_lbp,
+                           o.customer_id, c.assigned_sales_rep_id, c.name as customer_name,
+                           COALESCE(c.account_balance_lbp, 0) as customer_credit_balance
                     FROM orders o
                     INNER JOIN customers c ON c.id = o.customer_id
                     WHERE o.id = :id AND c.assigned_sales_rep_id = :rep_id
@@ -190,12 +193,144 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($newStatus !== $currentStatus && in_array($newStatus, $allowedTransitions[$currentStatus] ?? [], true)) {
+
+                    // Special handling for delivery of company orders
+                    $invoiceId = null;
+                    if ($newStatus === 'delivered' && $order['order_type'] === 'company_order') {
+                        // Get payment amounts
+                        $paymentUsd = (float)($_POST['payment_usd'] ?? 0);
+                        $paymentLbp = (float)($_POST['payment_lbp'] ?? 0);
+
+                        // Get exchange rate
+                        $rateStmt = $pdo->query("
+                            SELECT rate FROM exchange_rates
+                            WHERE UPPER(base_currency) = 'USD'
+                            AND UPPER(quote_currency) IN ('LBP', 'LEBP')
+                            ORDER BY valid_from DESC LIMIT 1
+                        ");
+                        $exchangeRate = (float)($rateStmt->fetchColumn() ?: 90000);
+
+                        $totalUsd = (float)$order['total_usd'];
+                        $totalLbp = (float)$order['total_lbp'];
+                        $customerId = (int)$order['customer_id'];
+
+                        // Convert LBP payment to USD equivalent
+                        $paymentLbpInUsd = $paymentLbp / $exchangeRate;
+                        $totalPaidUsd = $paymentUsd + $paymentLbpInUsd;
+
+                        // Generate invoice number
+                        $invoiceNumber = generate_invoice_number($pdo, $customerId, $repId);
+
+                        // Determine invoice status based on payment
+                        $invoiceStatus = ($totalPaidUsd >= $totalUsd - 0.01) ? 'paid' : 'partial';
+
+                        // Create invoice record
+                        $invoiceStmt = $pdo->prepare("
+                            INSERT INTO invoices (
+                                invoice_number, order_id, sales_rep_id,
+                                total_usd, total_lbp, status
+                            ) VALUES (
+                                :invoice_number, :order_id, :sales_rep_id,
+                                :total_usd, :total_lbp, :status
+                            )
+                        ");
+                        $invoiceStmt->execute([
+                            ':invoice_number' => $invoiceNumber,
+                            ':order_id' => $orderId,
+                            ':sales_rep_id' => $repId,
+                            ':total_usd' => $totalUsd,
+                            ':total_lbp' => $totalLbp,
+                            ':status' => $invoiceStatus
+                        ]);
+                        $invoiceId = (int)$pdo->lastInsertId();
+
+                        // Record payment if any amount was paid
+                        if ($paymentUsd > 0.01) {
+                            $paymentStmtUsd = $pdo->prepare("
+                                INSERT INTO payments (
+                                    invoice_id, method, amount_usd, amount_lbp,
+                                    received_by_user_id, received_at
+                                ) VALUES (
+                                    :invoice_id, 'cash_usd', :amount_usd, 0,
+                                    :received_by, NOW()
+                                )
+                            ");
+                            $paymentStmtUsd->execute([
+                                ':invoice_id' => $invoiceId,
+                                ':amount_usd' => $paymentUsd,
+                                ':received_by' => $repId
+                            ]);
+                        }
+
+                        if ($paymentLbp > 1000) {
+                            $paymentStmtLbp = $pdo->prepare("
+                                INSERT INTO payments (
+                                    invoice_id, method, amount_usd, amount_lbp,
+                                    received_by_user_id, received_at
+                                ) VALUES (
+                                    :invoice_id, 'cash_lbp', :amount_usd, :amount_lbp,
+                                    :received_by, NOW()
+                                )
+                            ");
+                            $paymentStmtLbp->execute([
+                                ':invoice_id' => $invoiceId,
+                                ':amount_usd' => $paymentLbpInUsd,
+                                ':amount_lbp' => $paymentLbp,
+                                ':received_by' => $repId
+                            ]);
+                        }
+
+                        // Calculate remaining balance (in LBP for consistency)
+                        $remainingUsd = $totalUsd - $totalPaidUsd;
+                        $remainingLbp = $remainingUsd * $exchangeRate;
+
+                        // Update customer balance if not fully paid
+                        if ($remainingUsd > 0.01) {
+                            // Add unpaid amount to customer balance
+                            $balanceStmt = $pdo->prepare("
+                                UPDATE customers
+                                SET account_balance_lbp = COALESCE(account_balance_lbp, 0) + :amount
+                                WHERE id = :customer_id
+                            ");
+                            $balanceStmt->execute([
+                                ':amount' => $remainingLbp,
+                                ':customer_id' => $customerId
+                            ]);
+                        } elseif ($remainingUsd < -0.01) {
+                            // Overpayment - add credit to customer (negative balance = credit)
+                            $creditLbp = abs($remainingUsd) * $exchangeRate;
+                            $balanceStmt = $pdo->prepare("
+                                UPDATE customers
+                                SET account_balance_lbp = COALESCE(account_balance_lbp, 0) - :amount
+                                WHERE id = :customer_id
+                            ");
+                            $balanceStmt->execute([
+                                ':amount' => $creditLbp,
+                                ':customer_id' => $customerId
+                            ]);
+                        }
+                    }
+
+                    // Update order status
                     $updateStmt = $pdo->prepare("
                         UPDATE orders
                         SET status = :status, updated_at = NOW()
                         WHERE id = :id
                     ");
                     $updateStmt->execute([':status' => $newStatus, ':id' => $orderId]);
+
+                    $pdo->commit();
+
+                    // Redirect to invoice print page if invoice was created
+                    if ($invoiceId !== null) {
+                        flash('success', sprintf(
+                            'Order %s delivered! Invoice %s created.',
+                            $order['order_number'] ?? 'Order #' . $order['id'],
+                            $invoiceNumber ?? ''
+                        ));
+                        header('Location: print_invoice.php?invoice_id=' . $invoiceId);
+                        exit;
+                    }
 
                     flash('success', sprintf(
                         'Order %s status updated to: %s',
@@ -204,9 +339,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ));
                 } else {
                     flash('error', 'Invalid status transition. Cannot change from ' . $statusLabels[$currentStatus] . ' to ' . $statusLabels[$newStatus]);
+                    $pdo->rollBack();
                 }
 
-                $pdo->commit();
+                if ($pdo->inTransaction()) {
+                    $pdo->commit();
+                }
             } catch (PDOException $e) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
@@ -416,6 +554,7 @@ $ordersSql = "
         c.id as customer_id,
         c.name as customer_name,
         c.phone as customer_phone,
+        COALESCE(c.account_balance_lbp, 0) as customer_credit_balance,
         COUNT(DISTINCT oi.id) as item_count
     FROM orders o
     INNER JOIN customers c ON c.id = o.customer_id
@@ -752,7 +891,7 @@ sales_portal_render_layout_start([
                         $canUpdateStatus = !in_array($order['status'], ['delivered', 'cancelled', 'returned'], true);
                         ?>
                         <?php if ($canUpdateStatus): ?>
-                            <button onclick="openStatusModal(<?= $order['id'] ?>, '<?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['status'], ENT_QUOTES, 'UTF-8') ?>')" class="btn btn-warning btn-sm">Update Status</button>
+                            <button onclick="openStatusModal(<?= $order['id'] ?>, '<?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['status'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['order_type'], ENT_QUOTES, 'UTF-8') ?>', <?= (float)$order['total_usd'] ?>, <?= (float)$order['total_lbp'] ?>, <?= (float)$order['customer_credit_balance'] ?>)" class="btn btn-warning btn-sm">Update Status</button>
                         <?php else: ?>
                             <span style="color: #9ca3af; font-size: 0.85rem;">Completed</span>
                         <?php endif; ?>
@@ -814,25 +953,38 @@ sales_portal_render_layout_start([
 
 <!-- Status Update Modal -->
 <div id="statusModal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 500px;">
+    <div class="modal-content" style="max-width: 600px;">
         <div class="modal-header">
             <h2 style="font-size: 1.5rem;">Update Order Status</h2>
             <button onclick="closeStatusModal()" style="background: none; border: none; font-size: 1.8rem; cursor: pointer; color: #9ca3af; transition: color 0.2s;">&times;</button>
         </div>
 
-        <form method="POST" action="">
+        <form method="POST" action="" id="statusUpdateForm">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="update_status">
             <input type="hidden" name="order_id" id="modal_order_id">
+            <input type="hidden" name="order_type" id="modal_order_type">
 
             <div style="margin-bottom: 16px;">
                 <div style="font-weight: 500; margin-bottom: 4px;">Order: <span id="modal_order_number"></span></div>
                 <div style="font-size: 0.9rem; color: #6b7280;">Current Status: <span id="modal_current_status"></span></div>
             </div>
 
+            <!-- Order Total Display (shown for delivery) -->
+            <div id="orderTotalSection" style="display: none; margin-bottom: 20px; padding: 16px; background: #f0f9ff; border: 2px solid #0ea5e9; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-weight: 600; color: #0369a1;">Order Total (USD):</span>
+                    <span id="modal_total_usd" style="font-size: 1.5rem; font-weight: 700; color: #0369a1;">$0.00</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 600; color: #0369a1;">Order Total (LBP):</span>
+                    <span id="modal_total_lbp" style="font-size: 1.2rem; font-weight: 600; color: #0369a1;">0 ل.ل.</span>
+                </div>
+            </div>
+
             <div style="margin-bottom: 24px;">
                 <label style="display: block; font-weight: 500; margin-bottom: 8px;">New Status</label>
-                <select name="status" id="modal_new_status" class="form-control" required style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px;">
+                <select name="status" id="modal_new_status" class="form-control" required style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px;" onchange="onStatusChange()">
                     <option value="">Select status...</option>
                     <option value="on_hold">On Hold</option>
                     <option value="approved">Approved</option>
@@ -848,8 +1000,48 @@ sales_portal_render_layout_start([
                 </div>
             </div>
 
+            <!-- Payment Section (shown when "Delivered" is selected for company orders) -->
+            <div id="paymentSection" style="display: none; margin-bottom: 24px; padding: 20px; background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 8px;">
+                <h3 style="margin: 0 0 16px; font-size: 1.1rem; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                    💰 Payment Collection
+                </h3>
+                <p style="margin: 0 0 16px; font-size: 0.9rem; color: #64748b;">
+                    Enter the amount the customer is paying. If not paid in full, the remaining balance will be added to the customer's account.
+                </p>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    <div>
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #1e293b;">Payment USD $</label>
+                        <input type="number" name="payment_usd" id="payment_usd" class="form-control"
+                               step="0.01" min="0" placeholder="0.00"
+                               style="font-size: 1.2rem; padding: 12px; border: 2px solid #cbd5e1; font-weight: 600;"
+                               oninput="calculatePaymentStatus()">
+                    </div>
+                    <div>
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #1e293b;">Payment LBP ل.ل.</label>
+                        <input type="number" name="payment_lbp" id="payment_lbp" class="form-control"
+                               step="1000" min="0" placeholder="0"
+                               style="font-size: 1.2rem; padding: 12px; border: 2px solid #cbd5e1; font-weight: 600;"
+                               oninput="calculatePaymentStatus()">
+                    </div>
+                </div>
+
+                <!-- Payment Status Display -->
+                <div id="paymentStatusDisplay" style="margin-top: 16px; padding: 12px; border-radius: 6px; font-weight: 600; text-align: center;">
+                    <!-- Will be filled by JavaScript -->
+                </div>
+
+                <!-- Customer Credit Display -->
+                <div id="customerCreditSection" style="display: none; margin-top: 12px; padding: 12px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 0.9rem; color: #92400e;">Customer Current Balance:</span>
+                        <span id="customerCredit" style="font-weight: 700; color: #92400e;">$0.00</span>
+                    </div>
+                </div>
+            </div>
+
             <div style="display: flex; gap: 12px;">
-                <button type="submit" class="btn btn-warning" style="flex: 1;">Update Status</button>
+                <button type="submit" class="btn btn-warning" id="submitStatusBtn" style="flex: 1;">Update Status</button>
                 <button type="button" onclick="closeStatusModal()" class="btn btn-secondary" style="flex: 1;">Cancel</button>
             </div>
         </form>
@@ -857,11 +1049,111 @@ sales_portal_render_layout_start([
 </div>
 
 <script>
-function openStatusModal(orderId, orderNumber, currentStatus) {
+// Store current order data for payment calculations
+let currentOrderData = {
+    id: 0,
+    totalUsd: 0,
+    totalLbp: 0,
+    orderType: '',
+    exchangeRate: <?= json_encode((float)($pdo->query("SELECT rate FROM exchange_rates WHERE UPPER(base_currency) = 'USD' AND UPPER(quote_currency) IN ('LBP', 'LEBP') ORDER BY valid_from DESC LIMIT 1")->fetchColumn() ?: 90000)) ?>,
+    customerCredit: 0
+};
+
+function openStatusModal(orderId, orderNumber, currentStatus, orderType, totalUsd, totalLbp, customerCredit) {
+    currentOrderData.id = orderId;
+    currentOrderData.totalUsd = parseFloat(totalUsd) || 0;
+    currentOrderData.totalLbp = parseFloat(totalLbp) || 0;
+    currentOrderData.orderType = orderType || '';
+    currentOrderData.customerCredit = parseFloat(customerCredit) || 0;
+
     document.getElementById('modal_order_id').value = orderId;
+    document.getElementById('modal_order_type').value = orderType;
     document.getElementById('modal_order_number').textContent = orderNumber;
     document.getElementById('modal_current_status').textContent = currentStatus.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+    // Set order totals display
+    document.getElementById('modal_total_usd').textContent = '$' + currentOrderData.totalUsd.toFixed(2);
+    document.getElementById('modal_total_lbp').textContent = Math.round(currentOrderData.totalLbp).toLocaleString() + ' ل.ل.';
+
+    // Reset form
+    document.getElementById('modal_new_status').value = '';
+    document.getElementById('payment_usd').value = '';
+    document.getElementById('payment_lbp').value = '';
+    document.getElementById('paymentSection').style.display = 'none';
+    document.getElementById('orderTotalSection').style.display = 'none';
+    document.getElementById('submitStatusBtn').textContent = 'Update Status';
+
+    // Show customer credit if exists
+    if (currentOrderData.customerCredit > 0) {
+        const creditUsd = currentOrderData.customerCredit / currentOrderData.exchangeRate;
+        document.getElementById('customerCredit').textContent = '$' + creditUsd.toFixed(2) + ' (' + Math.round(currentOrderData.customerCredit).toLocaleString() + ' ل.ل.)';
+        document.getElementById('customerCreditSection').style.display = 'block';
+    } else {
+        document.getElementById('customerCreditSection').style.display = 'none';
+    }
+
     document.getElementById('statusModal').style.display = 'flex';
+}
+
+function onStatusChange() {
+    const newStatus = document.getElementById('modal_new_status').value;
+    const paymentSection = document.getElementById('paymentSection');
+    const orderTotalSection = document.getElementById('orderTotalSection');
+    const submitBtn = document.getElementById('submitStatusBtn');
+
+    // Show payment section only for "delivered" status on company orders
+    if (newStatus === 'delivered' && currentOrderData.orderType === 'company_order') {
+        paymentSection.style.display = 'block';
+        orderTotalSection.style.display = 'block';
+        submitBtn.textContent = 'Deliver & Generate Invoice';
+        submitBtn.classList.remove('btn-warning');
+        submitBtn.classList.add('btn-success');
+        calculatePaymentStatus();
+    } else {
+        paymentSection.style.display = 'none';
+        orderTotalSection.style.display = 'none';
+        submitBtn.textContent = 'Update Status';
+        submitBtn.classList.remove('btn-success');
+        submitBtn.classList.add('btn-warning');
+    }
+}
+
+function calculatePaymentStatus() {
+    const paymentUsd = parseFloat(document.getElementById('payment_usd').value) || 0;
+    const paymentLbp = parseFloat(document.getElementById('payment_lbp').value) || 0;
+    const totalUsd = currentOrderData.totalUsd;
+    const exchangeRate = currentOrderData.exchangeRate;
+
+    // Convert LBP payment to USD equivalent
+    const paymentLbpInUsd = paymentLbp / exchangeRate;
+    const totalPaidUsd = paymentUsd + paymentLbpInUsd;
+
+    const statusDisplay = document.getElementById('paymentStatusDisplay');
+    const remainingUsd = totalUsd - totalPaidUsd;
+
+    if (totalPaidUsd >= totalUsd) {
+        // Fully paid or overpaid
+        if (totalPaidUsd > totalUsd) {
+            const overpayment = totalPaidUsd - totalUsd;
+            statusDisplay.style.background = '#fef3c7';
+            statusDisplay.style.color = '#92400e';
+            statusDisplay.innerHTML = '⚠️ Overpayment: $' + overpayment.toFixed(2) + ' will be added to customer credit';
+        } else {
+            statusDisplay.style.background = '#dcfce7';
+            statusDisplay.style.color = '#166534';
+            statusDisplay.innerHTML = '✅ Fully Paid';
+        }
+    } else if (totalPaidUsd > 0) {
+        // Partial payment
+        statusDisplay.style.background = '#fef3c7';
+        statusDisplay.style.color = '#92400e';
+        statusDisplay.innerHTML = '⚠️ Partial Payment: $' + remainingUsd.toFixed(2) + ' remaining (will be added to customer balance)';
+    } else {
+        // No payment
+        statusDisplay.style.background = '#fee2e2';
+        statusDisplay.style.color = '#991b1b';
+        statusDisplay.innerHTML = '💳 No payment entered - Full amount $' + totalUsd.toFixed(2) + ' will be added to customer balance';
+    }
 }
 
 function closeStatusModal() {

@@ -986,27 +986,27 @@ if (empty($customers)) {
 
     <!-- Filter Bar -->
     <div class="filter-bar">
-        <select id="categoryFilter" onchange="filterProducts()">
+        <select id="categoryFilter">
             <option value="">All Categories</option>
             <?php foreach ($categories as $cat): ?>
                 <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></option>
             <?php endforeach; ?>
         </select>
-        <input type="text" id="searchFilter" placeholder="Search products..." oninput="filterProducts()">
+        <input type="text" id="searchFilter" placeholder="Search products...">
     </div>
 
     <!-- Stock Filter Checkboxes -->
     <div class="filter-checkboxes" style="display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; background: var(--bg-panel); padding: 14px 18px; border-radius: 10px; border: 1px solid var(--border);">
         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.95rem; font-weight: 500;">
-            <input type="checkbox" id="hideZeroStock" onchange="filterProducts(); saveFilterPrefs();" style="width: 18px; height: 18px; cursor: pointer;">
+            <input type="checkbox" id="hideZeroStock" style="width: 18px; height: 18px; cursor: pointer;">
             <span>إخفاء المخزون = 0</span>
         </label>
         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.95rem; font-weight: 500;">
-            <input type="checkbox" id="hideZeroPrice" onchange="filterProducts(); saveFilterPrefs();" style="width: 18px; height: 18px; cursor: pointer;">
+            <input type="checkbox" id="hideZeroPrice" style="width: 18px; height: 18px; cursor: pointer;">
             <span>إخفاء السعر = 0</span>
         </label>
         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.95rem; font-weight: 500;">
-            <input type="checkbox" id="hideLowStock" onchange="filterProducts(); saveFilterPrefs();" style="width: 18px; height: 18px; cursor: pointer;">
+            <input type="checkbox" id="hideLowStock" style="width: 18px; height: 18px; cursor: pointer;">
             <span>إخفاء المخزون < 8</span>
         </label>
     </div>
@@ -1224,8 +1224,27 @@ if (empty($customers)) {
             }
         }
 
-        // Load preferences on page load
-        document.addEventListener('DOMContentLoaded', loadFilterPrefs);
+        // Load preferences on page load and attach event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            // Attach filter event listeners (avoids inline handlers that may fire before script loads)
+            document.getElementById('categoryFilter').addEventListener('change', filterProducts);
+            document.getElementById('searchFilter').addEventListener('input', filterProducts);
+            document.getElementById('hideZeroStock').addEventListener('change', function() {
+                filterProducts();
+                saveFilterPrefs();
+            });
+            document.getElementById('hideZeroPrice').addEventListener('change', function() {
+                filterProducts();
+                saveFilterPrefs();
+            });
+            document.getElementById('hideLowStock').addEventListener('change', function() {
+                filterProducts();
+                saveFilterPrefs();
+            });
+
+            // Load saved preferences
+            loadFilterPrefs();
+        });
 
         // Toggle item selection (select/deselect)
         function toggleSelectItem(cardElement) {
