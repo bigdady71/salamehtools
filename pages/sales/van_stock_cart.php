@@ -203,7 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     // Get product price and verify van stock
                     $productStmt = $pdo->prepare("
                         SELECT
-                            p.sale_price_usd,
+                            p.wholesale_price_usd,
                             p.item_name,
                             s.qty_on_hand as van_stock
                         FROM products p
@@ -227,7 +227,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         break;
                     }
 
-                    $unitPriceUSD = (float)$product['sale_price_usd'];
+                    $unitPriceUSD = (float)$product['wholesale_price_usd'];
                     $unitPriceLBP = $unitPriceUSD * $exchangeRate;
 
                     // Calculate line totals
@@ -542,7 +542,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 $productsStmt = $pdo->prepare("
     SELECT
         p.id, p.sku, p.item_name, p.topcat_name as category,
-        p.sale_price_usd, COALESCE(s.qty_on_hand, 0) as qty_on_hand
+        p.wholesale_price_usd, COALESCE(s.qty_on_hand, 0) as qty_on_hand
     FROM s_stock s
     JOIN products p ON p.id = s.product_id
     WHERE s.salesperson_id = :rep_id
@@ -1249,7 +1249,7 @@ if (!$canCreateOrder) {
             $sku = $product['sku'] ?? '';
             $itemName = htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8');
             $category = $product['category'] ?? '';
-            $priceUSD = (float)$product['sale_price_usd'];
+            $priceUSD = (float)$product['wholesale_price_usd'];
             $stock = (float)$product['qty_on_hand'];
 
             // Find product image

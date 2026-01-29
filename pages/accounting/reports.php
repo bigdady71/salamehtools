@@ -145,9 +145,9 @@ if ($reportType !== '') {
                     p.topcat_name as category,
                     p.quantity_on_hand as qty,
                     COALESCE(p.cost_price_usd, 0) as cost_price,
-                    COALESCE(p.sale_price_usd, 0) as sale_price,
+                    COALESCE(p.wholesale_price_usd, 0) as sale_price,
                     (p.quantity_on_hand * COALESCE(p.cost_price_usd, 0)) as cost_value,
-                    (p.quantity_on_hand * COALESCE(p.sale_price_usd, 0)) as retail_value
+                    (p.quantity_on_hand * COALESCE(p.wholesale_price_usd, 0)) as retail_value
                 FROM products p
                 WHERE p.is_active = 1 AND p.quantity_on_hand > 0
                 ORDER BY cost_value DESC

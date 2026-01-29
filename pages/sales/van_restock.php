@@ -86,7 +86,7 @@ function fetch_restock_cart_items(PDO $pdo, int $repId): array
 
     $cartItemsStmt = $pdo->prepare("
         SELECT ri.id, ri.product_id, ri.quantity,
-               p.sku, p.item_name, p.sale_price_usd, p.quantity_on_hand as warehouse_stock
+               p.sku, p.item_name, p.wholesale_price_usd, p.quantity_on_hand as warehouse_stock
         FROM van_restock_items ri
         JOIN products p ON p.id = ri.product_id
         WHERE ri.request_id = :request_id
@@ -380,10 +380,10 @@ $requestHistory = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
 // Get all active products for adding to cart (exclude price = 0 or stock < 8)
 $productsStmt = $pdo->prepare("
     SELECT p.id, p.sku, p.item_name, p.topcat_name as category,
-           p.sale_price_usd, p.quantity_on_hand as warehouse_stock
+           p.wholesale_price_usd, p.quantity_on_hand as warehouse_stock
     FROM products p
     WHERE p.is_active = 1
-      AND p.sale_price_usd > 0
+      AND p.wholesale_price_usd > 0
       AND p.quantity_on_hand >= 8
     ORDER BY p.topcat_name, p.item_name
 ");
@@ -853,7 +853,7 @@ foreach ($flashes as $flash) {
                             <div class="product-meta">
                                 <span class="product-sku"><?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?></span>
                                 <span class="product-price" style="color: var(--primary); font-weight: 700;">
-                                    $<?= number_format((float)$product['sale_price_usd'], 2) ?>
+                                    $<?= number_format((float)$product['wholesale_price_usd'], 2) ?>
                                 </span>
                                 <span class="product-stock <?= $stockClass ?>">
                                     المستودع: <?= number_format((float)$product['warehouse_stock'], 1) ?>

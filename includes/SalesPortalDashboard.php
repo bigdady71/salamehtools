@@ -249,7 +249,7 @@ function sales_portal_dashboard_data(PDO $pdo, int $salesRepId): array
             SELECT
                 COUNT(*) AS sku_count,
                 COALESCE(SUM(s.qty_on_hand), 0) AS total_units,
-                COALESCE(SUM(s.qty_on_hand * p.sale_price_usd), 0) AS total_value_usd
+                COALESCE(SUM(s.qty_on_hand * p.wholesale_price_usd), 0) AS total_value_usd
             FROM s_stock s
             INNER JOIN products p ON p.id = s.product_id
             WHERE s.salesperson_id = :rep_id

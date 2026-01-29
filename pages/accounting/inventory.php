@@ -49,7 +49,7 @@ if ($stockStatus === 'in_stock') {
 $whereClause = implode(' AND ', $conditions);
 
 // Validate sort column
-$allowedSorts = ['sku', 'item_name', 'topcat_name', 'quantity_on_hand', 'cost_price_usd', 'sale_price_usd', 'total_cost', 'total_retail'];
+$allowedSorts = ['sku', 'item_name', 'topcat_name', 'quantity_on_hand', 'cost_price_usd', 'wholesale_price_usd', 'total_cost', 'total_retail'];
 if (!in_array($sortBy, $allowedSorts)) {
     $sortBy = 'item_name';
 }
@@ -60,7 +60,7 @@ $totalStmt = $pdo->prepare("
         COUNT(*) as total_products,
         COALESCE(SUM(p.quantity_on_hand), 0) as total_units,
         COALESCE(SUM(p.quantity_on_hand * COALESCE(p.cost_price_usd, 0)), 0) as total_cost_value,
-        COALESCE(SUM(p.quantity_on_hand * COALESCE(p.sale_price_usd, 0)), 0) as total_retail_value
+        COALESCE(SUM(p.quantity_on_hand * COALESCE(p.wholesale_price_usd, 0)), 0) as total_retail_value
     FROM products p
     WHERE $whereClause AND p.is_active = 1
 ");
@@ -79,9 +79,9 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
             p.topcat_name as category,
             p.quantity_on_hand,
             COALESCE(p.cost_price_usd, 0) as cost_price_usd,
-            COALESCE(p.sale_price_usd, 0) as sale_price_usd,
+            COALESCE(p.wholesale_price_usd, 0) as wholesale_price_usd,
             (p.quantity_on_hand * COALESCE(p.cost_price_usd, 0)) as total_cost,
-            (p.quantity_on_hand * COALESCE(p.sale_price_usd, 0)) as total_retail
+            (p.quantity_on_hand * COALESCE(p.wholesale_price_usd, 0)) as total_retail
         FROM products p
         WHERE $whereClause AND p.is_active = 1
         ORDER BY $sortBy $sortDir
@@ -108,7 +108,7 @@ $orderByClause = $sortBy;
 if ($sortBy === 'total_cost') {
     $orderByClause = "(p.quantity_on_hand * COALESCE(p.cost_price_usd, 0))";
 } elseif ($sortBy === 'total_retail') {
-    $orderByClause = "(p.quantity_on_hand * COALESCE(p.sale_price_usd, 0))";
+    $orderByClause = "(p.quantity_on_hand * COALESCE(p.wholesale_price_usd, 0))";
 }
 
 $stmt = $pdo->prepare("
@@ -120,9 +120,9 @@ $stmt = $pdo->prepare("
         p.quantity_on_hand,
         p.safety_stock,
         COALESCE(p.cost_price_usd, 0) as cost_price_usd,
-        COALESCE(p.sale_price_usd, 0) as sale_price_usd,
+        COALESCE(p.wholesale_price_usd, 0) as wholesale_price_usd,
         (p.quantity_on_hand * COALESCE(p.cost_price_usd, 0)) as total_cost,
-        (p.quantity_on_hand * COALESCE(p.sale_price_usd, 0)) as total_retail,
+        (p.quantity_on_hand * COALESCE(p.wholesale_price_usd, 0)) as total_retail,
         p.image_url
     FROM products p
     WHERE $whereClause AND p.is_active = 1
@@ -214,7 +214,7 @@ accounting_render_flashes(consume_flashes());
                 <th><?= sortLink('topcat_name', 'Category', $sortBy, $sortDir) ?></th>
                 <th class="text-right"><?= sortLink('quantity_on_hand', 'Qty', $sortBy, $sortDir) ?></th>
                 <th class="text-right"><?= sortLink('cost_price_usd', 'Cost', $sortBy, $sortDir) ?></th>
-                <th class="text-right"><?= sortLink('sale_price_usd', 'Sale Price', $sortBy, $sortDir) ?></th>
+                <th class="text-right"><?= sortLink('wholesale_price_usd', 'Sale Price', $sortBy, $sortDir) ?></th>
                 <th class="text-right"><?= sortLink('total_cost', 'Total Cost', $sortBy, $sortDir) ?></th>
                 <th class="text-right"><?= sortLink('total_retail', 'Total Retail', $sortBy, $sortDir) ?></th>
             </tr>
@@ -251,7 +251,7 @@ accounting_render_flashes(consume_flashes());
                             <span class="badge <?= $stockClass ?>"><?= number_format($qty) ?></span>
                         </td>
                         <td class="text-right"><?= format_currency_usd((float)$product['cost_price_usd']) ?></td>
-                        <td class="text-right"><?= format_currency_usd((float)$product['sale_price_usd']) ?></td>
+                        <td class="text-right"><?= format_currency_usd((float)$product['wholesale_price_usd']) ?></td>
                         <td class="text-right"><?= format_currency_usd((float)$product['total_cost']) ?></td>
                         <td class="text-right"><?= format_currency_usd((float)$product['total_retail']) ?></td>
                     </tr>

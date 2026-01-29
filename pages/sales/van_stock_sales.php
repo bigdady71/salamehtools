@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'load_template') {
 
         // Get template items with product info and van stock
         $itemsStmt = $pdo->prepare("
-            SELECT ti.product_id, ti.quantity, p.sku, p.item_name, p.sale_price_usd,
+            SELECT ti.product_id, ti.quantity, p.sku, p.item_name, p.wholesale_price_usd,
                    COALESCE(s.qty_on_hand, 0) as van_stock
             FROM order_template_items ti
             JOIN products p ON p.id = ti.product_id
@@ -140,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'customer_history') {
                 p.id as product_id,
                 p.sku,
                 p.item_name,
-                p.sale_price_usd,
+                p.wholesale_price_usd,
                 COUNT(oi.id) as order_count,
                 SUM(oi.quantity) as total_qty,
                 MAX(o.created_at) as last_ordered,
@@ -227,7 +227,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'search_products') {
                 p.topcat as category,
                 p.barcode,
                 p.code_clean,
-                p.sale_price_usd,
+                p.wholesale_price_usd,
                 s.qty_on_hand
             FROM s_stock s
             JOIN products p ON p.id = s.product_id
@@ -399,7 +399,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     // Get product price and verify van stock
                     $productStmt = $pdo->prepare("
                         SELECT
-                            p.sale_price_usd,
+                            p.wholesale_price_usd,
                             p.item_name,
                             s.qty_on_hand as van_stock
                         FROM products p
@@ -423,7 +423,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         break;
                     }
 
-                    $unitPriceUSD = (float)$product['sale_price_usd'];
+                    $unitPriceUSD = (float)$product['wholesale_price_usd'];
                     $unitPriceLBP = $unitPriceUSD * $exchangeRate;
 
                     // Calculate line totals (no discount)
@@ -1458,7 +1458,7 @@ if (!$canCreateOrder) {
                             return `
                                 <button type="button"
                                     class="quick-add-btn"
-                                    onclick="quickAddProduct(${p.product_id}, '${escapeHtml(p.item_name).replace(/'/g, "\\'")}', ${p.sale_price_usd}, ${p.van_stock})"
+                                    onclick="quickAddProduct(${p.product_id}, '${escapeHtml(p.item_name).replace(/'/g, "\\'")}', ${p.wholesale_price_usd}, ${p.van_stock})"
                                     style="padding: 8px 12px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; transition: all 0.2s; ${btnStyle}"
                                     ${hasStock ? '' : 'disabled'}
                                     title="${hasStock ? `Stock: ${p.van_stock}` : 'Out of stock'}">
@@ -1541,9 +1541,9 @@ if (!$canCreateOrder) {
                                 }
 
                                 return `
-                                    <div class="autocomplete-item product-result" data-product-id="${product.id}" data-product-name="${escapeHtml(product.item_name)}" data-product-price="${product.sale_price_usd}" data-product-stock="${product.qty_on_hand}"${stockStyle}>
+                                    <div class="autocomplete-item product-result" data-product-id="${product.id}" data-product-name="${escapeHtml(product.item_name)}" data-product-price="${product.wholesale_price_usd}" data-product-stock="${product.qty_on_hand}"${stockStyle}>
                                         <strong>${escapeHtml(product.item_name)}${stockLabel}</strong>
-                                        <small>SKU: ${escapeHtml(product.sku)} | Stock: ${stockQty.toFixed(2)} | $${parseFloat(product.sale_price_usd).toFixed(2)}</small>
+                                        <small>SKU: ${escapeHtml(product.sku)} | Stock: ${stockQty.toFixed(2)} | $${parseFloat(product.wholesale_price_usd).toFixed(2)}</small>
                                     </div>
                                 `;
                             }).join('');

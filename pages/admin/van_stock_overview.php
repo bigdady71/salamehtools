@@ -70,9 +70,9 @@ $stockQuery = "
         p.sku,
         p.item_name,
         p.topcat AS category,
-        p.sale_price_usd,
+        p.wholesale_price_usd,
         s.qty_on_hand,
-        (s.qty_on_hand * p.sale_price_usd) AS stock_value,
+        (s.qty_on_hand * p.wholesale_price_usd) AS stock_value,
         s.updated_at
     FROM s_stock s
     INNER JOIN products p ON p.id = s.product_id
@@ -270,7 +270,7 @@ admin_page_start($title);
                 <td><?= htmlspecialchars($stock['item_name'], ENT_QUOTES, 'UTF-8') ?></td>
                 <td><code><?= htmlspecialchars($stock['sku'], ENT_QUOTES, 'UTF-8') ?></code></td>
                 <td><?= htmlspecialchars($stock['category'] ?? '', ENT_QUOTES, 'UTF-8') ?></td>
-                <td class="text-right">$<?= number_format((float)$stock['sale_price_usd'], 2) ?></td>
+                <td class="text-right">$<?= number_format((float)$stock['wholesale_price_usd'], 2) ?></td>
                 <td class="text-right"><strong><?= number_format($qty, 1) ?></strong></td>
                 <td class="text-right">$<?= number_format((float)$stock['stock_value'], 2) ?></td>
                 <td class="text-center">

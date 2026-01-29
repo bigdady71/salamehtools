@@ -85,7 +85,7 @@ $productsQuery = "
         p.midcat,
         p.midcat_name,
         p.unit,
-        p.sale_price_usd,
+        p.wholesale_price_usd,
         p.wholesale_price_usd,
         p.quantity_on_hand,
         p.safety_stock,
@@ -115,7 +115,7 @@ $statsQuery = "
         SUM(CASE WHEN quantity_on_hand = 0 THEN 1 ELSE 0 END) as out_of_stock,
         SUM(CASE WHEN quantity_on_hand > 0 AND quantity_on_hand <= safety_stock THEN 1 ELSE 0 END) as critical,
         SUM(CASE WHEN quantity_on_hand > safety_stock AND quantity_on_hand <= reorder_point THEN 1 ELSE 0 END) as low_stock,
-        SUM(quantity_on_hand * sale_price_usd) as total_value
+        SUM(quantity_on_hand * wholesale_price_usd) as total_value
     FROM products p
     WHERE p.is_active = 1
 ";
@@ -309,7 +309,7 @@ sales_portal_render_layout_start([
                     <?php endif; ?>
                 </td>
                 <td><?= htmlspecialchars($product['unit'] ?? '', ENT_QUOTES, 'UTF-8') ?></td>
-                <td>$<?= number_format((float)$product['sale_price_usd'], 2) ?></td>
+                <td>$<?= number_format((float)$product['wholesale_price_usd'], 2) ?></td>
                 <td>$<?= number_format((float)$product['wholesale_price_usd'], 2) ?></td>
                 <td>
                     <strong style="font-size: 1.05rem;"><?= number_format($qty, 1) ?></strong>

@@ -84,7 +84,7 @@ $kpis = $pdo->query("
         COUNT(*) AS total_skus,
         SUM(CASE WHEN safety_stock IS NOT NULL AND quantity_on_hand < safety_stock THEN 1 ELSE 0 END) AS below_safety,
         SUM(CASE WHEN reorder_point IS NOT NULL AND quantity_on_hand <= reorder_point THEN 1 ELSE 0 END) AS below_reorder,
-        SUM(quantity_on_hand * sale_price_usd) AS total_value_usd
+        SUM(quantity_on_hand * wholesale_price_usd) AS total_value_usd
     FROM products
     WHERE is_active = 1
 ")->fetch(PDO::FETCH_ASSOC);
@@ -98,8 +98,8 @@ $stockQuery = "
         p.quantity_on_hand,
         p.safety_stock,
         p.reorder_point,
-        p.sale_price_usd,
-        (p.quantity_on_hand * p.sale_price_usd) AS stock_value,
+        p.wholesale_price_usd,
+        (p.quantity_on_hand * p.wholesale_price_usd) AS stock_value,
         CASE
             WHEN p.safety_stock IS NOT NULL AND p.quantity_on_hand < p.safety_stock THEN 'critical'
             WHEN p.reorder_point IS NOT NULL AND p.quantity_on_hand <= p.reorder_point THEN 'warning'
@@ -401,7 +401,7 @@ $flashes = consume_flashes();
                     <td class="qty-cell"><?= number_format((float)$product['quantity_on_hand'], 2) ?></td>
                     <td class="qty-cell"><?= $product['safety_stock'] ? number_format((float)$product['safety_stock'], 2) : '—' ?></td>
                     <td class="qty-cell"><?= $product['reorder_point'] ? number_format((float)$product['reorder_point'], 2) : '—' ?></td>
-                    <td class="qty-cell">$<?= number_format((float)$product['sale_price_usd'], 2) ?></td>
+                    <td class="qty-cell">$<?= number_format((float)$product['wholesale_price_usd'], 2) ?></td>
                     <td class="qty-cell">$<?= number_format((float)$product['stock_value'], 2) ?></td>
                     <td>
                         <span class="alert-badge <?= $product['alert_level'] ?>">

@@ -157,7 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                     // Get product price
                     $productStmt = $pdo->prepare("
                         SELECT
-                            p.sale_price_usd,
+                            p.wholesale_price_usd,
                             p.item_name,
                             p.quantity_on_hand
                         FROM products p
@@ -178,7 +178,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
                         error_log("Order request for product {$product['item_name']} exceeds warehouse stock. Available: {$warehouseStock}, Requested: {$item['quantity']}");
                     }
 
-                    $unitPriceUSD = (float)$product['sale_price_usd'];
+                    $unitPriceUSD = (float)$product['wholesale_price_usd'];
                     $unitPriceLBP = $unitPriceUSD * $exchangeRate; // Calculate LBP from USD
 
                     // Calculate line totals (no discount)
@@ -360,7 +360,7 @@ $productsStmt = $pdo->prepare("
         p.description,
         p.barcode,
         p.code_clean,
-        p.sale_price_usd,
+        p.wholesale_price_usd,
         p.quantity_on_hand
     FROM products p
     WHERE p.is_active = 1
@@ -1017,7 +1017,7 @@ if (empty($customers)) {
             $sku = $product['sku'] ?? '';
             $itemName = htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8');
             $category = $product['category'] ?? '';
-            $priceUSD = (float)$product['sale_price_usd'];
+            $priceUSD = (float)$product['wholesale_price_usd'];
             $stock = (float)$product['quantity_on_hand'];
 
             // Stock status

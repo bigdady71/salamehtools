@@ -68,7 +68,7 @@ $cartQuery = "
         p.sku,
         p.item_name,
         p.unit,
-        p.sale_price_usd,
+        p.wholesale_price_usd,
         p.min_quantity,
         p.quantity_on_hand
     FROM customer_cart cc
@@ -86,7 +86,7 @@ $subtotal = 0;
 $totalItems = 0;
 foreach ($cartItems as $item) {
     $qty = (float)$item['quantity'];
-    $price = (float)$item['sale_price_usd'];
+    $price = (float)$item['wholesale_price_usd'];
     $subtotal += $qty * $price;
     $totalItems += 1;
 }
@@ -277,7 +277,7 @@ customer_portal_render_layout_start([
                         $itemName = htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8');
                         $sku = htmlspecialchars($item['sku'] ?? 'N/A', ENT_QUOTES, 'UTF-8');
                         $unit = htmlspecialchars($item['unit'] ?? 'unit', ENT_QUOTES, 'UTF-8');
-                        $price = (float)$item['sale_price_usd'];
+                        $price = (float)$item['wholesale_price_usd'];
                         $quantity = (float)$item['quantity'];
                         $minQty = (float)$item['min_quantity'];
                         $qtyOnHand = (float)$item['quantity_on_hand'];

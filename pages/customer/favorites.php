@@ -75,7 +75,7 @@ $favoritesQuery = "
         p.topcat,
         p.topcat_name,
         p.unit,
-        p.sale_price_usd,
+        p.wholesale_price_usd,
         p.min_quantity,
         p.quantity_on_hand,
         p.description,
@@ -284,7 +284,7 @@ customer_portal_render_layout_start([
             $productId = (int)$product['id'];
             $itemName = htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8');
             $sku = htmlspecialchars($product['sku'] ?? 'N/A', ENT_QUOTES, 'UTF-8');
-            $price = (float)$product['sale_price_usd'];
+            $price = (float)$product['wholesale_price_usd'];
             $unit = htmlspecialchars($product['unit'] ?? 'unit', ENT_QUOTES, 'UTF-8');
             $qtyOnHand = (float)$product['quantity_on_hand'];
             $minQty = (float)$product['min_quantity'];

@@ -35,7 +35,7 @@ $productStats = $pdo->query("
         COUNT(*) as total_products,
         SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_products,
         SUM(quantity_on_hand) as total_stock_units,
-        SUM(quantity_on_hand * sale_price_usd) as inventory_value_usd,
+        SUM(quantity_on_hand * wholesale_price_usd) as inventory_value_usd,
         SUM(CASE WHEN quantity_on_hand <= 0 THEN 1 ELSE 0 END) as out_of_stock,
         SUM(CASE WHEN quantity_on_hand <= min_quantity THEN 1 ELSE 0 END) as low_stock
     FROM products

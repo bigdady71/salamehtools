@@ -62,7 +62,7 @@ $inventoryStmt = $pdo->query("
         COUNT(*) as total_products,
         COALESCE(SUM(quantity_on_hand), 0) as total_units,
         COALESCE(SUM(quantity_on_hand * COALESCE(cost_price_usd, 0)), 0) as cost_value,
-        COALESCE(SUM(quantity_on_hand * COALESCE(sale_price_usd, 0)), 0) as retail_value
+        COALESCE(SUM(quantity_on_hand * COALESCE(wholesale_price_usd, 0)), 0) as retail_value
     FROM products
     WHERE is_active = 1
 ");

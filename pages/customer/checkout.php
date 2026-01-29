@@ -23,7 +23,7 @@ $cartQuery = "
         p.sku,
         p.item_name,
         p.unit,
-        p.sale_price_usd,
+        p.wholesale_price_usd,
         p.min_quantity,
         p.quantity_on_hand
     FROM customer_cart cc
@@ -48,7 +48,7 @@ $hasStockIssues = false;
 $stockIssueItems = [];
 foreach ($cartItems as $item) {
     $qty = (float)$item['quantity'];
-    $price = (float)$item['sale_price_usd'];
+    $price = (float)$item['wholesale_price_usd'];
     $qtyOnHand = (float)$item['quantity_on_hand'];
 
     $subtotal += $qty * $price;
@@ -111,7 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             foreach ($cartItems as $item) {
                 $productId = (int)$item['product_id'];
                 $quantity = (float)$item['quantity'];
-                $unitPrice = (float)$item['sale_price_usd'];
+                $unitPrice = (float)$item['wholesale_price_usd'];
 
                 $insertItemStmt->execute([
                     $orderId,
@@ -281,7 +281,7 @@ customer_portal_render_layout_start([
                         $itemName = htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8');
                         $sku = htmlspecialchars($item['sku'] ?? 'N/A', ENT_QUOTES, 'UTF-8');
                         $unit = htmlspecialchars($item['unit'] ?? 'unit', ENT_QUOTES, 'UTF-8');
-                        $price = (float)$item['sale_price_usd'];
+                        $price = (float)$item['wholesale_price_usd'];
                         $quantity = (float)$item['quantity'];
                         $qtyOnHand = (float)$item['quantity_on_hand'];
                         $itemSubtotal = $price * $quantity;

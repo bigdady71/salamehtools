@@ -186,11 +186,11 @@ if ($action === 'export') {
             p.second_name,
             p.topcat_name as category,
             p.unit,
-            p.sale_price_usd,
-            (p.sale_price_usd * 9000) as sale_price_lbp,
+            p.wholesale_price_usd,
+            (p.wholesale_price_usd * 9000) as sale_price_lbp,
             s.qty_on_hand,
-            (s.qty_on_hand * p.sale_price_usd) as stock_value_usd,
-            (s.qty_on_hand * p.sale_price_usd * 9000) as stock_value_lbp,
+            (s.qty_on_hand * p.wholesale_price_usd) as stock_value_usd,
+            (s.qty_on_hand * p.wholesale_price_usd * 9000) as stock_value_lbp,
             s.created_at as date_added,
             DATEDIFF(NOW(), s.created_at) as days_in_stock,
             s.updated_at as last_updated
@@ -234,7 +234,7 @@ if ($action === 'export') {
             $row['second_name'] ?? '',
             $row['category'] ?? '',
             $row['unit'] ?? '',
-            number_format((float)$row['sale_price_usd'], 2),
+            number_format((float)$row['wholesale_price_usd'], 2),
             number_format((float)$row['sale_price_lbp'], 0),
             number_format((float)$row['qty_on_hand'], 1),
             number_format((float)$row['stock_value_usd'], 2),
@@ -266,7 +266,7 @@ $statsStmt = $pdo->prepare("
     SELECT
         COUNT(DISTINCT s.product_id) as total_products,
         COALESCE(SUM(s.qty_on_hand), 0) as total_units,
-        COALESCE(SUM(s.qty_on_hand * p.sale_price_usd), 0) as total_value_usd,
+        COALESCE(SUM(s.qty_on_hand * p.wholesale_price_usd), 0) as total_value_usd,
         COUNT(CASE WHEN s.qty_on_hand <= 5 THEN 1 END) as low_stock_items,
         COUNT(CASE WHEN DATEDIFF(NOW(), s.created_at) > 60 THEN 1 END) as old_stock_items,
         COALESCE(AVG(DATEDIFF(NOW(), s.created_at)), 0) as avg_days_in_stock
@@ -333,8 +333,8 @@ $stockStmt = $pdo->prepare("
         p.sku,
         p.item_name,
         p.topcat_name as category,
-        p.sale_price_usd,
-        (s.qty_on_hand * p.sale_price_usd) as value_usd
+        p.wholesale_price_usd,
+        (s.qty_on_hand * p.wholesale_price_usd) as value_usd
     FROM s_stock s
     INNER JOIN products p ON p.id = s.product_id
     WHERE {$whereClause}
@@ -1241,7 +1241,7 @@ if (!$stockItems) {
         $itemName = htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8');
         $category = $item['category'] ? htmlspecialchars($item['category'], ENT_QUOTES, 'UTF-8') : '-';
         $qty = (float)$item['qty_on_hand'];
-        $priceUSD = (float)$item['sale_price_usd'];
+        $priceUSD = (float)$item['wholesale_price_usd'];
         $valueUSD = (float)$item['value_usd'];
         $daysInStock = (int)($item['days_in_stock'] ?? 0);
         $createdAt = $item['created_at'] ? date('M j, Y', strtotime($item['created_at'])) : '-';
@@ -1300,7 +1300,7 @@ if (!$stockItems) {
         $itemName = htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8');
         $category = $item['category'] ? htmlspecialchars($item['category'], ENT_QUOTES, 'UTF-8') : 'Uncategorized';
         $qty = (float)$item['qty_on_hand'];
-        $priceUSD = (float)$item['sale_price_usd'];
+        $priceUSD = (float)$item['wholesale_price_usd'];
         $valueUSD = (float)$item['value_usd'];
         $daysInStock = (int)($item['days_in_stock'] ?? 0);
         $createdAt = $item['created_at'] ? date('M j, Y', strtotime($item['created_at'])) : '-';

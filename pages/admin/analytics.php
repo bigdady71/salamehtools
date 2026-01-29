@@ -184,7 +184,7 @@ $productPerformanceStmt = $pdo->prepare("
         p.id,
         p.sku,
         p.item_name,
-        p.sale_price_usd,
+        p.wholesale_price_usd,
         p.cost_price_usd,
         SUM(oi.quantity) as units_sold,
         SUM(oi.quantity * oi.unit_price_usd) as revenue_usd,
@@ -332,7 +332,7 @@ $inventoryIntelligence = $pdo->query("
         SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_products,
         SUM(CASE WHEN quantity_on_hand <= 0 THEN 1 ELSE 0 END) as out_of_stock,
         SUM(CASE WHEN quantity_on_hand > 0 AND quantity_on_hand <= min_quantity THEN 1 ELSE 0 END) as low_stock,
-        SUM(quantity_on_hand * sale_price_usd) as inventory_value_usd,
+        SUM(quantity_on_hand * wholesale_price_usd) as inventory_value_usd,
         SUM(quantity_on_hand * COALESCE(cost_price_usd, 0)) as inventory_cost_usd
     FROM products
 ")->fetch(PDO::FETCH_ASSOC);
