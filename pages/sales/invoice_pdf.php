@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
+// Enable error reporting for debugging (remove in production)
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/sales_portal.php';
 require_once __DIR__ . '/../../includes/db.php';
@@ -19,13 +23,20 @@ if ($invoiceId <= 0) {
     die('Invalid invoice ID');
 }
 
-$pdfGenerator = new InvoicePDF($pdo);
+try {
+    $pdfGenerator = new InvoicePDF($pdo);
+} catch (Exception $e) {
+    http_response_code(500);
+    error_log('InvoicePDF initialization error: ' . $e->getMessage());
+    die('Error initializing PDF generator: ' . $e->getMessage());
+}
 
-switch ($action) {
-    case 'download':
-        // Stream PDF as download
-        $pdfGenerator->streamPDF($invoiceId, $user['id'], true);
-        break;
+try {
+    switch ($action) {
+        case 'download':
+            // Stream PDF as download
+            $pdfGenerator->streamPDF($invoiceId, $user['id'], true);
+            break;
 
     case 'save':
         // Save PDF to storage and return path
@@ -108,4 +119,9 @@ switch ($action) {
         // View PDF in browser
         $pdfGenerator->streamPDF($invoiceId, $user['id'], false);
         break;
+    }
+} catch (Exception $e) {
+    http_response_code(500);
+    error_log('PDF generation error: ' . $e->getMessage());
+    die('Error generating PDF: ' . $e->getMessage());
 }

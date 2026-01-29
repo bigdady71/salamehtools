@@ -148,6 +148,72 @@
             "install-path": "../dompdf/dompdf"
         },
         {
+            "name": "khaled.alshamaa/ar-php",
+            "version": "v7.0.0",
+            "version_normalized": "7.0.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/khaled-alshamaa/ar-php.git",
+                "reference": "1e2d3fa335ce57ff261920228dd6e73fe7e49e19"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/khaled-alshamaa/ar-php/zipball/1e2d3fa335ce57ff261920228dd6e73fe7e49e19",
+                "reference": "1e2d3fa335ce57ff261920228dd6e73fe7e49e19",
+                "shasum": ""
+            },
+            "require": {
+                "ext-calendar": "*",
+                "ext-mbstring": "*",
+                "php": ">=5.6.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "9.*"
+            },
+            "time": "2025-03-07T22:46:10+00:00",
+            "type": "library",
+            "installation-source": "dist",
+            "autoload": {
+                "psr-4": {
+                    "ArPHP\\I18N\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "LGPL-3.0"
+            ],
+            "authors": [
+                {
+                    "name": "Khaled Al-Sham'aa",
+                    "email": "khaled@ar-php.org",
+                    "homepage": "http://www.ar-php.org",
+                    "role": "Developer"
+                }
+            ],
+            "description": "Set of functionalities enable Arabic website developers to serve professional search, present and process Arabic content in PHP",
+            "homepage": "https://github.com/khaled-alshamaa/ar-php",
+            "keywords": [
+                "arabic",
+                "arabic-calendar",
+                "arabic-glyphs",
+                "arabic-numbers",
+                "arabic-segments-identifier",
+                "arabic-sentiment",
+                "arabic-sql-query"
+            ],
+            "support": {
+                "issues": "https://github.com/khaled-alshamaa/ar-php/issues",
+                "source": "https://github.com/khaled-alshamaa/ar-php/tree/v7.0.0"
+            },
+            "funding": [
+                {
+                    "url": "https://github.com/khaled-alshamaa",
+                    "type": "github"
+                }
+            ],
+            "install-path": "../khaled.alshamaa/ar-php"
+        },
+        {
             "name": "maennchen/zipstream-php",
             "version": "3.1.2",
             "version_normalized": "3.1.2.0",
@@ -410,6 +476,90 @@
                 "source": "https://github.com/Masterminds/html5-php/tree/2.10.0"
             },
             "install-path": "../masterminds/html5"
+        },
+        {
+            "name": "mpdf/mpdf",
+            "version": "v8.2.7",
+            "version_normalized": "8.2.7.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/mpdf/mpdf.git",
+                "reference": "b59670a09498689c33ce639bac8f5ba26721dab3"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/mpdf/mpdf/zipball/b59670a09498689c33ce639bac8f5ba26721dab3",
+                "reference": "b59670a09498689c33ce639bac8f5ba26721dab3",
+                "shasum": ""
+            },
+            "require": {
+                "ext-gd": "*",
+                "ext-mbstring": "*",
+                "mpdf/psr-http-message-shim": "^1.0 || ^2.0",
+                "mpdf/psr-log-aware-trait": "^2.0 || ^3.0",
+                "myclabs/deep-copy": "^1.7",
+                "paragonie/random_compat": "^1.4|^2.0|^9.99.99",
+                "php": "^5.6 || ^7.0 || ~8.0.0 || ~8.1.0 || ~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0",
+                "psr/http-message": "^1.0 || ^2.0",
+                "psr/log": "^1.0 || ^2.0 || ^3.0",
+                "setasign/fpdi": "^2.1"
+            },
+            "require-dev": {
+                "mockery/mockery": "^1.3.0",
+                "mpdf/qrcode": "^1.1.0",
+                "squizlabs/php_codesniffer": "^3.5.0",
+                "tracy/tracy": "~2.5",
+                "yoast/phpunit-polyfills": "^1.0"
+            },
+            "suggest": {
+                "ext-bcmath": "Needed for generation of some types of barcodes",
+                "ext-xml": "Needed mainly for SVG manipulation",
+                "ext-zlib": "Needed for compression of embedded resources, such as fonts"
+            },
+            "time": "2025-12-01T10:18:02+00:00",
+            "type": "library",
+            "installation-source": "dist",
+            "autoload": {
+                "files": [
+                    "src/functions.php"
+                ],
+                "psr-4": {
+                    "Mpdf\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "GPL-2.0-only"
+            ],
+            "authors": [
+                {
+                    "name": "Matěj Humpál",
+                    "role": "Developer, maintainer"
+                },
+                {
+                    "name": "Ian Back",
+                    "role": "Developer (retired)"
+                }
+            ],
+            "description": "PHP library generating PDF files from UTF-8 encoded HTML",
+            "homepage": "https://mpdf.github.io",
+            "keywords": [
+                "pdf",
+                "php",
+                "utf-8"
+            ],
+            "support": {
+                "docs": "https://mpdf.github.io",
+                "issues": "https://github.com/mpdf/mpdf/issues",
+                "source": "https://github.com/mpdf/mpdf"
+            },
+            "funding": [
+                {
+                    "url": "https://www.paypal.me/mpdf",
+                    "type": "custom"
+                }
+            ],
+            "install-path": "../mpdf/mpdf"
         },
         {
             "name": "mpdf/psr-http-message-shim",

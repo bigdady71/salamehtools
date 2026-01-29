@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/customer_portal.php';
 require_once __DIR__ . '/../../includes/db.php';
@@ -37,16 +40,22 @@ if (!$verifyStmt->fetch()) {
     die('Access denied: This invoice does not belong to your account.');
 }
 
-$pdfGenerator = new InvoicePDF($pdo);
+try {
+    $pdfGenerator = new InvoicePDF($pdo);
 
-switch ($action) {
-    case 'download':
-        // Stream PDF as download
-        $pdfGenerator->streamPDF($invoiceId, null, true);
-        break;
+    switch ($action) {
+        case 'download':
+            // Stream PDF as download
+            $pdfGenerator->streamPDF($invoiceId, null, true);
+            break;
 
-    default:
-        // View PDF in browser
-        $pdfGenerator->streamPDF($invoiceId, null, false);
-        break;
+        default:
+            // View PDF in browser
+            $pdfGenerator->streamPDF($invoiceId, null, false);
+            break;
+    }
+} catch (Exception $e) {
+    http_response_code(500);
+    error_log('PDF generation error: ' . $e->getMessage());
+    die('Error generating PDF: ' . $e->getMessage());
 }

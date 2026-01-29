@@ -6,8 +6,6 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
-use Mpdf\Config\ConfigVariables;
-use Mpdf\Config\FontVariables;
 use Mpdf\Mpdf;
 
 /**
@@ -223,7 +221,7 @@ class InvoicePDF
         }
 
         body {
-            font-family: "Noto Sans Arabic", notosansarabic, "NotoSansArabic", "DejaVu Sans", Arial, sans-serif;
+            font-family: xbriyaz, "XB Riyaz", "DejaVu Sans", Arial, sans-serif;
             background: white;
             padding: 10mm;
             direction: rtl;
@@ -232,9 +230,14 @@ class InvoicePDF
             line-height: 1.6;
         }
 
+        * {
+            font-family: xbriyaz, "XB Riyaz", "DejaVu Sans", Arial, sans-serif;
+        }
+
         :lang(ar),
         [lang="ar"] {
-            font-family: "Noto Sans Arabic", notosansarabic, "NotoSansArabic", "DejaVu Sans", Arial, sans-serif !important;
+            font-family: xbriyaz, "XB Riyaz", "DejaVu Sans", Arial, sans-serif !important;
+            direction: rtl;
         }
 
         .invoice-container {
@@ -331,6 +334,7 @@ class InvoicePDF
         .item-sku {
             font-size: 9px;
             color: #666;
+            direction: ltr;
         }
 
         .totals {
@@ -637,18 +641,24 @@ class InvoicePDF
     public function generatePDF(array $invoice): string
     {
         $html = $this->generateHTML($invoice, false, true);
-        // Use mPDF for Arabic support (Chrome headless has file access issues on Windows)
-        $useMpdf = class_exists(Mpdf::class);
-        if ($useMpdf) {
-            return $this->generatePDFWithMpdf($html);
+
+        // Try mPDF first for Arabic support
+        if (class_exists(Mpdf::class)) {
+            try {
+                return $this->generatePDFWithMpdf($html);
+            } catch (\Exception $e) {
+                // mPDF failed, log error and try fallback
+                error_log('mPDF failed: ' . $e->getMessage());
+            }
         }
 
-        // Fallback to Chrome if mPDF not available
+        // Fallback to Chrome if mPDF not available or failed
         $chromePdf = $this->generatePDFWithChrome($html);
         if ($chromePdf !== null) {
             return $chromePdf;
         }
 
+        // Final fallback to Dompdf with Arabic shaping
         $html = $this->generateHTML($invoice, true, true);
         return $this->generatePDFWithDompdf($html);
     }
@@ -737,10 +747,10 @@ class InvoicePDF
     private function shapeArabic(string $text): string
     {
         if ($this->arabicShaper === null) {
-            if (!class_exists('I18N_Arabic')) {
+            if (!class_exists(\ArPHP\I18N\Arabic::class)) {
                 return $text;
             }
-            $this->arabicShaper = new \I18N_Arabic('Glyphs');
+            $this->arabicShaper = new \ArPHP\I18N\Arabic();
         }
 
         return $this->arabicShaper->utf8Glyphs($text);
@@ -804,33 +814,25 @@ class InvoicePDF
 
     private function generatePDFWithMpdf(string $html): string
     {
-        $fontDir = __DIR__ . '/../fonts';
         $tempDir = __DIR__ . '/../storage/mpdf_tmp';
 
         if (!is_dir($tempDir)) {
-            mkdir($tempDir, 0755, true);
+            if (!@mkdir($tempDir, 0755, true)) {
+                throw new \Exception('Cannot create mPDF temp directory: ' . $tempDir);
+            }
         }
 
-        $config = (new ConfigVariables())->getDefaults();
-        $fontDirs = $config['fontDir'];
+        if (!is_writable($tempDir)) {
+            throw new \Exception('mPDF temp directory is not writable: ' . $tempDir);
+        }
 
-        $fontConfig = (new FontVariables())->getDefaults();
-        $fontData = $fontConfig['fontdata'];
-
-        $fontData['notosansarabic'] = [
-            'R' => 'NotoSansArabic-Regular.ttf',
-            'useOTL' => 0xFF,
-            'useKashida' => 75
-        ];
-
+        // Use mPDF's built-in xbriyaz font for Arabic - it has proper OTL tables
         $mpdf = new Mpdf([
             'mode' => 'utf-8',
             'format' => 'A4',
             'orientation' => 'P',
             'tempDir' => $tempDir,
-            'fontDir' => array_merge($fontDirs, [$fontDir]),
-            'fontdata' => $fontData,
-            'default_font' => 'notosansarabic',
+            'default_font' => 'xbriyaz',
             'directionality' => 'rtl',
             'autoScriptToLang' => true,
             'autoLangToFont' => true,
