@@ -76,7 +76,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 // Get filter parameters
 $alertFilter = $_GET['alert'] ?? 'all';
-$searchQuery = trim($_GET['search'] ?? '');
+$searchQuery = trim((string)($_GET['search'] ?? ''));
+$categoryFilter = trim((string)($_GET['category'] ?? ''));
+$unitFilter = trim((string)($_GET['unit'] ?? ''));
+$stockFilter = (string)($_GET['stock'] ?? 'all');
+$minQty = null;
+$maxQty = null;
+
+if (isset($_GET['min_qty']) && $_GET['min_qty'] !== '' && is_numeric($_GET['min_qty'])) {
+    $minQty = (float)$_GET['min_qty'];
+}
+
+if (isset($_GET['max_qty']) && $_GET['max_qty'] !== '' && is_numeric($_GET['max_qty'])) {
+    $maxQty = (float)$_GET['max_qty'];
+}
+
+if ($minQty !== null && $maxQty !== null && $minQty > $maxQty) {
+    $tmp = $minQty;
+    $minQty = $maxQty;
+    $maxQty = $tmp;
+}
 
 // Calculate stock health KPIs
 $kpis = $pdo->query("
@@ -89,22 +108,55 @@ $kpis = $pdo->query("
     WHERE is_active = 1
 ")->fetch(PDO::FETCH_ASSOC);
 
+// Filters data
+$categoryRows = $pdo->query("
+    SELECT DISTINCT topcat_name AS category
+    FROM products
+    WHERE topcat_name IS NOT NULL AND topcat_name != ''
+    ORDER BY topcat_name
+")->fetchAll(PDO::FETCH_COLUMN);
+
+$midCategoryRows = $pdo->query("
+    SELECT DISTINCT midcat_name AS category
+    FROM products
+    WHERE midcat_name IS NOT NULL AND midcat_name != ''
+    ORDER BY midcat_name
+")->fetchAll(PDO::FETCH_COLUMN);
+
+$categories = array_values(array_unique(array_filter(array_merge($categoryRows, $midCategoryRows), 'strlen')));
+sort($categories, SORT_NATURAL | SORT_FLAG_CASE);
+
+$units = $pdo->query("
+    SELECT DISTINCT unit
+    FROM products
+    WHERE unit IS NOT NULL AND unit != ''
+    ORDER BY unit
+")->fetchAll(PDO::FETCH_COLUMN);
+
 // Build stock query
+$alertCase = "
+    CASE
+        WHEN p.safety_stock IS NOT NULL AND p.quantity_on_hand < p.safety_stock THEN 'critical'
+        WHEN p.reorder_point IS NOT NULL AND p.quantity_on_hand <= p.reorder_point THEN 'warning'
+        ELSE 'ok'
+    END
+";
+
 $stockQuery = "
     SELECT
         p.id,
         p.sku,
         p.item_name,
+        p.unit,
+        p.topcat_name,
+        p.midcat_name,
+        p.image_url,
         p.quantity_on_hand,
         p.safety_stock,
         p.reorder_point,
         p.wholesale_price_usd,
         (p.quantity_on_hand * p.wholesale_price_usd) AS stock_value,
-        CASE
-            WHEN p.safety_stock IS NOT NULL AND p.quantity_on_hand < p.safety_stock THEN 'critical'
-            WHEN p.reorder_point IS NOT NULL AND p.quantity_on_hand <= p.reorder_point THEN 'warning'
-            ELSE 'ok'
-        END AS alert_level
+        {$alertCase} AS alert_level
     FROM products p
     WHERE p.is_active = 1
 ";
@@ -114,6 +166,37 @@ $params = [];
 if ($searchQuery !== '') {
     $stockQuery .= " AND (p.sku LIKE :search OR p.item_name LIKE :search)";
     $params[':search'] = '%' . $searchQuery . '%';
+}
+
+if ($categoryFilter !== '') {
+    $stockQuery .= " AND (p.topcat_name = :category OR p.midcat_name = :category)";
+    $params[':category'] = $categoryFilter;
+}
+
+if ($unitFilter !== '') {
+    $stockQuery .= " AND p.unit = :unit";
+    $params[':unit'] = $unitFilter;
+}
+
+if ($stockFilter === 'in') {
+    $stockQuery .= " AND p.quantity_on_hand > 0";
+} elseif ($stockFilter === 'out') {
+    $stockQuery .= " AND p.quantity_on_hand <= 0";
+}
+
+if ($minQty !== null) {
+    $stockQuery .= " AND p.quantity_on_hand >= :min_qty";
+    $params[':min_qty'] = $minQty;
+}
+
+if ($maxQty !== null) {
+    $stockQuery .= " AND p.quantity_on_hand <= :max_qty";
+    $params[':max_qty'] = $maxQty;
+}
+
+if ($alertFilter !== 'all') {
+    $stockQuery .= " AND {$alertCase} = :alert";
+    $params[':alert'] = $alertFilter;
 }
 
 $stockQuery .= " ORDER BY
@@ -129,13 +212,6 @@ $stockQuery .= " ORDER BY
 $stmt = $pdo->prepare($stockQuery);
 $stmt->execute($params);
 $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Filter products by alert level if needed
-if ($alertFilter !== 'all') {
-    $products = array_filter($products, function($p) use ($alertFilter) {
-        return $p['alert_level'] === $alertFilter;
-    });
-}
 
 // Get recent movements
 $recentMovements = $pdo->query("
@@ -168,6 +244,13 @@ admin_render_layout_start([
 ]);
 
 $flashes = consume_flashes();
+$hasFilters = $searchQuery !== '' ||
+    $alertFilter !== 'all' ||
+    $categoryFilter !== '' ||
+    $unitFilter !== '' ||
+    $stockFilter !== 'all' ||
+    $minQty !== null ||
+    $maxQty !== null;
 ?>
 
 <style>
@@ -324,6 +407,37 @@ $flashes = consume_flashes();
         font-family: 'Courier New', monospace;
         font-weight: 600;
     }
+    .product-cell {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .product-thumb {
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: #f8fafc;
+        object-fit: contain;
+        flex-shrink: 0;
+    }
+    .product-thumb.placeholder {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--muted);
+        font-size: 1.2rem;
+        background: var(--bg-panel-alt);
+    }
+    .product-name {
+        font-weight: 600;
+        color: var(--text);
+    }
+    .product-meta {
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-top: 2px;
+    }
 </style>
 
 <?php foreach ($flashes as $flash): ?>
@@ -353,26 +467,61 @@ $flashes = consume_flashes();
 
 <div class="filter-bar">
     <form method="get" style="display: flex; gap: 12px; flex-wrap: wrap; flex: 1; align-items: center;">
-        <div>
-            <input
-                type="text"
-                name="search"
-                class="form-input"
-                placeholder="Search SKU or name..."
-                value="<?= htmlspecialchars($searchQuery, ENT_QUOTES, 'UTF-8') ?>"
-                style="width: 250px;"
-            >
-        </div>
-        <div>
-            <select name="alert" class="form-select" onchange="this.form.submit()">
-                <option value="all" <?= $alertFilter === 'all' ? 'selected' : '' ?>>All Products</option>
-                <option value="critical" <?= $alertFilter === 'critical' ? 'selected' : '' ?>>Critical Only</option>
-                <option value="warning" <?= $alertFilter === 'warning' ? 'selected' : '' ?>>Warning Only</option>
-                <option value="ok" <?= $alertFilter === 'ok' ? 'selected' : '' ?>>OK Only</option>
-            </select>
-        </div>
-        <button type="submit" class="btn btn-sm">Search</button>
-        <?php if ($searchQuery !== '' || $alertFilter !== 'all'): ?>
+        <input
+            type="text"
+            name="search"
+            class="form-input"
+            placeholder="Search SKU or name..."
+            value="<?= htmlspecialchars($searchQuery, ENT_QUOTES, 'UTF-8') ?>"
+            style="width: 220px;"
+        >
+        <select name="category" class="form-select" style="min-width: 180px;">
+            <option value="">All Categories</option>
+            <?php foreach ($categories as $category): ?>
+                <option value="<?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>" <?= $categoryFilter === $category ? 'selected' : '' ?>>
+                    <?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+        <select name="unit" class="form-select" style="min-width: 120px;">
+            <option value="">All Units</option>
+            <?php foreach ($units as $unit): ?>
+                <option value="<?= htmlspecialchars($unit, ENT_QUOTES, 'UTF-8') ?>" <?= $unitFilter === $unit ? 'selected' : '' ?>>
+                    <?= htmlspecialchars($unit, ENT_QUOTES, 'UTF-8') ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+        <select name="stock" class="form-select" style="min-width: 140px;">
+            <option value="all" <?= $stockFilter === 'all' ? 'selected' : '' ?>>All Stock</option>
+            <option value="in" <?= $stockFilter === 'in' ? 'selected' : '' ?>>In Stock</option>
+            <option value="out" <?= $stockFilter === 'out' ? 'selected' : '' ?>>Out of Stock</option>
+        </select>
+        <input
+            type="number"
+            name="min_qty"
+            class="form-input"
+            placeholder="Min qty"
+            step="0.01"
+            value="<?= $minQty !== null ? htmlspecialchars((string)$minQty, ENT_QUOTES, 'UTF-8') : '' ?>"
+            style="width: 110px;"
+        >
+        <input
+            type="number"
+            name="max_qty"
+            class="form-input"
+            placeholder="Max qty"
+            step="0.01"
+            value="<?= $maxQty !== null ? htmlspecialchars((string)$maxQty, ENT_QUOTES, 'UTF-8') : '' ?>"
+            style="width: 110px;"
+        >
+        <select name="alert" class="form-select" style="min-width: 150px;">
+            <option value="all" <?= $alertFilter === 'all' ? 'selected' : '' ?>>All Alerts</option>
+            <option value="critical" <?= $alertFilter === 'critical' ? 'selected' : '' ?>>Critical Only</option>
+            <option value="warning" <?= $alertFilter === 'warning' ? 'selected' : '' ?>>Warning Only</option>
+            <option value="ok" <?= $alertFilter === 'ok' ? 'selected' : '' ?>>OK Only</option>
+        </select>
+        <button type="submit" class="btn btn-sm">Apply Filters</button>
+        <?php if ($hasFilters): ?>
             <a href="warehouse_stock.php" class="btn btn-sm" style="background: var(--bg-panel-alt); color: var(--text);">Clear</a>
         <?php endif; ?>
     </form>
@@ -397,7 +546,30 @@ $flashes = consume_flashes();
             <?php foreach ($products as $product): ?>
                 <tr>
                     <td style="font-family: 'Courier New', monospace;"><?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?></td>
-                    <td><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></td>
+                    <?php
+                        $categoryLabel = $product['topcat_name'] ?: $product['midcat_name'];
+                        $categoryLabel = $categoryLabel ?: 'Uncategorized';
+                        $unitLabel = $product['unit'] ?: '—';
+                        $imageUrl = trim((string)($product['image_url'] ?? ''));
+                    ?>
+                    <td>
+                        <div class="product-cell">
+                            <?php if ($imageUrl !== ''): ?>
+                                <img
+                                    src="<?= htmlspecialchars($imageUrl, ENT_QUOTES, 'UTF-8') ?>"
+                                    alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                                    class="product-thumb"
+                                    loading="lazy"
+                                >
+                            <?php else: ?>
+                                <div class="product-thumb placeholder"></div>
+                            <?php endif; ?>
+                            <div>
+                                <div class="product-name"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
+                                <div class="product-meta"><?= htmlspecialchars($categoryLabel, ENT_QUOTES, 'UTF-8') ?> • <?= htmlspecialchars($unitLabel, ENT_QUOTES, 'UTF-8') ?></div>
+                            </div>
+                        </div>
+                    </td>
                     <td class="qty-cell"><?= number_format((float)$product['quantity_on_hand'], 2) ?></td>
                     <td class="qty-cell"><?= $product['safety_stock'] ? number_format((float)$product['safety_stock'], 2) : '—' ?></td>
                     <td class="qty-cell"><?= $product['reorder_point'] ? number_format((float)$product['reorder_point'], 2) : '—' ?></td>

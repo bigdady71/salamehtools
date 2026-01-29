@@ -177,6 +177,57 @@ $products = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
 // Get pending adjustments
 $pendingAdjustments = get_pending_adjustments_for_initiator($pdo, $userId, $initiatorType);
 
+// Overall pending adjustment stats
+$pendingStats = $pdo->query("
+    SELECT
+        COUNT(*) as total_pending,
+        SUM(CASE WHEN initiator_confirmed = 0 THEN 1 ELSE 0 END) as waiting_initiator,
+        SUM(CASE WHEN sales_rep_confirmed = 0 THEN 1 ELSE 0 END) as waiting_sales_rep
+    FROM stock_adjustment_otps
+    WHERE completed_at IS NULL
+      AND expires_at > NOW()
+")->fetch(PDO::FETCH_ASSOC);
+
+// Recent completed adjustments (audit trail)
+$recentAdjustments = $pdo->query("
+    SELECT
+        oa.adjustment_id,
+        oa.delta_qty,
+        oa.reason,
+        oa.note,
+        oa.completed_at,
+        oa.initiator_type,
+        sr.name as sales_rep_name,
+        p.item_name as product_name,
+        p.sku,
+        u.name as initiator_name
+    FROM stock_adjustment_otps oa
+    INNER JOIN products p ON p.id = oa.product_id
+    INNER JOIN users sr ON sr.id = oa.sales_rep_id
+    LEFT JOIN users u ON u.id = oa.initiator_id
+    WHERE oa.completed_at IS NOT NULL
+    ORDER BY oa.completed_at DESC
+    LIMIT 15
+")->fetchAll(PDO::FETCH_ASSOC);
+
+// Sales rep stock overview
+$repStockOverview = $pdo->query("
+    SELECT
+        s.salesperson_id as rep_id,
+        u.name as rep_name,
+        u.email as rep_email,
+        COUNT(*) as sku_count,
+        SUM(s.qty_on_hand) as total_units,
+        SUM(s.qty_on_hand * p.wholesale_price_usd) as total_value,
+        SUM(CASE WHEN s.qty_on_hand <= 0 THEN 1 ELSE 0 END) as out_of_stock,
+        SUM(CASE WHEN s.qty_on_hand > 0 AND s.qty_on_hand <= 5 THEN 1 ELSE 0 END) as low_stock
+    FROM s_stock s
+    INNER JOIN users u ON u.id = s.salesperson_id
+    INNER JOIN products p ON p.id = s.product_id
+    GROUP BY s.salesperson_id, u.name, u.email
+    ORDER BY total_value DESC
+")->fetchAll(PDO::FETCH_ASSOC);
+
 $csrfToken = csrf_token();
 
 admin_render_layout_start([
@@ -377,6 +428,74 @@ admin_render_layout_start([
             padding: 40px 20px;
             color: var(--muted);
         }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: var(--bg-panel);
+            border-radius: 14px;
+            padding: 18px;
+            border: 1px solid var(--border);
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+        }
+        .stat-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: var(--bg-panel-alt);
+            border: 1px solid var(--border);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        .stat-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .data-table th {
+            background: var(--bg-panel-alt);
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+        }
+        .data-table td {
+            padding: 12px;
+            border-top: 1px solid var(--border);
+        }
+        .data-table tr:nth-child(2n) {
+            background: rgba(148, 163, 184, 0.06);
+        }
+        .status-pill {
+            display: inline-flex;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .status-ok { background: rgba(16, 185, 129, 0.15); color: #059669; }
+        .status-warn { background: rgba(245, 158, 11, 0.15); color: #b45309; }
+        .status-danger { background: rgba(239, 68, 68, 0.15); color: #dc2626; }
     </style>',
 ]);
 
@@ -417,6 +536,47 @@ if ($flashes) {
 }
 
 echo '<div class="page-container">';
+
+echo '<div class="stats-grid">';
+echo '<div class="stat-card"><div class="stat-icon">⏳</div><div><div class="stat-label">Pending Requests</div><div class="stat-value">' . number_format((int)($pendingStats['total_pending'] ?? 0)) . '</div></div></div>';
+echo '<div class="stat-card"><div class="stat-icon">🛡️</div><div><div class="stat-label">Waiting Initiator</div><div class="stat-value">' . number_format((int)($pendingStats['waiting_initiator'] ?? 0)) . '</div></div></div>';
+echo '<div class="stat-card"><div class="stat-icon">🤝</div><div><div class="stat-label">Waiting Sales Rep</div><div class="stat-value">' . number_format((int)($pendingStats['waiting_sales_rep'] ?? 0)) . '</div></div></div>';
+echo '</div>';
+
+echo '<div class="card" style="margin-bottom:24px;">';
+echo '<h2>✅ How the Adjustment Flow Works</h2>';
+echo '<ol style="margin:0 0 0 18px; color:var(--muted); line-height:1.7;">';
+echo '<li>Admin/Warehouse creates an adjustment request (adds or removes van stock).</li>';
+echo '<li>System generates two OTP codes: one for the initiator, one for the sales rep.</li>';
+echo '<li>Both parties confirm. Once both are confirmed, the stock is updated and logged.</li>';
+echo '</ol>';
+echo '</div>';
+
+echo '<div class="card" style="margin-bottom:24px;">';
+echo '<h2>📊 Sales Rep Stock Overview</h2>';
+if (empty($repStockOverview)) {
+    echo '<div class="empty-state">No van stock data available.</div>';
+} else {
+    echo '<table class="data-table">';
+    echo '<thead><tr><th>Sales Rep</th><th>SKUs</th><th>Units</th><th>Value</th><th>Alerts</th><th>Action</th></tr></thead>';
+    echo '<tbody>';
+    foreach ($repStockOverview as $summary) {
+        $out = (int)$summary['out_of_stock'];
+        $low = (int)$summary['low_stock'];
+        $badgeClass = $out > 0 ? 'status-danger' : ($low > 0 ? 'status-warn' : 'status-ok');
+        $badgeText = $out > 0 ? "{$out} out" : ($low > 0 ? "{$low} low" : 'OK');
+        echo '<tr>';
+        echo '<td><strong>' . htmlspecialchars($summary['rep_name'], ENT_QUOTES, 'UTF-8') . '</strong><br><span style="color:var(--muted);font-size:0.85rem;">' . htmlspecialchars($summary['rep_email'] ?? '', ENT_QUOTES, 'UTF-8') . '</span></td>';
+        echo '<td>' . number_format((int)$summary['sku_count']) . '</td>';
+        echo '<td>' . number_format((float)$summary['total_units'], 1) . '</td>';
+        echo '<td>$' . number_format((float)$summary['total_value'], 2) . '</td>';
+        echo '<td><span class="status-pill ' . $badgeClass . '">' . $badgeText . '</span></td>';
+        echo '<td><a class="btn-confirm" style="text-decoration:none;" href="van_stock_overview.php?rep_id=' . (int)$summary['rep_id'] . '">View Stock</a></td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
+}
+echo '</div>';
 
 echo '<div class="content-grid">';
 
@@ -553,6 +713,33 @@ if (empty($pendingAdjustments)) {
 echo '</div>';
 
 echo '</div>'; // End content-grid
+
+echo '<div class="card">';
+echo '<h2>🧾 Recent Completed Adjustments</h2>';
+if (empty($recentAdjustments)) {
+    echo '<div class="empty-state">No completed adjustments yet.</div>';
+} else {
+    echo '<table class="data-table">';
+    echo '<thead><tr><th>When</th><th>Sales Rep</th><th>Product</th><th>Change</th><th>Reason</th><th>Initiator</th></tr></thead>';
+    echo '<tbody>';
+    foreach ($recentAdjustments as $adj) {
+        $deltaQty = (float)$adj['delta_qty'];
+        $qtyClass = $deltaQty > 0 ? 'qty-increase' : 'qty-decrease';
+        $qtySign = $deltaQty > 0 ? '+' : '';
+        $initiatorLabel = $adj['initiator_type'] === 'warehouse_manager' ? 'Warehouse' : 'Admin';
+        $initiatorName = $adj['initiator_name'] ? $initiatorLabel . ' · ' . $adj['initiator_name'] : $initiatorLabel;
+        echo '<tr>';
+        echo '<td>' . htmlspecialchars(date('M d, Y g:i A', strtotime($adj['completed_at'])), ENT_QUOTES, 'UTF-8') . '</td>';
+        echo '<td>' . htmlspecialchars($adj['sales_rep_name'], ENT_QUOTES, 'UTF-8') . '</td>';
+        echo '<td><strong>' . htmlspecialchars($adj['product_name'], ENT_QUOTES, 'UTF-8') . '</strong><br><span style="color:var(--muted);font-size:0.85rem;">' . htmlspecialchars($adj['sku'], ENT_QUOTES, 'UTF-8') . '</span></td>';
+        echo '<td><span class="' . $qtyClass . '">' . $qtySign . number_format($deltaQty, 1) . '</span></td>';
+        echo '<td>' . htmlspecialchars(ucwords(str_replace('_', ' ', (string)$adj['reason'])), ENT_QUOTES, 'UTF-8') . '</td>';
+        echo '<td>' . htmlspecialchars($initiatorName, ENT_QUOTES, 'UTF-8') . '</td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
+}
+echo '</div>';
 
 echo '</div>'; // End page-container
 

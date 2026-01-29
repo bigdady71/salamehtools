@@ -55,6 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 // Get customer filter
 $customerFilter = isset($_GET['customer']) ? (int)$_GET['customer'] : 0;
+$searchTerm = trim((string)($_GET['q'] ?? ''));
 
 // Get aging buckets with outstanding amounts
 $agingQuery = "
@@ -118,6 +119,10 @@ if ($customerFilter > 0) {
     $customersQuery .= " AND c.id = :customer_filter";
 }
 
+if ($searchTerm !== '') {
+    $customersQuery .= " AND (c.name LIKE :search OR c.phone LIKE :search)";
+}
+
 $customersQuery .= "
     GROUP BY c.id
     ORDER BY outstanding_usd DESC, outstanding_lbp DESC
@@ -125,11 +130,14 @@ $customersQuery .= "
 ";
 
 $stmt = $pdo->prepare($customersQuery);
+$params = [];
 if ($customerFilter > 0) {
-    $stmt->execute([':customer_filter' => $customerFilter]);
-} else {
-    $stmt->execute();
+    $params[':customer_filter'] = $customerFilter;
 }
+if ($searchTerm !== '') {
+    $params[':search'] = '%' . $searchTerm . '%';
+}
+$stmt->execute($params);
 $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get all customers for filter dropdown
@@ -429,8 +437,17 @@ $flashes = consume_flashes();
 </div>
 
 <div class="filter-bar">
-    <form method="get" style="display: flex; gap: 12px; flex: 1; align-items: center;">
-        <label style="font-weight: 600;">Filter by Customer:</label>
+    <form method="get" style="display: flex; gap: 12px; flex: 1; align-items: center; flex-wrap: wrap;">
+        <label style="font-weight: 600;">Search:</label>
+        <input
+            type="text"
+            name="q"
+            class="form-input"
+            placeholder="Customer name or phone..."
+            value="<?= htmlspecialchars($searchTerm, ENT_QUOTES, 'UTF-8') ?>"
+            style="width: 220px;"
+        >
+        <label style="font-weight: 600;">Customer:</label>
         <select name="customer" class="form-select" onchange="this.form.submit()" style="width: auto; max-width: 300px;">
             <option value="0">All Customers</option>
             <?php foreach ($allCustomers as $c): ?>
@@ -439,7 +456,8 @@ $flashes = consume_flashes();
                 </option>
             <?php endforeach; ?>
         </select>
-        <?php if ($customerFilter > 0): ?>
+        <button type="submit" class="btn">Search</button>
+        <?php if ($customerFilter > 0 || $searchTerm !== ''): ?>
             <a href="receivables.php" class="btn-secondary" style="padding: 8px 16px; text-decoration: none; display: inline-block; border-radius: 6px;">Clear</a>
         <?php endif; ?>
     </form>

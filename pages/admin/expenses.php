@@ -108,6 +108,22 @@ $repTotals = $repTotalsStmt->fetchAll(PDO::FETCH_ASSOC);
 $repsStmt = $pdo->query("SELECT id, name FROM users WHERE role = 'sales_rep' ORDER BY name");
 $salesReps = $repsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$maxCategoryUsd = 0.0;
+foreach ($categoryTotals as $catTotal) {
+    $maxCategoryUsd = max($maxCategoryUsd, (float)($catTotal['total_usd'] ?? 0));
+}
+if ($maxCategoryUsd <= 0) {
+    $maxCategoryUsd = 1;
+}
+
+$maxRepUsd = 0.0;
+foreach ($repTotals as $repTotal) {
+    $maxRepUsd = max($maxRepUsd, (float)($repTotal['total_usd'] ?? 0));
+}
+if ($maxRepUsd <= 0) {
+    $maxRepUsd = 1;
+}
+
 // Start admin layout
 admin_render_layout_start([
     'title' => 'Sales Rep Expenses',
@@ -124,9 +140,29 @@ admin_render_layout_start([
         }
         .stat-card {
             background: var(--bg-panel);
-            padding: 20px;
-            border-radius: 12px;
+            padding: 18px;
+            border-radius: 14px;
             border: 1px solid var(--border);
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+        }
+        .stat-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            background: var(--bg-panel-alt);
+            border: 1px solid var(--border);
+        }
+        .stat-body {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
         }
         .stat-label {
             font-size: 0.85rem;
@@ -146,17 +182,19 @@ admin_render_layout_start([
         .filters {
             background: var(--bg-panel);
             padding: 20px;
-            border-radius: 12px;
+            border-radius: 14px;
             margin-bottom: 24px;
             border: 1px solid var(--border);
+            box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
         }
         .filters h3 {
-            margin-bottom: 16px;
+            margin-bottom: 14px;
+            font-size: 1.1rem;
         }
         .filters form {
-            display: flex;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 12px;
-            flex-wrap: wrap;
             align-items: end;
         }
         .form-group {
@@ -184,7 +222,7 @@ admin_render_layout_start([
             transition: all 0.2s;
         }
         .btn-primary {
-            background: var(--accent);
+            background: linear-gradient(135deg, var(--accent) 0%, #0ea5e9 100%);
             color: white;
         }
         .btn-primary:hover {
@@ -198,9 +236,10 @@ admin_render_layout_start([
         }
         .breakdown-card {
             background: var(--bg-panel);
-            padding: 24px;
-            border-radius: 12px;
+            padding: 22px;
+            border-radius: 14px;
             border: 1px solid var(--border);
+            box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
         }
         .breakdown-card h3 {
             margin-bottom: 16px;
@@ -211,6 +250,7 @@ admin_render_layout_start([
             justify-content: space-between;
             padding: 12px 0;
             border-bottom: 1px solid var(--border);
+            gap: 12px;
         }
         .breakdown-item:last-child {
             border-bottom: none;
@@ -222,11 +262,24 @@ admin_render_layout_start([
             font-weight: 700;
             color: var(--accent);
         }
+        .breakdown-progress {
+            height: 6px;
+            border-radius: 999px;
+            background: var(--bg-panel-alt);
+            overflow: hidden;
+            margin-top: 6px;
+        }
+        .breakdown-progress span {
+            display: block;
+            height: 100%;
+            background: linear-gradient(90deg, #22c55e, #0ea5e9);
+        }
         .expense-table {
             background: var(--bg-panel);
-            border-radius: 12px;
+            border-radius: 14px;
             overflow: hidden;
             border: 1px solid var(--border);
+            box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
         }
         table {
             width: 100%;
@@ -237,7 +290,9 @@ admin_render_layout_start([
             padding: 14px 12px;
             text-align: left;
             font-weight: 600;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
             color: var(--muted);
         }
         td {
@@ -246,6 +301,9 @@ admin_render_layout_start([
         }
         tr:hover {
             background: var(--bg-panel-alt);
+        }
+        tbody tr:nth-child(2n) {
+            background: rgba(148, 163, 184, 0.06);
         }
         .status-badge {
             display: inline-block;
@@ -279,21 +337,30 @@ admin_render_layout_start([
 <!-- Summary Stats -->
 <div class="stats-grid">
     <div class="stat-card">
-        <div class="stat-label">Total Expenses (Period)</div>
-        <div class="stat-value">$<?= number_format((float)($totals['total_usd'] ?? 0), 2) ?></div>
-        <div class="stat-sublabel">L.L. <?= number_format((float)($totals['total_lbp'] ?? 0), 0) ?></div>
+        <div class="stat-icon">💳</div>
+        <div class="stat-body">
+            <div class="stat-label">Total Expenses (Period)</div>
+            <div class="stat-value">$<?= number_format((float)($totals['total_usd'] ?? 0), 2) ?></div>
+            <div class="stat-sublabel">L.L. <?= number_format((float)($totals['total_lbp'] ?? 0), 0) ?></div>
+        </div>
     </div>
 
     <div class="stat-card">
-        <div class="stat-label">Total Transactions</div>
-        <div class="stat-value"><?= number_format((int)($totals['expense_count'] ?? 0)) ?></div>
-        <div class="stat-sublabel">Expense entries</div>
+        <div class="stat-icon">🧾</div>
+        <div class="stat-body">
+            <div class="stat-label">Total Transactions</div>
+            <div class="stat-value"><?= number_format((int)($totals['expense_count'] ?? 0)) ?></div>
+            <div class="stat-sublabel">Expense entries</div>
+        </div>
     </div>
 
     <div class="stat-card">
-        <div class="stat-label">Average per Entry</div>
-        <div class="stat-value">$<?= ($totals['expense_count'] ?? 0) > 0 ? number_format(($totals['total_usd'] ?? 0) / $totals['expense_count'], 2) : '0.00' ?></div>
-        <div class="stat-sublabel">USD average</div>
+        <div class="stat-icon">📈</div>
+        <div class="stat-body">
+            <div class="stat-label">Average per Entry</div>
+            <div class="stat-value">$<?= ($totals['expense_count'] ?? 0) > 0 ? number_format(($totals['total_usd'] ?? 0) / $totals['expense_count'], 2) : '0.00' ?></div>
+            <div class="stat-sublabel">USD average</div>
+        </div>
     </div>
 </div>
 
@@ -339,6 +406,7 @@ admin_render_layout_start([
         </div>
 
         <button type="submit" class="btn btn-primary">Apply Filters</button>
+        <a href="expenses.php" class="btn" style="background: var(--bg-panel-alt); color: var(--text); text-decoration:none; text-align:center;">Clear</a>
     </form>
 </div>
 
@@ -352,7 +420,12 @@ admin_render_layout_start([
         <?php else: ?>
             <?php foreach ($categoryTotals as $cat): ?>
                 <div class="breakdown-item">
-                    <span class="breakdown-label"><?= htmlspecialchars(ucfirst($cat['category']), ENT_QUOTES, 'UTF-8') ?> (<?= (int)$cat['count'] ?>)</span>
+                    <div>
+                        <div class="breakdown-label"><?= htmlspecialchars(ucfirst($cat['category']), ENT_QUOTES, 'UTF-8') ?> (<?= (int)$cat['count'] ?>)</div>
+                        <div class="breakdown-progress">
+                            <span style="width: <?= min(100, ((float)$cat['total_usd'] / $maxCategoryUsd) * 100) ?>%;"></span>
+                        </div>
+                    </div>
                     <span class="breakdown-value">$<?= number_format((float)$cat['total_usd'], 2) ?></span>
                 </div>
             <?php endforeach; ?>
@@ -367,7 +440,12 @@ admin_render_layout_start([
         <?php else: ?>
             <?php foreach ($repTotals as $rep): ?>
                 <div class="breakdown-item">
-                    <span class="breakdown-label"><?= htmlspecialchars($rep['rep_name'], ENT_QUOTES, 'UTF-8') ?> (<?= (int)$rep['count'] ?>)</span>
+                    <div>
+                        <div class="breakdown-label"><?= htmlspecialchars($rep['rep_name'], ENT_QUOTES, 'UTF-8') ?> (<?= (int)$rep['count'] ?>)</div>
+                        <div class="breakdown-progress">
+                            <span style="width: <?= min(100, ((float)$rep['total_usd'] / $maxRepUsd) * 100) ?>%;"></span>
+                        </div>
+                    </div>
                     <span class="breakdown-value">$<?= number_format((float)$rep['total_usd'], 2) ?></span>
                 </div>
             <?php endforeach; ?>

@@ -168,11 +168,22 @@ $orderTypeStmt = $pdo->prepare("
     WHERE i.created_at >= :from AND i.created_at <= :to
     AND i.status IN ('issued', 'paid')
     " . ($salesRepFilter ? ' AND o.sales_rep_id = :sales_rep_id' : '') . "
+    " . ($orderTypeFilter ? ' AND o.order_type = :order_type' : '') . "
     " . ($customerTierFilter ? ' AND c.customer_tier = :customer_tier' : '') . "
     GROUP BY o.order_type
     ORDER BY revenue_usd DESC
 ");
-$orderTypeStmt->execute($salesRepFilter || $customerTierFilter ? $params : [':from' => $dateFrom, ':to' => $dateTo . ' 23:59:59']);
+$orderTypeParams = [':from' => $dateFrom, ':to' => $dateTo . ' 23:59:59'];
+if ($salesRepFilter) {
+    $orderTypeParams[':sales_rep_id'] = (int)$salesRepFilter;
+}
+if ($orderTypeFilter !== '') {
+    $orderTypeParams[':order_type'] = $orderTypeFilter;
+}
+if ($customerTierFilter !== '') {
+    $orderTypeParams[':customer_tier'] = $customerTierFilter;
+}
+$orderTypeStmt->execute($orderTypeParams);
 $orderTypeData = $orderTypeStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // ========================================
