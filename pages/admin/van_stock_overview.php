@@ -124,7 +124,7 @@ admin_render_layout_start([
     'heading' => 'Sales Rep Van Stock Overview',
     'subtitle' => 'Monitor field inventory across all sales representatives',
     'user' => $user,
-    'active' => 'warehouse',
+    'active' => 'van_stock',
 ]);
 
 ?>

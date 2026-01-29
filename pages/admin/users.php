@@ -632,17 +632,21 @@ $flashes = consume_flashes();
             <a href="invoices.php">Invoices</a>
             <a href="customers.php">Customers</a>
             <a href="sales_reps.php">Sales Reps</a>
+            <a href="van_stock_overview.php">Van Stock</a>
+            <a href="sales_rep_stock_adjustment.php">Rep Stock Auth</a>
             <a href="receivables.php">Receivables</a>
+            <a href="expenses.php">Expenses</a>
+            <a href="cash_refund_approvals.php">Cash Refunds</a>
             <a href="warehouse_stock.php">Warehouse</a>
             <a href="analytics.php">Analytics</a>
             <a href="stats.php">Statistics</a>
-            <a href="demo_filters_export.php">Filters Demo</a>
             <a href="settings.php">Settings</a>
         </nav>
         <div class="user-card">
             <span style="color:var(--muted);">Signed in as</span>
             <strong><?= htmlspecialchars($user['name'] ?? 'Admin') ?></strong>
             <span style="font-size:0.85rem;color:var(--muted);"><?= htmlspecialchars($user['role'] ?? '') ?></span>
+            <a href="../logout.php" style="display:block;margin-top:12px;padding:8px 12px;background:rgba(239,68,68,0.1);color:#dc2626;border-radius:8px;text-align:center;font-weight:600;font-size:0.85rem;border:1px solid rgba(239,68,68,0.2);">Logout</a>
         </div>
     </aside>
 

@@ -12,7 +12,7 @@ use SalamehTools\Middleware\RBACMiddleware;
 
 require_login();
 $user = auth_user();
-RBACMiddleware::requireRole(['admin', 'warehouse_manager'], 'Access denied. Administrators and warehouse managers only.');
+RBACMiddleware::requireAnyRole(['admin', 'warehouse_manager'], 'Access denied. Administrators and warehouse managers only.');
 
 $userId = (int)$user['id'];
 $userRole = (string)$user['role'];
@@ -183,7 +183,7 @@ admin_render_layout_start([
     'title' => 'Sales Rep Stock Adjustments',
     'heading' => '🔐 Sales Rep Stock Adjustments',
     'subtitle' => 'Manage stock adjustments for sales representatives with two-factor authentication',
-    'active' => 'sales_reps',
+    'active' => 'stock_adjustments',
     'user' => $user,
     'extra_head' => '<style>
         .page-container {
