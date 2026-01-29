@@ -170,7 +170,7 @@ class InvoicePDF
     /**
      * Generate HTML for the invoice
      */
-    public function generateHTML(array $invoice, bool $shapeArabic = false): string
+    public function generateHTML(array $invoice, bool $shapeArabic = false, bool $embedLocalFont = true): string
     {
         $invoiceTotal = (float)$invoice['total_usd'];
         $invoicePaid = (float)$invoice['paid_usd'];
@@ -191,16 +191,16 @@ class InvoicePDF
             $displayNotes = trim($displayNotes);
         }
 
+        $fontFaceCss = $embedLocalFont ? $this->getFontFaceCss() : '';
+
         $html = '<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>فاتورة - ' . $this->formatText($invoice['invoice_number'] ?? '', $shapeArabic) . '</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap" rel="stylesheet">
     <style>
+        ' . $fontFaceCss . '
         @page {
             size: A4;
             margin: 0;
@@ -636,7 +636,7 @@ class InvoicePDF
      */
     public function generatePDF(array $invoice): string
     {
-        $html = $this->generateHTML($invoice, false);
+        $html = $this->generateHTML($invoice, false, true);
         // Use mPDF for Arabic support (Chrome headless has file access issues on Windows)
         $useMpdf = class_exists(Mpdf::class);
         if ($useMpdf) {
@@ -649,39 +649,8 @@ class InvoicePDF
             return $chromePdf;
         }
 
-        $html = $this->generateHTML($invoice, true);
-
-        $options = new Options();
-        $options->set('isRemoteEnabled', true);
-        $options->set('isHtml5ParserEnabled', true);
-        $options->set('defaultFont', 'NotoSansArabic');
-        $options->set('isFontSubsettingEnabled', true);
-        $options->set('chroot', __DIR__ . '/..');
-        $fontDir = __DIR__ . '/../fonts';
-        $options->set('fontDir', $fontDir);
-        $fontCache = __DIR__ . '/../storage/font_cache';
-        if (!is_dir($fontCache)) {
-            mkdir($fontCache, 0755, true);
-        }
-        $options->set('fontCache', $fontCache);
-
-        $dompdf = new Dompdf($options);
-
-        // Load Arabic font
-        $arabicFontPath = $fontDir . '/NotoSansArabic-Regular.ttf';
-
-        if (file_exists($arabicFontPath)) {
-            $dompdf->getFontMetrics()->registerFont(
-                ['family' => 'NotoSansArabic', 'style' => 'normal', 'weight' => 'normal'],
-                $arabicFontPath
-            );
-        }
-
-        $dompdf->loadHtml($html, 'UTF-8');
-        $dompdf->setPaper('A4', 'portrait');
-        $dompdf->render();
-
-        return $dompdf->output();
+        $html = $this->generateHTML($invoice, true, true);
+        return $this->generatePDFWithDompdf($html);
     }
 
     private function generatePDFWithChrome(string $html): ?string
@@ -775,6 +744,62 @@ class InvoicePDF
         }
 
         return $this->arabicShaper->utf8Glyphs($text);
+    }
+
+    private function generatePDFWithDompdf(string $html): string
+    {
+        $options = new Options();
+        $options->set('isRemoteEnabled', true);
+        $options->set('isHtml5ParserEnabled', true);
+        $options->set('defaultFont', 'NotoSansArabic');
+        $options->set('isFontSubsettingEnabled', true);
+        $options->set('chroot', __DIR__ . '/..');
+        $fontDir = __DIR__ . '/../fonts';
+        $options->set('fontDir', $fontDir);
+        $fontCache = __DIR__ . '/../storage/font_cache';
+        if (!is_dir($fontCache)) {
+            mkdir($fontCache, 0755, true);
+        }
+        $options->set('fontCache', $fontCache);
+
+        $dompdf = new Dompdf($options);
+
+        // Load Arabic font
+        $arabicFontPath = $fontDir . '/NotoSansArabic-Regular.ttf';
+        if (file_exists($arabicFontPath)) {
+            $dompdf->getFontMetrics()->registerFont(
+                ['family' => 'NotoSansArabic', 'style' => 'normal', 'weight' => 'normal'],
+                $arabicFontPath
+            );
+        }
+
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->setPaper('A4', 'portrait');
+        $dompdf->render();
+
+        return $dompdf->output();
+    }
+
+    private function getFontFaceCss(): string
+    {
+        $regularPath = __DIR__ . '/../fonts/NotoSansArabic-Regular.ttf';
+        $boldPath = __DIR__ . '/../fonts/NotoSansArabic-Bold.ttf';
+        $regularUrl = file_exists($regularPath) ? $this->toFileUrl($regularPath) : '';
+        $boldUrl = file_exists($boldPath) ? $this->toFileUrl($boldPath) : '';
+
+        $css = '';
+        if ($regularUrl) {
+            $css .= "@font-face{font-family:'NotoSansArabic';src:url('{$regularUrl}') format('truetype');font-weight:400;font-style:normal;}\n";
+            $css .= "@font-face{font-family:'Noto Sans Arabic';src:url('{$regularUrl}') format('truetype');font-weight:400;font-style:normal;}\n";
+            $css .= "@font-face{font-family:'notosansarabic';src:url('{$regularUrl}') format('truetype');font-weight:400;font-style:normal;}\n";
+        }
+        if ($boldUrl) {
+            $css .= "@font-face{font-family:'NotoSansArabic';src:url('{$boldUrl}') format('truetype');font-weight:700;font-style:normal;}\n";
+            $css .= "@font-face{font-family:'Noto Sans Arabic';src:url('{$boldUrl}') format('truetype');font-weight:700;font-style:normal;}\n";
+            $css .= "@font-face{font-family:'notosansarabic';src:url('{$boldUrl}') format('truetype');font-weight:700;font-style:normal;}\n";
+        }
+
+        return $css;
     }
 
     private function generatePDFWithMpdf(string $html): string
