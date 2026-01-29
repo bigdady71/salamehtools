@@ -14,7 +14,27 @@ $navLinks = sales_portal_nav_links();
 $title = 'لوحة التحكم';
 $pdo = db();
 
-$dashboardData = sales_portal_dashboard_data($pdo, (int)$user['id']);
+$dashboardData = [
+    'metrics' => [],
+    'deliveries_today' => 0,
+    'invoice_totals' => ['usd' => 0.0, 'lbp' => 0.0],
+    'latest_orders' => [],
+    'pending_invoices' => [],
+    'recent_payments' => [],
+    'upcoming_deliveries' => [],
+    'van_stock_summary' => ['sku_count' => 0, 'total_units' => 0.0, 'total_value_usd' => 0.0],
+    'van_stock_movements' => [],
+    'errors' => [],
+    'notices' => [],
+];
+
+try {
+    $dashboardData = sales_portal_dashboard_data($pdo, (int)$user['id']);
+} catch (Throwable $e) {
+    error_log('Sales dashboard data error: ' . $e->getMessage());
+    $dashboardData['errors'][] = 'Dashboard data failed to load. Please contact support.';
+}
+
 $metrics = $dashboardData['metrics'];
 $deliveriesToday = $dashboardData['deliveries_today'];
 $invoiceTotals = $dashboardData['invoice_totals'];

@@ -9,7 +9,21 @@ require_once __DIR__ . '/../../includes/sales_portal.php';
 // Sales rep authentication
 require_login();
 $user = auth_user();
-if (!$user || ($user['role'] ?? '') !== 'sales_rep') {
+$role = $user['role'] ?? '';
+
+if ($role === 'admin') {
+    $base = sales_portal_base_path();
+    header('Location: ' . $base . '/pages/admin/analytics.php');
+    exit;
+}
+
+if ($role === 'accountant') {
+    $base = sales_portal_base_path();
+    header('Location: ' . $base . '/pages/accounting/dashboard.php');
+    exit;
+}
+
+if (!$user || $role !== 'sales_rep') {
     http_response_code(403);
     echo 'Forbidden - Sales representatives only';
     exit;

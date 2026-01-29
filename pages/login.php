@@ -2,6 +2,19 @@
 <?php
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
+
+// Debug: Show session info if requested
+if (isset($_GET['debug'])) {
+    echo "<pre>";
+    echo "Session ID: " . session_id() . "\n";
+    echo "Session Status: " . session_status() . " (2=active)\n";
+    echo "Session Save Path: " . (session_save_path() ?: '(default)') . "\n";
+    echo "Session Data: " . print_r($_SESSION, true) . "\n";
+    echo "Cookies: " . print_r($_COOKIE, true) . "\n";
+    echo "</pre>";
+    exit;
+}
+
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $id = trim($_POST['identifier'] ?? '');

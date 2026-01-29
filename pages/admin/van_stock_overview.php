@@ -129,13 +129,6 @@ admin_render_layout_start([
 
 ?>
 
-<div class="page-header">
-    <div class="page-title">
-        <h1>🚚 Sales Rep Van Stock Overview</h1>
-        <p class="subtitle">Monitor field inventory across all sales representatives</p>
-    </div>
-</div>
-
 <!-- Overall Summary Cards -->
 <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
     <div class="stat-card">

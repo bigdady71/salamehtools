@@ -12,9 +12,38 @@ use SalamehTools\Middleware\RBACMiddleware;
 function sales_portal_bootstrap(): array
 {
     require_login();
+    $user = auth_user();
+    $role = $user['role'] ?? '';
+
+    if ($role === 'admin') {
+        $base = sales_portal_base_path();
+        header('Location: ' . $base . '/pages/admin/dashboard.php');
+        exit;
+    }
+
+    if ($role === 'accountant') {
+        $base = sales_portal_base_path();
+        header('Location: ' . $base . '/pages/accounting/dashboard.php');
+        exit;
+    }
+
     RBACMiddleware::requireRole('sales_rep', 'Access denied. Sales representatives only.');
 
-    return auth_user();
+    return $user ?? auth_user();
+}
+
+/**
+ * Resolve the app base path for redirects across portal modules.
+ */
+function sales_portal_base_path(): string
+{
+    $scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
+    $pos = strpos($scriptPath, '/pages/');
+    if ($pos === false) {
+        return '';
+    }
+
+    return substr($scriptPath, 0, $pos);
 }
 
 /**
