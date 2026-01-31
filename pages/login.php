@@ -3,6 +3,17 @@
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 
+// Resolve base path for subdirectory installs (e.g., /salamehtools)
+$scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
+$base = '';
+$pos = strpos($scriptPath, '/pages/');
+if ($pos !== false) {
+    $base = substr($scriptPath, 0, $pos);
+} else {
+    $dir = rtrim(dirname($scriptPath), '/\\');
+    $base = ($dir === '/' || $dir === '\\') ? '' : $dir;
+}
+
 // Debug: Show session info if requested
 if (isset($_GET['debug'])) {
     echo "<pre>";
@@ -43,19 +54,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // redirect by role
       switch ($u['role']) {
         case 'admin':
-          $dest = 'admin/dashboard.php';
+          $dest = $base . '/pages/admin/dashboard.php';
           break;
         case 'accountant':
-          $dest = 'accounting/dashboard.php';
+          $dest = $base . '/pages/accounting/dashboard.php';
           break;
         case 'sales_rep':
-          $dest = 'sales/dashboard.php';
+          $dest = $base . '/pages/sales/dashboard.php';
           break;
         case 'warehouse':
-          $dest = 'warehouse/dashboard.php';
+          $dest = $base . '/pages/warehouse/dashboard.php';
           break;
         default:
-          $dest = 'customer/dashboard.php';
+          $dest = $base . '/pages/customer/dashboard.php';
       }
       header('Location: ' . $dest);
       exit;
@@ -87,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         error_log("Last login update failed: " . $e->getMessage());
       }
 
-      header('Location: customer/dashboard.php');
+      header('Location: ' . $base . '/pages/customer/dashboard.php');
       exit;
     }
 
