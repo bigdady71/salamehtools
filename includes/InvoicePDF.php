@@ -628,6 +628,14 @@ class InvoicePDF
         $options->set('isFontSubsettingEnabled', true);
         $options->set('chroot', __DIR__ . '/..');
 
+        // HOSTINGER FIX: Use storage directory for temp files
+        // This solves PDF generation issues on shared hosting with restricted /tmp
+        $tempDir = __DIR__ . '/../storage/temp_pdf';
+        if (!is_dir($tempDir)) {
+            @mkdir($tempDir, 0755, true);
+        }
+        $options->set('tempDir', $tempDir);
+
         $dompdf = new Dompdf($options);
 
         // Load Arabic font

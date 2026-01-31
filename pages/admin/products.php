@@ -1,34 +1,33 @@
 <?php
+
+declare(strict_types=1);
+
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/db.php';
+require_once __DIR__ . '/../../includes/sales_portal.php';
 require_once __DIR__ . '/../../includes/admin_page.php';
-require_once __DIR__ . '/../../includes/flash.php';
 
+// Sales rep authentication
 require_login();
 $user = auth_user();
-if (!$user || ($user['role'] ?? '') !== 'admin') {
+if (!$user || ($user['role'] ?? '') !== 'sales_rep') {
     http_response_code(403);
-    echo 'Forbidden';
+    echo 'Forbidden - Sales representatives only';
     exit;
 }
 
 $pdo = db();
-$title = 'Admin · Products';
+$title = 'Sales · Product Catalog';
 
 // Pagination & filtering
 $page = max(1, (int)($_GET['page'] ?? 1));
-$perPage = 75;
+$perPage = 50;
 $search = trim($_GET['search'] ?? '');
 $category = $_GET['category'] ?? '';
 $stockFilter = $_GET['stock'] ?? '';
-$activeFilter = $_GET['active'] ?? '';
-$priceMin = $_GET['price_min'] ?? '';
-$priceMax = $_GET['price_max'] ?? '';
-$sortBy = $_GET['sort_by'] ?? 'sku';
-$sortOrder = $_GET['sort_order'] ?? 'asc';
 
 // Build WHERE conditions
-$where = ['1=1'];
+$where = ['p.is_active = 1']; // Only show active products to sales reps
 $params = [];
 
 if ($search !== '') {
@@ -42,47 +41,26 @@ if ($category !== '') {
 }
 
 if ($stockFilter === 'in_stock') {
-    $where[] = "p.quantity_on_hand > 5";
+    $where[] = "p.quantity_on_hand > 0";
 } elseif ($stockFilter === 'low') {
-    $where[] = "p.quantity_on_hand >= 1 AND p.quantity_on_hand <= 5";
+    $where[] = "p.quantity_on_hand > 0 AND p.quantity_on_hand <= GREATEST(p.min_quantity, 5)";
 } elseif ($stockFilter === 'out') {
-    $where[] = "(p.quantity_on_hand = 0 OR p.quantity_on_hand IS NULL)";
-}
-
-if ($activeFilter !== '') {
-    $where[] = "p.is_active = :active";
-    $params[':active'] = (int)$activeFilter;
-}
-
-if ($priceMin !== '') {
-    $where[] = "p.sale_price_usd >= :price_min";
-    $params[':price_min'] = (float)$priceMin;
-}
-
-if ($priceMax !== '') {
-    $where[] = "p.sale_price_usd <= :price_max";
-    $params[':price_max'] = (float)$priceMax;
+    $where[] = "p.quantity_on_hand = 0";
 }
 
 $whereClause = implode(' AND ', $where);
-
-// Build ORDER BY clause
-$allowedSortFields = ['sku', 'item_name', 'sale_price_usd', 'wholesale_price_usd', 'quantity_on_hand'];
-$sortField = in_array($sortBy, $allowedSortFields) ? $sortBy : 'sku';
-$sortDirection = strtoupper($sortOrder) === 'DESC' ? 'DESC' : 'ASC';
-$orderClause = "p.{$sortField} {$sortDirection}";
 
 // Get total count
 $countStmt = $pdo->prepare("SELECT COUNT(*) FROM products p WHERE {$whereClause}");
 $countStmt->execute($params);
 $totalProducts = (int)$countStmt->fetchColumn();
-$totalPages = ceil($totalProducts / $perPage);
-$page = min($page, max(1, $totalPages));
+$totalPages = max(1, (int)ceil($totalProducts / $perPage));
+$page = min($page, $totalPages);
 $offset = ($page - 1) * $perPage;
 
-// Get products
+// Get products with margin calculation
 $stmt = $pdo->prepare("
-    SELECT 
+    SELECT
         p.id,
         p.sku,
         p.item_name,
@@ -92,9 +70,20 @@ $stmt = $pdo->prepare("
         p.midcat_name,
         p.sale_price_usd,
         p.wholesale_price_usd,
+        p.cost_price_usd,
         p.min_quantity,
         p.quantity_on_hand,
-        p.is_active
+        p.is_active,
+        CASE
+            WHEN p.cost_price_usd > 0 AND p.sale_price_usd > 0
+            THEN ((p.sale_price_usd - p.cost_price_usd) / p.sale_price_usd) * 100
+            ELSE NULL
+        END as margin_percent,
+        CASE
+            WHEN p.cost_price_usd > 0 AND p.wholesale_price_usd > 0
+            THEN ((p.wholesale_price_usd - p.cost_price_usd) / p.wholesale_price_usd) * 100
+            ELSE NULL
+        END as wholesale_margin_percent
     FROM products p
     WHERE {$whereClause}
     ORDER BY p.sku ASC
@@ -110,659 +99,483 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get categories for filter
 $catStmt = $pdo->query("
-    SELECT DISTINCT topcat_name AS category FROM products WHERE topcat_name IS NOT NULL AND topcat_name != ''
+    SELECT DISTINCT topcat_name AS category
+    FROM products
+    WHERE topcat_name IS NOT NULL AND topcat_name != '' AND is_active = 1
     UNION
-    SELECT DISTINCT midcat_name FROM products WHERE midcat_name IS NOT NULL AND midcat_name != ''
+    SELECT DISTINCT midcat_name
+    FROM products
+    WHERE midcat_name IS NOT NULL AND midcat_name != '' AND is_active = 1
     ORDER BY category
 ");
 $categories = $catStmt->fetchAll(PDO::FETCH_COLUMN);
 
-// Handle actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-    
-    if ($action === 'toggle_active') {
-        $productId = (int)($_POST['product_id'] ?? 0);
-        $newStatus = (int)($_POST['new_status'] ?? 0);
-        
-        try {
-            $updateStmt = $pdo->prepare("UPDATE products SET is_active = :status, updated_at = NOW() WHERE id = :id");
-            $updateStmt->execute([':status' => $newStatus, ':id' => $productId]);
-            flash('success', 'Product status updated successfully.');
-        } catch (PDOException $e) {
-            flash('error', 'Failed to update product status.');
-        }
-        
-        header('Location: ' . $_SERVER['REQUEST_URI']);
-        exit;
-    }
-    
-    if ($action === 'update_price') {
-        $productId = (int)($_POST['product_id'] ?? 0);
-        $salePrice = (float)($_POST['sale_price'] ?? 0);
-        $wholesalePrice = (float)($_POST['wholesale_price'] ?? 0);
-        
-        try {
-            $updateStmt = $pdo->prepare("
-                UPDATE products 
-                SET sale_price_usd = :sale, wholesale_price_usd = :wholesale, updated_at = NOW() 
-                WHERE id = :id
-            ");
-            $updateStmt->execute([
-                ':sale' => $salePrice,
-                ':wholesale' => $wholesalePrice,
-                ':id' => $productId
-            ]);
-            flash('success', 'Prices updated successfully.');
-        } catch (PDOException $e) {
-            flash('error', 'Failed to update prices.');
-        }
-        
-        header('Location: ' . $_SERVER['REQUEST_URI']);
-        exit;
-    }
-}
-
-// Summary stats - clearer categorization
+// Summary stats
 $statsStmt = $pdo->query("
     SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active,
-        SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) as inactive,
-        SUM(CASE WHEN quantity_on_hand > 5 THEN 1 ELSE 0 END) as in_stock,
-        SUM(CASE WHEN quantity_on_hand >= 1 AND quantity_on_hand <= 5 THEN 1 ELSE 0 END) as low_stock,
-        SUM(CASE WHEN quantity_on_hand = 0 OR quantity_on_hand IS NULL THEN 1 ELSE 0 END) as out_of_stock,
-        SUM(quantity_on_hand) as total_units
+        SUM(CASE WHEN quantity_on_hand > 0 THEN 1 ELSE 0 END) as in_stock,
+        SUM(CASE WHEN quantity_on_hand = 0 THEN 1 ELSE 0 END) as out_of_stock,
+        SUM(CASE WHEN quantity_on_hand > 0 AND quantity_on_hand <= GREATEST(min_quantity, 5) THEN 1 ELSE 0 END) as low_stock
     FROM products
+    WHERE is_active = 1
 ");
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
-$flashes = consume_flashes();
+$extraHead = <<<'HTML'
+<style>
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+.stat-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+}
+.stat-label {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.stat-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--text);
+}
+.stat-value.green { color: #15803d; }
+.stat-value.orange { color: #ea580c; }
+.stat-value.red { color: #dc2626; }
+.filters-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+.filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.filter-field label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text);
+}
+.filter-field input,
+.filter-field select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.95rem;
+    transition: border-color 0.2s;
+}
+.filter-field input:focus,
+.filter-field select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+}
+.filter-actions {
+    display: flex;
+    gap: 10px;
+}
+.products-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+.product-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    transition: all 0.2s;
+    position: relative;
+}
+.product-card:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+.product-sku {
+    font-size: 0.85rem;
+    color: var(--muted);
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+.product-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+.product-second-name {
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin-bottom: 12px;
+}
+.product-category {
+    display: inline-block;
+    padding: 4px 10px;
+    background: rgba(14, 165, 233, 0.1);
+    color: var(--accent);
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+.product-details {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+.product-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.product-detail-label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.product-detail-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+}
+.product-detail-value.price {
+    color: var(--accent);
+    font-size: 1.2rem;
+}
+.stock-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    gap: 6px;
+}
+.stock-badge.in-stock {
+    background: rgba(34, 197, 94, 0.15);
+    color: #15803d;
+}
+.stock-badge.low-stock {
+    background: rgba(251, 191, 36, 0.15);
+    color: #b45309;
+}
+.stock-badge.out-of-stock {
+    background: rgba(239, 68, 68, 0.15);
+    color: #991b1b;
+}
+.stock-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.stock-indicator.green {
+    background: #15803d;
+}
+.stock-indicator.orange {
+    background: #b45309;
+}
+.stock-indicator.red {
+    background: #991b1b;
+}
+.empty-state {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--muted);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+}
+.empty-state-icon {
+    font-size: 3rem;
+    margin-bottom: 16px;
+    opacity: 0.3;
+}
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    margin-top: 32px;
+}
+.pagination a,
+.pagination span {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text);
+    background: var(--bg-panel);
+}
+.pagination a:hover {
+    background: var(--bg-panel-alt);
+    border-color: var(--accent);
+}
+.pagination span.current {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+}
+</style>
+HTML;
 
-admin_render_layout_start([
-    'title' => $title,
-    'heading' => 'Products',
-    'subtitle' => 'Manage your product catalogue and inventory',
-    'active' => 'products',
+sales_portal_render_layout_start([
+    'title' => 'كتالوج المنتجات',
+    'heading' => 'كتالوج المنتجات',
+    'subtitle' => 'تصفح المنتجات النشطة مع الأسعار والتوفر',
     'user' => $user,
-    'actions' => [
-        ['label' => 'Import Excel', 'href' => 'products_import.php', 'variant' => 'primary'],
-        ['label' => 'Export CSV', 'href' => 'products_export.php'],
-    ],
+    'active' => 'products',
+    'extra_head' => $extraHead,
 ]);
-
-admin_render_flashes($flashes);
 ?>
 
-<style>
-    .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 16px;
-        margin-bottom: 24px;
-    }
-    .stat-card {
-        background: var(--bg-panel-alt);
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid var(--border);
-    }
-    .stat-value {
-        font-size: 2rem;
-        font-weight: 700;
-        margin: 8px 0;
-    }
-    .stat-label {
-        color: var(--muted);
-        font-size: 0.9rem;
-    }
-    .stat-sub {
-        font-size: 0.8rem;
-        color: var(--muted);
-        margin-top: 4px;
-    }
-    .filters {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin-bottom: 20px;
-    }
-    .filter-input {
-        padding: 8px 12px;
-        background: var(--bg-panel-alt);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        color: var(--text);
-        font-size: 0.9rem;
-    }
-    .product-table {
-        background: var(--bg-panel-alt);
-        border-radius: 12px;
-        overflow: hidden;
-    }
-    .product-table table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-    .product-table th {
-        background: rgba(0,0,0,0.3);
-        padding: 12px;
-        text-align: left;
-        font-size: 0.85rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--muted);
-    }
-    .product-table td {
-        padding: 12px;
-        border-top: 1px solid var(--border);
-    }
-    .product-table tr:hover {
-        background: rgba(255,255,255,0.02);
-    }
-    .stock-badge {
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-    .stock-ok { background: rgba(110, 231, 183, 0.2); color: #6ee7b7; }
-    .stock-low { background: rgba(255, 209, 102, 0.2); color: #ffd166; }
-    .stock-out { background: rgba(255, 92, 122, 0.2); color: #ff5c7a; }
-    .price-input {
-        width: 100px;
-        padding: 4px 8px;
-        background: var(--bg-panel);
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        color: var(--text);
-        font-size: 0.9rem;
-    }
-    .inline-form {
-        display: inline-flex;
-        gap: 4px;
-        align-items: center;
-    }
-    .pagination {
-        display: flex;
-        gap: 8px;
-        justify-content: center;
-        margin-top: 24px;
-    }
-    .pagination a, .pagination span {
-        padding: 8px 12px;
-        background: var(--bg-panel-alt);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        color: var(--text);
-        text-decoration: none;
-        font-size: 0.9rem;
-    }
-    .pagination a:hover {
-        background: var(--accent);
-        color: #000;
-    }
-    .pagination .active {
-        background: var(--accent-2);
-        color: #fff;
-    }
-    /* Card View Styles */
-    .products-grid {
-        display: none;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        gap: 20px;
-        margin-bottom: 24px;
-    }
-    .products-grid.active {
-        display: grid;
-    }
-    .product-card {
-        background: var(--bg-panel-alt);
-        border-radius: 16px;
-        padding: 0;
-        border: 1px solid var(--border);
-        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
-        transition: all 0.3s;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
-    .product-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12);
-    }
-    .product-image {
-        width: 100%;
-        height: 200px;
-        object-fit: cover;
-        background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
-        border-bottom: 1px solid var(--border);
-    }
-    .product-image-placeholder {
-        width: 100%;
-        height: 200px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
-        border-bottom: 1px solid var(--border);
-        font-size: 3rem;
-        color: #9ca3af;
-    }
-    .product-content {
-        padding: 20px;
-        display: flex;
-        flex-direction: column;
-        flex: 1;
-    }
-    .product-header h3 {
-        margin: 0 0 4px;
-        font-size: 1.1rem;
-        color: var(--text);
-    }
-    .product-header .sku-text {
-        font-size: 0.8rem;
-        color: var(--muted);
-        font-family: monospace;
-    }
-    .product-category {
-        display: inline-block;
-        padding: 4px 10px;
-        background: rgba(0,0,0,0.2);
-        border-radius: 6px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: var(--accent);
-        margin: 8px 0;
-        max-width: fit-content;
-    }
-    .product-prices {
-        margin: 12px 0;
-    }
-    .product-price-main {
-        font-size: 1.5rem;
-        font-weight: 800;
-        color: var(--accent);
-    }
-    .product-price-wholesale {
-        font-size: 0.9rem;
-        color: var(--muted);
-    }
-    .product-stock-info {
-        font-size: 0.9rem;
-        margin-bottom: 12px;
-    }
-    .product-card-actions {
-        margin-top: auto;
-        padding-top: 12px;
-        border-top: 1px solid var(--border);
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-    }
-    .product-table.hidden {
-        display: none;
-    }
-    .view-toggle-btn {
-        background: var(--bg-panel-alt);
-        border: 1px solid var(--border);
-        color: var(--text);
-        padding: 8px 12px;
-        border-radius: 8px;
-        cursor: pointer;
-        font-size: 0.9rem;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-    }
-    .view-toggle-btn:hover {
-        background: var(--accent);
-        color: #000;
-    }
-    @media (max-width: 900px) {
-        .products-grid {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 16px;
-        }
-        .product-image,
-        .product-image-placeholder {
-            height: 160px;
-        }
-        .product-content {
-            padding: 16px;
-        }
-    }
-    @media (max-width: 600px) {
-        .products-grid {
-            grid-template-columns: 1fr;
-        }
-        .product-image,
-        .product-image-placeholder {
-            height: 180px;
-        }
-    }
-</style>
-
+<!-- Statistics Cards -->
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-label">Total Products</div>
-        <div class="stat-value"><?= number_format($stats['total']) ?></div>
-        <div class="stat-sub"><?= number_format((float)$stats['total_units']) ?> total units</div>
+        <div class="stat-value"><?= number_format((int)($stats['total'] ?? 0)) ?></div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Active Products</div>
-        <div class="stat-value" style="color: #22c55e"><?= number_format($stats['active']) ?></div>
-        <div class="stat-sub"><?= number_format($stats['inactive']) ?> inactive</div>
+        <div class="stat-label">In Stock</div>
+        <div class="stat-value green"><?= number_format((int)($stats['in_stock'] ?? 0)) ?></div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">In Stock (>5)</div>
-        <div class="stat-value" style="color: #3b82f6"><?= number_format($stats['in_stock']) ?></div>
-        <div class="stat-sub">Healthy stock level</div>
+        <div class="stat-label">Low Stock</div>
+        <div class="stat-value orange"><?= number_format((int)($stats['low_stock'] ?? 0)) ?></div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Low Stock (1-5)</div>
-        <div class="stat-value" style="color: #f59e0b"><?= number_format($stats['low_stock']) ?></div>
-        <div class="stat-sub">Needs restocking soon</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Out of Stock (0)</div>
-        <div class="stat-value" style="color: #ef4444"><?= number_format($stats['out_of_stock']) ?></div>
-        <div class="stat-sub">Requires immediate attention</div>
+        <div class="stat-label">Out of Stock</div>
+        <div class="stat-value red"><?= number_format((int)($stats['out_of_stock'] ?? 0)) ?></div>
     </div>
 </div>
 
-<section class="card">
-    <form method="get" class="filters">
-        <input type="hidden" name="path" value="admin/products">
-        <input type="text" name="search" placeholder="Search SKU, name..." 
-               value="<?= htmlspecialchars($search) ?>" class="filter-input" style="flex: 1; min-width: 200px;">
-        
-        <select name="category" class="filter-input">
-            <option value="">All Categories</option>
-            <?php foreach ($categories as $cat): ?>
-                <option value="<?= htmlspecialchars($cat) ?>" <?= $category === $cat ? 'selected' : '' ?>>
-                    <?= htmlspecialchars($cat) ?>
-                </option>
-            <?php endforeach; ?>
-        </select>
-        
-        <select name="stock" class="filter-input">
-            <option value="">All Stock Levels</option>
-            <option value="in_stock" <?= $stockFilter === 'in_stock' ? 'selected' : '' ?>>In Stock (&gt;5)</option>
-            <option value="low" <?= $stockFilter === 'low' ? 'selected' : '' ?>>Low Stock (1-5)</option>
-            <option value="out" <?= $stockFilter === 'out' ? 'selected' : '' ?>>Out of Stock (0)</option>
-        </select>
-        
-        <select name="active" class="filter-input">
-            <option value="">All Status</option>
-            <option value="1" <?= $activeFilter === '1' ? 'selected' : '' ?>>Active</option>
-            <option value="0" <?= $activeFilter === '0' ? 'selected' : '' ?>>Inactive</option>
-        </select>
-        
-        <button type="submit" class="btn">Filter</button>
-        <a href="?path=admin/products" class="btn">Clear</a>
-        <button type="button" class="view-toggle-btn" id="toggleViewBtn" onclick="toggleView()">
-            <span id="viewIcon">🔲</span> <span id="viewLabel">Card View</span>
-        </button>
-    </form>
+<!-- Filters -->
+<div class="filters-card">
+    <form method="GET" action="products.php">
+        <div class="filter-grid">
+            <div class="filter-field">
+                <label>Search</label>
+                <input type="text" name="search" value="<?= htmlspecialchars($search, ENT_QUOTES, 'UTF-8') ?>"
+                       placeholder="SKU or product name...">
+            </div>
 
-    <div class="product-table" id="tableView">
-        <table>
-            <thead>
-                <tr>
-                    <th>SKU</th>
-                    <th>Product Name</th>
-                    <th>Category</th>
-                    <th>Unit</th>
-                    <th>Retail Price</th>
-                    <th>Wholesale Price</th>
-                    <th>Stock</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if (empty($products)): ?>
-                    <tr>
-                        <td colspan="9" style="text-align: center; padding: 40px; color: var(--muted);">
-                            No products found. Try adjusting your filters or <a href="products_import.php" style="color: var(--accent)">import products</a>.
-                        </td>
-                    </tr>
-                <?php else: ?>
-                    <?php foreach ($products as $product): ?>
-                        <tr>
-                            <td style="font-family: monospace; font-size: 0.85rem;">
-                                <?= htmlspecialchars($product['sku'] ?: '—') ?>
-                            </td>
-                            <td>
-                                <strong><?= htmlspecialchars($product['item_name']) ?></strong>
-                                <?php if ($product['second_name']): ?>
-                                    <br><small style="color: var(--muted)"><?= htmlspecialchars($product['second_name']) ?></small>
-                                <?php endif; ?>
-                            </td>
-                            <td style="font-size: 0.85rem;">
-                                <?= htmlspecialchars($product['topcat_name'] ?: '—') ?>
-                                <?php if ($product['midcat_name']): ?>
-                                    <br><small style="color: var(--muted)"><?= htmlspecialchars($product['midcat_name']) ?></small>
-                                <?php endif; ?>
-                            </td>
-                            <td><?= htmlspecialchars($product['unit'] ?: '—') ?></td>
-                            <td>
-                                <form method="post" class="inline-form">
-                                    <input type="hidden" name="action" value="update_price">
-                                    <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
-                                    $<input type="number" name="sale_price" value="<?= $product['sale_price_usd'] ?>" 
-                                           step="0.01" min="0" class="price-input">
-                                </form>
-                            </td>
-                            <td>
-                                <form method="post" class="inline-form">
-                                    <input type="hidden" name="action" value="update_price">
-                                    <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
-                                    $<input type="number" name="wholesale_price" value="<?= $product['wholesale_price_usd'] ?>" 
-                                           step="0.01" min="0" class="price-input">
-                                    <button type="submit" class="btn" style="padding: 4px 8px; font-size: 0.8rem;">Save</button>
-                                </form>
-                            </td>
-                            <td>
-                                <?php
-                                $qty = (float)$product['quantity_on_hand'];
-                                $stockClass = 'stock-ok';
-                                $stockLabel = 'In Stock';
-                                if ($qty == 0) {
-                                    $stockClass = 'stock-out';
-                                    $stockLabel = 'Out';
-                                } elseif ($qty >= 1 && $qty <= 5) {
-                                    $stockClass = 'stock-low';
-                                    $stockLabel = 'Low';
-                                }
-                                ?>
-                                <span class="stock-badge <?= $stockClass ?>">
-                                    <?= number_format($qty, 2) ?>
-                                </span>
-                                <br><small style="color: var(--muted)"><?= $stockLabel ?></small>
-                            </td>
-                            <td>
-                                <?php if ($product['is_active']): ?>
-                                    <span class="badge badge-success">Active</span>
-                                <?php else: ?>
-                                    <span class="badge badge-danger">Inactive</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <form method="post" class="inline-form">
-                                    <input type="hidden" name="action" value="toggle_active">
-                                    <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
-                                    <input type="hidden" name="new_status" value="<?= $product['is_active'] ? 0 : 1 ?>">
-                                    <button type="submit" class="btn" style="padding: 4px 8px; font-size: 0.8rem;">
-                                        <?= $product['is_active'] ? 'Deactivate' : 'Activate' ?>
-                                    </button>
-                                </form>
-                            </td>
-                        </tr>
+            <div class="filter-field">
+                <label>Category</label>
+                <select name="category">
+                    <option value="">All Categories</option>
+                    <?php foreach ($categories as $cat): ?>
+                        <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>" <?= $category === $cat ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>
+                        </option>
                     <?php endforeach; ?>
-                <?php endif; ?>
-            </tbody>
-        </table>
+                </select>
+            </div>
+
+            <div class="filter-field">
+                <label>Stock Status</label>
+                <select name="stock">
+                    <option value="">All Stock Levels</option>
+                    <option value="in_stock" <?= $stockFilter === 'in_stock' ? 'selected' : '' ?>>In Stock</option>
+                    <option value="low" <?= $stockFilter === 'low' ? 'selected' : '' ?>>Low Stock</option>
+                    <option value="out" <?= $stockFilter === 'out' ? 'selected' : '' ?>>Out of Stock</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="filter-actions">
+            <button type="submit" class="btn btn-info">Apply Filters</button>
+            <a href="products.php" class="btn btn-secondary">Clear</a>
+        </div>
+    </form>
+</div>
+
+<!-- Products Grid -->
+<?php if (empty($products)): ?>
+    <div class="empty-state">
+        <div class="empty-state-icon">📦</div>
+        <h3 style="margin: 0 0 8px 0;">No products found</h3>
+        <p style="margin: 0; color: var(--muted);">
+            <?= $search || $category || $stockFilter
+                ? 'Try adjusting your filters to see more products'
+                : 'No active products available at this time' ?>
+        </p>
+    </div>
+<?php else: ?>
+    <div style="margin-bottom: 16px; color: var(--muted);">
+        Showing <?= number_format(count($products)) ?> of <?= number_format($totalProducts) ?> products
     </div>
 
-    <!-- Card View (hidden by default) -->
-    <div class="products-grid" id="cardView">
-        <?php if (empty($products)): ?>
-            <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--muted);">
-                No products found. Try adjusting your filters or <a href="products_import.php" style="color: var(--accent)">import products</a>.
+    <div class="products-grid">
+        <?php foreach ($products as $product):
+            $qtyOnHand = (float)$product['quantity_on_hand'];
+            $minQty = max((float)$product['min_quantity'], 5);
+            $isLowStock = $qtyOnHand > 0 && $qtyOnHand <= $minQty;
+            $isOutOfStock = $qtyOnHand <= 0;
+
+            // Product image path (based on SKU) - check multiple formats
+            $imageExists = false;
+            $imagePath = '../../images/products/default.jpg';
+            $defaultImagePath = __DIR__ . '/../../images/products/default.jpg';
+            $imageVersion = file_exists($defaultImagePath) ? (string)filemtime($defaultImagePath) : null;
+            $possibleExtensions = ['webp', 'jpg', 'jpeg', 'png', 'gif'];
+            $productSku = $product['sku'] ?? 'default';
+
+            foreach ($possibleExtensions as $ext) {
+                $serverPath = __DIR__ . '/../../images/products/' . $productSku . '.' . $ext;
+                if (file_exists($serverPath)) {
+                    $imagePath = '../../images/products/' . $productSku . '.' . $ext;
+                    $imageVersion = (string)filemtime($serverPath);
+                    $imageExists = true;
+                    break;
+                }
+            }
+
+            if (!$imageExists) {
+                $imagePath = '../../images/products/default.jpg';
+                $imageExists = true;
+            }
+            $imageSrc = $imagePath . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
+            $fallbackSrc = '../../images/products/default.jpg' . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
+        ?>
+        <div class="product-card">
+            <!-- Product Image -->
+            <div style="width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; background: #ffffff; border-radius: 8px; margin-bottom: 16px; overflow: hidden;">
+                <?php if ($imageExists): ?>
+                    <img src="<?= htmlspecialchars($imageSrc, ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>" style="max-width: 100%; max-height: 100%; object-fit: contain;" class="lazy-image" loading="lazy" onload="this.classList.add('is-loaded')" onerror="this.src='<?= htmlspecialchars($fallbackSrc, ENT_QUOTES, 'UTF-8') ?>'">
+                <?php else: ?>
+                    <div style="font-size: 3rem; opacity: 0.3;">📦</div>
+                <?php endif; ?>
             </div>
-        <?php else: ?>
-            <?php foreach ($products as $product): ?>
-                <?php
-                $sku = htmlspecialchars($product['sku'] ?? '', ENT_QUOTES, 'UTF-8');
-                $itemName = htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8');
-                $secondName = $product['second_name'] ? htmlspecialchars($product['second_name'], ENT_QUOTES, 'UTF-8') : '';
-                $category = $product['topcat_name'] ? htmlspecialchars($product['topcat_name'], ENT_QUOTES, 'UTF-8') : 'Uncategorized';
-                $midCategory = $product['midcat_name'] ? htmlspecialchars($product['midcat_name'], ENT_QUOTES, 'UTF-8') : '';
-                $qty = (float)$product['quantity_on_hand'];
-                $salePriceUSD = (float)$product['sale_price_usd'];
-                $wholesalePriceUSD = (float)$product['wholesale_price_usd'];
 
-                // Stock status
-                $stockClass = 'stock-ok';
-                $stockLabel = 'In Stock';
-                if ($qty == 0) {
-                    $stockClass = 'stock-out';
-                    $stockLabel = 'Out of Stock';
-                } elseif ($qty >= 1 && $qty <= 5) {
-                    $stockClass = 'stock-low';
-                    $stockLabel = 'Low Stock';
-                }
+            <div class="product-sku"><?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?></div>
 
-                // Product image path (based on SKU) - check multiple formats
-                $imageExists = false;
-                $imagePath = '';
-                $possibleExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+            <div class="product-name"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
 
-                if ($sku) {
-                    foreach ($possibleExtensions as $ext) {
-                        $serverPath = __DIR__ . '/../../images/products/' . $sku . '.' . $ext;
-                        if (file_exists($serverPath)) {
-                            $imagePath = '../../images/products/' . $sku . '.' . $ext;
-                            $imageExists = true;
-                            break;
-                        }
-                    }
-                }
+            <?php if ($product['second_name']): ?>
+                <div class="product-second-name"><?= htmlspecialchars($product['second_name'], ENT_QUOTES, 'UTF-8') ?></div>
+            <?php endif; ?>
 
-                if (!$imageExists) {
-                    $defaultPath = __DIR__ . '/../../images/products/default.jpg';
-                    if (file_exists($defaultPath)) {
-                        $imagePath = '../../images/products/default.jpg';
-                        $imageExists = true;
-                    }
-                }
-                ?>
-                <div class="product-card">
-                    <?php if ($imageExists): ?>
-                        <img src="<?= htmlspecialchars($imagePath, ENT_QUOTES, 'UTF-8') ?>" alt="<?= $itemName ?>" class="product-image" loading="lazy">
-                    <?php else: ?>
-                        <div class="product-image-placeholder">📦</div>
-                    <?php endif; ?>
+            <?php if ($product['topcat_name']): ?>
+                <div class="product-category"><?= htmlspecialchars($product['topcat_name'], ENT_QUOTES, 'UTF-8') ?></div>
+            <?php endif; ?>
 
-                    <div class="product-content">
-                        <div class="product-header">
-                            <h3><?= $itemName ?></h3>
-                            <?php if ($secondName): ?>
-                                <div style="font-size: 0.85rem; color: var(--muted); margin-bottom: 4px;"><?= $secondName ?></div>
+            <div class="product-details">
+                <!-- Pricing Tiers -->
+                <div style="background: rgba(59, 130, 246, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                    <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #1d4ed8; margin-bottom: 8px;">💰 Pricing</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: var(--muted);">Retail</div>
+                            <div style="font-size: 1.1rem; font-weight: 600; color: #15803d;">
+                                $<?= number_format((float)$product['sale_price_usd'], 2) ?>
+                            </div>
+                            <?php if ($product['margin_percent'] !== null): ?>
+                                <div style="font-size: 0.75rem; color: <?= $product['margin_percent'] < 20 ? '#dc2626' : '#15803d' ?>;">
+                                    <?= number_format((float)$product['margin_percent'], 1) ?>% margin
+                                </div>
                             <?php endif; ?>
-                            <div class="sku-text">SKU: <?= $sku ?: '—' ?></div>
                         </div>
-
-                        <div class="product-category"><?= $category ?><?= $midCategory ? ' / ' . $midCategory : '' ?></div>
-
-                        <div class="product-prices">
-                            <div class="product-price-main">$<?= number_format($salePriceUSD, 2) ?></div>
-                            <div class="product-price-wholesale">Wholesale: $<?= number_format($wholesalePriceUSD, 2) ?></div>
-                        </div>
-
-                        <div class="product-stock-info">
-                            <strong>Stock:</strong>
-                            <span class="stock-badge <?= $stockClass ?>"><?= number_format($qty, 2) ?></span>
-                            <span style="color: var(--muted); font-size: 0.85rem;">(<?= $stockLabel ?>)</span>
-                            <br>
-                            <strong>Unit:</strong> <?= htmlspecialchars($product['unit'] ?? '—', ENT_QUOTES, 'UTF-8') ?>
-                        </div>
-
-                        <div class="product-card-actions">
-                            <?php if ($product['is_active']): ?>
-                                <span class="badge badge-success">Active</span>
-                            <?php else: ?>
-                                <span class="badge badge-danger">Inactive</span>
+                        <div>
+                            <div style="font-size: 0.75rem; color: var(--muted);">Wholesale</div>
+                            <div style="font-size: 1.1rem; font-weight: 600; color: #1d4ed8;">
+                                $<?= number_format((float)$product['wholesale_price_usd'], 2) ?>
+                            </div>
+                            <?php if ($product['wholesale_margin_percent'] !== null): ?>
+                                <div style="font-size: 0.75rem; color: <?= $product['wholesale_margin_percent'] < 15 ? '#dc2626' : '#15803d' ?>;">
+                                    <?= number_format((float)$product['wholesale_margin_percent'], 1) ?>% margin
+                                </div>
                             <?php endif; ?>
-                            <form method="post" style="display: inline;">
-                                <input type="hidden" name="action" value="toggle_active">
-                                <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
-                                <input type="hidden" name="new_status" value="<?= $product['is_active'] ? 0 : 1 ?>">
-                                <button type="submit" class="btn" style="padding: 4px 10px; font-size: 0.8rem;">
-                                    <?= $product['is_active'] ? 'Deactivate' : 'Activate' ?>
-                                </button>
-                            </form>
                         </div>
                     </div>
+                    <?php if ($product['cost_price_usd'] !== null && $product['cost_price_usd'] > 0): ?>
+                        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.75rem; color: var(--muted);">Cost Basis</div>
+                            <div style="font-size: 0.9rem; font-weight: 500;">
+                                $<?= number_format((float)$product['cost_price_usd'], 2) ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                 </div>
-            <?php endforeach; ?>
-        <?php endif; ?>
+
+                <div class="product-detail">
+                    <div class="product-detail-label">Unit</div>
+                    <div class="product-detail-value">
+                        <?= htmlspecialchars($product['unit'] ?? '—', ENT_QUOTES, 'UTF-8') ?>
+                    </div>
+                </div>
+
+                <div class="product-detail">
+                    <div class="product-detail-label">Stock</div>
+                    <div class="product-detail-value">
+                        <?php if ($isOutOfStock): ?>
+                            <span class="stock-badge out-of-stock">
+                                <span class="stock-indicator red"></span>
+                                Out of Stock
+                            </span>
+                        <?php elseif ($isLowStock): ?>
+                            <span class="stock-badge low-stock">
+                                <span class="stock-indicator orange"></span>
+                                <?= number_format($qtyOnHand, 1) ?> (Low)
+                            </span>
+                        <?php else: ?>
+                            <span class="stock-badge in-stock">
+                                <span class="stock-indicator green"></span>
+                                <?= number_format($qtyOnHand, 1) ?>
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Margin Alert -->
+                <?php if ($product['margin_percent'] !== null && $product['margin_percent'] < 15): ?>
+                    <div style="margin-top: 8px; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #dc2626;">
+                        <div style="font-size: 0.75rem; color: #991b1b; font-weight: 600;">⚠️ Low Margin Alert</div>
+                        <div style="font-size: 0.7rem; color: #991b1b; margin-top: 2px;">Retail margin below 15% - negotiate carefully</div>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endforeach; ?>
     </div>
 
+    <!-- Pagination -->
     <?php if ($totalPages > 1): ?>
         <div class="pagination">
             <?php if ($page > 1): ?>
-                <a href="?path=admin/products&page=1<?= $search ? '&search=' . urlencode($search) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?><?= $stockFilter ? '&stock=' . urlencode($stockFilter) : '' ?><?= $activeFilter !== '' ? '&active=' . urlencode($activeFilter) : '' ?>">First</a>
-                <a href="?path=admin/products&page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?><?= $stockFilter ? '&stock=' . urlencode($stockFilter) : '' ?><?= $activeFilter !== '' ? '&active=' . urlencode($activeFilter) : '' ?>">Previous</a>
+                <a href="?page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?><?= $stockFilter ? '&stock=' . urlencode($stockFilter) : '' ?>">
+                    ← Previous
+                </a>
             <?php endif; ?>
-            
-            <?php 
-            $start = max(1, $page - 2);
-            $end = min($totalPages, $page + 2);
-            for ($i = $start; $i <= $end; $i++): 
-            ?>
-                <?php if ($i == $page): ?>
-                    <span class="active"><?= $i ?></span>
-                <?php else: ?>
-                    <a href="?path=admin/products&page=<?= $i ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?><?= $stockFilter ? '&stock=' . urlencode($stockFilter) : '' ?><?= $activeFilter !== '' ? '&active=' . urlencode($activeFilter) : '' ?>"><?= $i ?></a>
-                <?php endif; ?>
-            <?php endfor; ?>
-            
+
+            <span class="current">Page <?= $page ?> of <?= $totalPages ?></span>
+
             <?php if ($page < $totalPages): ?>
-                <a href="?path=admin/products&page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?><?= $stockFilter ? '&stock=' . urlencode($stockFilter) : '' ?><?= $activeFilter !== '' ? '&active=' . urlencode($activeFilter) : '' ?>">Next</a>
-                <a href="?path=admin/products&page=<?= $totalPages ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?><?= $stockFilter ? '&stock=' . urlencode($stockFilter) : '' ?><?= $activeFilter !== '' ? '&active=' . urlencode($activeFilter) : '' ?>">Last</a>
+                <a href="?page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?><?= $stockFilter ? '&stock=' . urlencode($stockFilter) : '' ?>">
+                    Next →
+                </a>
             <?php endif; ?>
         </div>
     <?php endif; ?>
-</section>
+<?php endif; ?>
 
-<script>
-// Toggle between table and card view
-let isCardView = false;
-function toggleView() {
-    const tableView = document.getElementById('tableView');
-    const cardView = document.getElementById('cardView');
-    const viewIcon = document.getElementById('viewIcon');
-    const viewLabel = document.getElementById('viewLabel');
-
-    if (!tableView || !cardView) return;
-
-    isCardView = !isCardView;
-
-    if (isCardView) {
-        tableView.classList.add('hidden');
-        cardView.classList.add('active');
-        viewIcon.textContent = '📋';
-        viewLabel.textContent = 'Table View';
-    } else {
-        tableView.classList.remove('hidden');
-        cardView.classList.remove('active');
-        viewIcon.textContent = '🔲';
-        viewLabel.textContent = 'Card View';
-    }
-}
-</script>
-
-<?php admin_render_layout_end(); ?>
+<?php sales_portal_render_layout_end(); ?>

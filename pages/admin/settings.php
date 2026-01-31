@@ -447,8 +447,6 @@ if ($enabledSidebarLinks === null) {
 // Scan for Excel files in common import directories
 $availableFiles = [];
 $searchPaths = [
-    'C:\\imports',
-    'C:\\xampp\\htdocs\\salamehtools\\imports',
     __DIR__ . '/../../imports',
 ];
 
@@ -947,7 +945,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <li>You can upload up to 3000 images at once (folder or multiple files)</li>
                 <li>Images with no matching product SKU will be skipped</li>
                 <li>Existing images with the same name will be <strong>automatically overwritten</strong></li>
-                <li><strong>⚠️ If uploading many images fails, restart Apache in XAMPP Control Panel</strong></li>
+                <li><strong>⚠️ If uploading many images fails, contact your hosting provider</strong></li>
             </ul>
         </div>
 
