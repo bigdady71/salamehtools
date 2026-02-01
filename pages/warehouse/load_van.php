@@ -21,8 +21,47 @@ if ($repId > 0) {
     $salesRep = $repStmt->fetch(PDO::FETCH_ASSOC);
 }
 
+// If no sales rep selected, show selection page
 if (!$salesRep) {
-    header('Location: sales_reps_stocks.php');
+    // Get all sales reps
+    $allRepsStmt = $pdo->query("SELECT id, name, phone FROM users WHERE role = 'sales_rep' ORDER BY name ASC");
+    $allReps = $allRepsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    warehouse_portal_render_layout_start([
+        'title' => 'Load Van - Select Sales Rep',
+        'heading' => '🔐 Load Van (OTP)',
+        'subtitle' => 'Select a sales representative to load stock',
+        'user' => $user,
+        'active' => 'load_van',
+    ]);
+
+    echo '<div style="max-width:800px;margin:0 auto;">';
+    echo '<div class="card">';
+    echo '<h3 style="margin:0 0 20px;">Select Sales Representative</h3>';
+
+    if (empty($allReps)) {
+        echo '<p style="text-align:center;color:var(--muted);padding:40px 0;">No sales representatives found</p>';
+    } else {
+        echo '<div style="display:grid;gap:12px;">';
+        foreach ($allReps as $rep) {
+            echo '<a href="load_van.php?rep_id=' . (int)$rep['id'] . '" style="display:flex;align-items:center;gap:16px;padding:16px;background:var(--bg);border:2px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text);transition:all 0.2s;">';
+            echo '<div style="width:50px;height:50px;background:linear-gradient(135deg,#3b82f6,#2563eb);border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:1.5rem;">🚚</div>';
+            echo '<div style="flex:1;">';
+            echo '<div style="font-weight:600;font-size:1.1rem;">' . htmlspecialchars($rep['name'], ENT_QUOTES, 'UTF-8') . '</div>';
+            if ($rep['phone']) {
+                echo '<div style="color:var(--muted);font-size:0.9rem;">📞 ' . htmlspecialchars($rep['phone'], ENT_QUOTES, 'UTF-8') . '</div>';
+            }
+            echo '</div>';
+            echo '<div style="color:var(--primary);font-weight:600;">Load →</div>';
+            echo '</a>';
+        }
+        echo '</div>';
+    }
+
+    echo '</div>';
+    echo '</div>';
+
+    warehouse_portal_render_layout_end();
     exit;
 }
 
@@ -179,6 +218,7 @@ warehouse_portal_render_layout_start([
     .load-container {
         max-width: 1000px;
     }
+
     .sales-rep-info {
         background: linear-gradient(135deg, #059669 0%, #10b981 100%);
         color: white;
@@ -189,33 +229,40 @@ warehouse_portal_render_layout_start([
         align-items: center;
         gap: 16px;
     }
+
     .sales-rep-info .icon {
         font-size: 2.5rem;
     }
+
     .sales-rep-info h2 {
         margin: 0 0 4px;
         color: white;
     }
+
     .sales-rep-info p {
         margin: 0;
         opacity: 0.9;
     }
+
     .product-filters {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         gap: 12px;
         margin-bottom: 20px;
     }
+
     .product-filters .filter-field {
         display: flex;
         flex-direction: column;
         gap: 6px;
     }
+
     .product-filters label {
         font-size: 0.85rem;
         font-weight: 600;
         color: var(--text);
     }
+
     .product-filters input,
     .product-filters select {
         width: 100%;
@@ -226,11 +273,13 @@ warehouse_portal_render_layout_start([
         transition: border-color 0.2s;
         background: white;
     }
+
     .product-filters input:focus,
     .product-filters select:focus {
         outline: none;
         border-color: var(--primary);
     }
+
     .product-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -240,6 +289,7 @@ warehouse_portal_render_layout_start([
         padding: 4px;
         margin-bottom: 24px;
     }
+
     .product-card {
         background: white;
         border: 2px solid var(--border);
@@ -248,14 +298,17 @@ warehouse_portal_render_layout_start([
         cursor: pointer;
         transition: all 0.2s;
     }
+
     .product-card:hover {
         border-color: var(--primary);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
+
     .product-card.selected {
         border-color: var(--success);
         background: #f0fdf4;
     }
+
     .product-card .product-image {
         width: 100%;
         height: 80px;
@@ -264,6 +317,7 @@ warehouse_portal_render_layout_start([
         border-radius: 6px;
         margin-bottom: 8px;
     }
+
     .product-card .product-image-placeholder {
         width: 100%;
         height: 80px;
@@ -276,6 +330,7 @@ warehouse_portal_render_layout_start([
         color: #9ca3af;
         margin-bottom: 8px;
     }
+
     .product-card .product-name {
         font-weight: 600;
         font-size: 0.9rem;
@@ -284,16 +339,19 @@ warehouse_portal_render_layout_start([
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+
     .product-card .product-sku {
         font-size: 0.8rem;
         color: var(--muted);
         margin-bottom: 4px;
     }
+
     .product-card .product-stock {
         font-size: 0.85rem;
         color: var(--success);
         font-weight: 600;
     }
+
     .selected-products {
         background: #f0f9ff;
         border: 2px solid #0ea5e9;
@@ -301,6 +359,7 @@ warehouse_portal_render_layout_start([
         padding: 20px;
         margin-bottom: 24px;
     }
+
     .selected-products h3 {
         margin: 0 0 16px;
         color: #0369a1;
@@ -308,6 +367,7 @@ warehouse_portal_render_layout_start([
         align-items: center;
         gap: 8px;
     }
+
     .selected-item {
         display: flex;
         align-items: center;
@@ -318,22 +378,27 @@ warehouse_portal_render_layout_start([
         border-radius: 8px;
         margin-bottom: 8px;
     }
+
     .selected-item .item-info {
         flex: 1;
     }
+
     .selected-item .item-name {
         font-weight: 600;
         margin-bottom: 2px;
     }
+
     .selected-item .item-sku {
         font-size: 0.85rem;
         color: var(--muted);
     }
+
     .selected-item .item-qty {
         display: flex;
         align-items: center;
         gap: 8px;
     }
+
     .selected-item .item-qty input {
         width: 80px;
         padding: 8px;
@@ -342,6 +407,7 @@ warehouse_portal_render_layout_start([
         text-align: center;
         font-weight: 600;
     }
+
     .selected-item .remove-btn {
         background: #fee2e2;
         color: #dc2626;
@@ -355,9 +421,11 @@ warehouse_portal_render_layout_start([
         align-items: center;
         justify-content: center;
     }
+
     .selected-item .remove-btn:hover {
         background: #fecaca;
     }
+
     .note-section textarea {
         width: 100%;
         padding: 12px;
@@ -366,6 +434,7 @@ warehouse_portal_render_layout_start([
         resize: vertical;
         min-height: 80px;
     }
+
     .btn-submit {
         width: 100%;
         padding: 16px;
@@ -378,35 +447,42 @@ warehouse_portal_render_layout_start([
         cursor: pointer;
         transition: all 0.2s;
     }
+
     .btn-submit:hover {
         box-shadow: 0 4px 12px rgba(5, 150, 105, 0.4);
         transform: translateY(-1px);
     }
+
     .btn-submit:disabled {
         opacity: 0.5;
         cursor: not-allowed;
         transform: none;
         box-shadow: none;
     }
+
     .flash {
         padding: 16px 20px;
         border-radius: 12px;
         margin-bottom: 16px;
         border: 2px solid;
     }
+
     .flash-success {
         background: #d1fae5;
         border-color: #065f46;
         color: #065f46;
     }
+
     .flash-error {
         background: #fee2e2;
         border-color: #991b1b;
         color: #991b1b;
     }
+
     .pending-section {
         margin-top: 32px;
     }
+
     .pending-card {
         background: white;
         border: 2px solid var(--border);
@@ -414,12 +490,15 @@ warehouse_portal_render_layout_start([
         padding: 16px;
         margin-bottom: 12px;
     }
+
     .pending-card.awaiting-you {
         border-left: 4px solid #3b82f6;
     }
+
     .pending-card.awaiting-other {
         border-left: 4px solid #f59e0b;
     }
+
     .otp-form {
         display: flex;
         gap: 12px;
@@ -429,6 +508,7 @@ warehouse_portal_render_layout_start([
         background: #eff6ff;
         border-radius: 8px;
     }
+
     .otp-form input {
         width: 120px;
         padding: 10px;
@@ -439,6 +519,7 @@ warehouse_portal_render_layout_start([
         text-align: center;
         letter-spacing: 0.2em;
     }
+
     .otp-form button {
         padding: 10px 20px;
         background: #3b82f6;
@@ -448,9 +529,11 @@ warehouse_portal_render_layout_start([
         font-weight: 600;
         cursor: pointer;
     }
+
     .otp-form button:hover {
         background: #2563eb;
     }
+
     .info-box {
         background: #fef3c7;
         border: 2px solid #f59e0b;
@@ -458,10 +541,12 @@ warehouse_portal_render_layout_start([
         padding: 16px;
         margin-bottom: 24px;
     }
+
     .info-box h3 {
         margin: 0 0 8px;
         color: #92400e;
     }
+
     .info-box p {
         margin: 0;
         color: #92400e;
@@ -538,18 +623,18 @@ warehouse_portal_render_layout_start([
                 $productStock = number_format((float)$product['quantity_on_hand'], 2, '.', '');
                 ?>
                 <div class="product-card"
-                     data-product-id="<?= $product['id'] ?>"
-                     data-product-name="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                     data-product-sku="<?= htmlspecialchars($product['sku'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
-                     data-product-barcode="<?= htmlspecialchars($productBarcode, ENT_QUOTES, 'UTF-8') ?>"
-                     data-product-topcat="<?= htmlspecialchars($productTopcat, ENT_QUOTES, 'UTF-8') ?>"
-                     data-product-midcat="<?= htmlspecialchars($productMidcat, ENT_QUOTES, 'UTF-8') ?>"
-                     data-product-stock="<?= htmlspecialchars($productStock, ENT_QUOTES, 'UTF-8') ?>"
-                     data-product-unit="<?= htmlspecialchars($productUnit, ENT_QUOTES, 'UTF-8') ?>">
+                    data-product-id="<?= $product['id'] ?>"
+                    data-product-name="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                    data-product-sku="<?= htmlspecialchars($product['sku'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                    data-product-barcode="<?= htmlspecialchars($productBarcode, ENT_QUOTES, 'UTF-8') ?>"
+                    data-product-topcat="<?= htmlspecialchars($productTopcat, ENT_QUOTES, 'UTF-8') ?>"
+                    data-product-midcat="<?= htmlspecialchars($productMidcat, ENT_QUOTES, 'UTF-8') ?>"
+                    data-product-stock="<?= htmlspecialchars($productStock, ENT_QUOTES, 'UTF-8') ?>"
+                    data-product-unit="<?= htmlspecialchars($productUnit, ENT_QUOTES, 'UTF-8') ?>">
                     <?php if (!empty($product['image_url'])): ?>
                         <img src="<?= htmlspecialchars($product['image_url'], ENT_QUOTES, 'UTF-8') ?>"
-                             alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                             class="product-image">
+                            alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                            class="product-image">
                     <?php else: ?>
                         <div class="product-image-placeholder">📦</div>
                     <?php endif; ?>

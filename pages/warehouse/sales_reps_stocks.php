@@ -18,16 +18,16 @@ warehouse_portal_render_layout_start([
     'active' => 'sales_reps_stocks',
 ]);
 
-// Get all sales reps with their stock summary
+// Get all sales reps with their stock summary (using s_stock table)
 $salesReps = $pdo->query("
     SELECT
         u.id,
         u.name,
         u.phone,
-        COUNT(vs.id) as product_count,
-        SUM(vs.quantity) as total_quantity
+        COUNT(ss.id) as product_count,
+        COALESCE(SUM(ss.qty_on_hand), 0) as total_quantity
     FROM users u
-    LEFT JOIN van_stock_items vs ON vs.sales_rep_id = u.id AND vs.quantity > 0
+    LEFT JOIN s_stock ss ON ss.salesperson_id = u.id AND ss.qty_on_hand > 0
     WHERE u.role = 'sales_rep'
     GROUP BY u.id, u.name, u.phone
     ORDER BY u.name ASC
@@ -70,19 +70,19 @@ $salesReps = $pdo->query("
 
             <?php if ($productCount > 0): ?>
                 <?php
-                // Get this rep's van stock
+                // Get this rep's van stock (using s_stock table)
                 $vanStockStmt = $pdo->prepare("
                     SELECT
-                        vs.id,
-                        vs.quantity,
-                        vs.loaded_at,
+                        ss.id,
+                        ss.qty_on_hand as quantity,
+                        ss.updated_at as loaded_at,
                         p.sku,
                         p.item_name,
                         p.unit,
                         p.image_url
-                    FROM van_stock_items vs
-                    INNER JOIN products p ON p.id = vs.product_id
-                    WHERE vs.sales_rep_id = ? AND vs.quantity > 0
+                    FROM s_stock ss
+                    INNER JOIN products p ON p.id = ss.product_id
+                    WHERE ss.salesperson_id = ? AND ss.qty_on_hand > 0
                     ORDER BY p.item_name ASC
                     LIMIT 5
                 ");
@@ -99,8 +99,8 @@ $salesReps = $pdo->query("
                             <!-- Product Image -->
                             <?php if (!empty($item['image_url'])): ?>
                                 <img src="<?= htmlspecialchars($item['image_url'], ENT_QUOTES, 'UTF-8') ?>"
-                                     alt="<?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                                     style="width:40px;height:40px;object-fit:cover;border-radius:4px;border:1px solid #e5e7eb;">
+                                    alt="<?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                                    style="width:40px;height:40px;object-fit:cover;border-radius:4px;border:1px solid #e5e7eb;">
                             <?php else: ?>
                                 <div style="width:40px;height:40px;background:#f3f4f6;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:1.2rem;">
                                     📦

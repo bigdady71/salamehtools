@@ -100,6 +100,11 @@ function warehouse_portal_nav_links(): array
             'href' => 'sales_reps_stocks.php',
             'icon' => '🚚',
         ],
+        'load_van' => [
+            'label' => 'Load Van (OTP)',
+            'href' => 'load_van.php',
+            'icon' => '🔐',
+        ],
         'stock_movements' => [
             'label' => 'Stock Movements',
             'href' => 'stock_movements.php',
