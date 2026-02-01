@@ -4,15 +4,14 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/db.php';
-require_once __DIR__ . '/../../includes/sales_portal.php';
 require_once __DIR__ . '/../../includes/admin_page.php';
 
-// Sales rep authentication
+// Admin authentication
 require_login();
 $user = auth_user();
-if (!$user || ($user['role'] ?? '') !== 'sales_rep') {
+if (!$user || !in_array($user['role'] ?? '', ['admin', 'super_admin'], true)) {
     http_response_code(403);
-    echo 'Forbidden - Sales representatives only';
+    echo 'Forbidden - Admin access only';
     exit;
 }
 
@@ -339,10 +338,10 @@ $extraHead = <<<'HTML'
 </style>
 HTML;
 
-sales_portal_render_layout_start([
-    'title' => 'كتالوج المنتجات',
-    'heading' => 'كتالوج المنتجات',
-    'subtitle' => 'تصفح المنتجات النشطة مع الأسعار والتوفر',
+admin_render_layout_start([
+    'title' => 'Product Catalog',
+    'heading' => 'Product Catalog',
+    'subtitle' => 'Browse active products with prices and availability',
     'user' => $user,
     'active' => 'products',
     'extra_head' => $extraHead,
@@ -376,7 +375,7 @@ sales_portal_render_layout_start([
             <div class="filter-field">
                 <label>Search</label>
                 <input type="text" name="search" value="<?= htmlspecialchars($search, ENT_QUOTES, 'UTF-8') ?>"
-                       placeholder="SKU or product name...">
+                    placeholder="SKU or product name...">
             </div>
 
             <div class="filter-field">
@@ -384,7 +383,8 @@ sales_portal_render_layout_start([
                 <select name="category">
                     <option value="">All Categories</option>
                     <?php foreach ($categories as $cat): ?>
-                        <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>" <?= $category === $cat ? 'selected' : '' ?>>
+                        <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>"
+                            <?= $category === $cat ? 'selected' : '' ?>>
                             <?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>
                         </option>
                     <?php endforeach; ?>
@@ -457,104 +457,115 @@ sales_portal_render_layout_start([
             $imageSrc = $imagePath . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
             $fallbackSrc = '../../images/products/default.jpg' . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
         ?>
-        <div class="product-card">
-            <!-- Product Image -->
-            <div style="width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; background: #ffffff; border-radius: 8px; margin-bottom: 16px; overflow: hidden;">
-                <?php if ($imageExists): ?>
-                    <img src="<?= htmlspecialchars($imageSrc, ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>" style="max-width: 100%; max-height: 100%; object-fit: contain;" class="lazy-image" loading="lazy" onload="this.classList.add('is-loaded')" onerror="this.src='<?= htmlspecialchars($fallbackSrc, ENT_QUOTES, 'UTF-8') ?>'">
-                <?php else: ?>
-                    <div style="font-size: 3rem; opacity: 0.3;">📦</div>
-                <?php endif; ?>
-            </div>
-
-            <div class="product-sku"><?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?></div>
-
-            <div class="product-name"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
-
-            <?php if ($product['second_name']): ?>
-                <div class="product-second-name"><?= htmlspecialchars($product['second_name'], ENT_QUOTES, 'UTF-8') ?></div>
-            <?php endif; ?>
-
-            <?php if ($product['topcat_name']): ?>
-                <div class="product-category"><?= htmlspecialchars($product['topcat_name'], ENT_QUOTES, 'UTF-8') ?></div>
-            <?php endif; ?>
-
-            <div class="product-details">
-                <!-- Pricing Tiers -->
-                <div style="background: rgba(59, 130, 246, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-                    <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #1d4ed8; margin-bottom: 8px;">💰 Pricing</div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                        <div>
-                            <div style="font-size: 0.75rem; color: var(--muted);">Retail</div>
-                            <div style="font-size: 1.1rem; font-weight: 600; color: #15803d;">
-                                $<?= number_format((float)$product['sale_price_usd'], 2) ?>
-                            </div>
-                            <?php if ($product['margin_percent'] !== null): ?>
-                                <div style="font-size: 0.75rem; color: <?= $product['margin_percent'] < 20 ? '#dc2626' : '#15803d' ?>;">
-                                    <?= number_format((float)$product['margin_percent'], 1) ?>% margin
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                        <div>
-                            <div style="font-size: 0.75rem; color: var(--muted);">Wholesale</div>
-                            <div style="font-size: 1.1rem; font-weight: 600; color: #1d4ed8;">
-                                $<?= number_format((float)$product['wholesale_price_usd'], 2) ?>
-                            </div>
-                            <?php if ($product['wholesale_margin_percent'] !== null): ?>
-                                <div style="font-size: 0.75rem; color: <?= $product['wholesale_margin_percent'] < 15 ? '#dc2626' : '#15803d' ?>;">
-                                    <?= number_format((float)$product['wholesale_margin_percent'], 1) ?>% margin
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <?php if ($product['cost_price_usd'] !== null && $product['cost_price_usd'] > 0): ?>
-                        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.1);">
-                            <div style="font-size: 0.75rem; color: var(--muted);">Cost Basis</div>
-                            <div style="font-size: 0.9rem; font-weight: 500;">
-                                $<?= number_format((float)$product['cost_price_usd'], 2) ?>
-                            </div>
-                        </div>
+            <div class="product-card">
+                <!-- Product Image -->
+                <div
+                    style="width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; background: #ffffff; border-radius: 8px; margin-bottom: 16px; overflow: hidden;">
+                    <?php if ($imageExists): ?>
+                        <img src="<?= htmlspecialchars($imageSrc, ENT_QUOTES, 'UTF-8') ?>"
+                            alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                            style="max-width: 100%; max-height: 100%; object-fit: contain;" class="lazy-image" loading="lazy"
+                            onload="this.classList.add('is-loaded')"
+                            onerror="this.src='<?= htmlspecialchars($fallbackSrc, ENT_QUOTES, 'UTF-8') ?>'">
+                    <?php else: ?>
+                        <div style="font-size: 3rem; opacity: 0.3;">📦</div>
                     <?php endif; ?>
                 </div>
 
-                <div class="product-detail">
-                    <div class="product-detail-label">Unit</div>
-                    <div class="product-detail-value">
-                        <?= htmlspecialchars($product['unit'] ?? '—', ENT_QUOTES, 'UTF-8') ?>
-                    </div>
-                </div>
+                <div class="product-sku"><?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?></div>
 
-                <div class="product-detail">
-                    <div class="product-detail-label">Stock</div>
-                    <div class="product-detail-value">
-                        <?php if ($isOutOfStock): ?>
-                            <span class="stock-badge out-of-stock">
-                                <span class="stock-indicator red"></span>
-                                Out of Stock
-                            </span>
-                        <?php elseif ($isLowStock): ?>
-                            <span class="stock-badge low-stock">
-                                <span class="stock-indicator orange"></span>
-                                <?= number_format($qtyOnHand, 1) ?> (Low)
-                            </span>
-                        <?php else: ?>
-                            <span class="stock-badge in-stock">
-                                <span class="stock-indicator green"></span>
-                                <?= number_format($qtyOnHand, 1) ?>
-                            </span>
+                <div class="product-name"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
+
+                <?php if ($product['second_name']): ?>
+                    <div class="product-second-name"><?= htmlspecialchars($product['second_name'], ENT_QUOTES, 'UTF-8') ?></div>
+                <?php endif; ?>
+
+                <?php if ($product['topcat_name']): ?>
+                    <div class="product-category"><?= htmlspecialchars($product['topcat_name'], ENT_QUOTES, 'UTF-8') ?></div>
+                <?php endif; ?>
+
+                <div class="product-details">
+                    <!-- Pricing Tiers -->
+                    <div style="background: rgba(59, 130, 246, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                        <div
+                            style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #1d4ed8; margin-bottom: 8px;">
+                            💰 Pricing</div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <div>
+                                <div style="font-size: 0.75rem; color: var(--muted);">Retail</div>
+                                <div style="font-size: 1.1rem; font-weight: 600; color: #15803d;">
+                                    $<?= number_format((float)$product['sale_price_usd'], 2) ?>
+                                </div>
+                                <?php if ($product['margin_percent'] !== null): ?>
+                                    <div
+                                        style="font-size: 0.75rem; color: <?= $product['margin_percent'] < 20 ? '#dc2626' : '#15803d' ?>;">
+                                        <?= number_format((float)$product['margin_percent'], 1) ?>% margin
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.75rem; color: var(--muted);">Wholesale</div>
+                                <div style="font-size: 1.1rem; font-weight: 600; color: #1d4ed8;">
+                                    $<?= number_format((float)$product['wholesale_price_usd'], 2) ?>
+                                </div>
+                                <?php if ($product['wholesale_margin_percent'] !== null): ?>
+                                    <div
+                                        style="font-size: 0.75rem; color: <?= $product['wholesale_margin_percent'] < 15 ? '#dc2626' : '#15803d' ?>;">
+                                        <?= number_format((float)$product['wholesale_margin_percent'], 1) ?>% margin
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <?php if ($product['cost_price_usd'] !== null && $product['cost_price_usd'] > 0): ?>
+                            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.1);">
+                                <div style="font-size: 0.75rem; color: var(--muted);">Cost Basis</div>
+                                <div style="font-size: 0.9rem; font-weight: 500;">
+                                    $<?= number_format((float)$product['cost_price_usd'], 2) ?>
+                                </div>
+                            </div>
                         <?php endif; ?>
                     </div>
-                </div>
 
-                <!-- Margin Alert -->
-                <?php if ($product['margin_percent'] !== null && $product['margin_percent'] < 15): ?>
-                    <div style="margin-top: 8px; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #dc2626;">
-                        <div style="font-size: 0.75rem; color: #991b1b; font-weight: 600;">⚠️ Low Margin Alert</div>
-                        <div style="font-size: 0.7rem; color: #991b1b; margin-top: 2px;">Retail margin below 15% - negotiate carefully</div>
+                    <div class="product-detail">
+                        <div class="product-detail-label">Unit</div>
+                        <div class="product-detail-value">
+                            <?= htmlspecialchars($product['unit'] ?? '—', ENT_QUOTES, 'UTF-8') ?>
+                        </div>
                     </div>
-                <?php endif; ?>
+
+                    <div class="product-detail">
+                        <div class="product-detail-label">Stock</div>
+                        <div class="product-detail-value">
+                            <?php if ($isOutOfStock): ?>
+                                <span class="stock-badge out-of-stock">
+                                    <span class="stock-indicator red"></span>
+                                    Out of Stock
+                                </span>
+                            <?php elseif ($isLowStock): ?>
+                                <span class="stock-badge low-stock">
+                                    <span class="stock-indicator orange"></span>
+                                    <?= number_format($qtyOnHand, 1) ?> (Low)
+                                </span>
+                            <?php else: ?>
+                                <span class="stock-badge in-stock">
+                                    <span class="stock-indicator green"></span>
+                                    <?= number_format($qtyOnHand, 1) ?>
+                                </span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- Margin Alert -->
+                    <?php if ($product['margin_percent'] !== null && $product['margin_percent'] < 15): ?>
+                        <div
+                            style="margin-top: 8px; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #dc2626;">
+                            <div style="font-size: 0.75rem; color: #991b1b; font-weight: 600;">⚠️ Low Margin Alert</div>
+                            <div style="font-size: 0.7rem; color: #991b1b; margin-top: 2px;">Retail margin below 15% - negotiate
+                                carefully</div>
+                        </div>
+                    <?php endif; ?>
+                </div>
             </div>
-        </div>
         <?php endforeach; ?>
     </div>
 
@@ -562,7 +573,8 @@ sales_portal_render_layout_start([
     <?php if ($totalPages > 1): ?>
         <div class="pagination">
             <?php if ($page > 1): ?>
-                <a href="?page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?><?= $stockFilter ? '&stock=' . urlencode($stockFilter) : '' ?>">
+                <a
+                    href="?page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?><?= $stockFilter ? '&stock=' . urlencode($stockFilter) : '' ?>">
                     ← Previous
                 </a>
             <?php endif; ?>
@@ -570,7 +582,8 @@ sales_portal_render_layout_start([
             <span class="current">Page <?= $page ?> of <?= $totalPages ?></span>
 
             <?php if ($page < $totalPages): ?>
-                <a href="?page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?><?= $stockFilter ? '&stock=' . urlencode($stockFilter) : '' ?>">
+                <a
+                    href="?page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?><?= $stockFilter ? '&stock=' . urlencode($stockFilter) : '' ?>">
                     Next →
                 </a>
             <?php endif; ?>
@@ -578,4 +591,4 @@ sales_portal_render_layout_start([
     <?php endif; ?>
 <?php endif; ?>
 
-<?php sales_portal_render_layout_end(); ?>
+<?php admin_render_layout_end(); ?>

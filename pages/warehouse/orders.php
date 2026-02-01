@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/warehouse_portal.php';
 require_once __DIR__ . '/../../includes/stock_functions.php';
 require_once __DIR__ . '/../../includes/OrderLifecycle.php';
-    $user = warehouse_portal_bootstrap();
+$user = warehouse_portal_bootstrap();
 $pdo = db();
 
 // Initialize OrderLifecycle with user context
@@ -410,13 +410,9 @@ if (isset($_SESSION['error'])) {
         <!-- Search Bar -->
         <div>
             <label style="display:block;font-weight:500;margin-bottom:8px;font-size:0.9rem;">Search Orders</label>
-            <input
-                type="text"
-                name="search"
-                value="<?= htmlspecialchars($searchQuery, ENT_QUOTES, 'UTF-8') ?>"
+            <input type="text" name="search" value="<?= htmlspecialchars($searchQuery, ENT_QUOTES, 'UTF-8') ?>"
                 placeholder="Search by order number, customer name, or product SKU..."
-                style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:1rem;"
-            >
+                style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:1rem;">
             <small style="color:var(--muted);font-size:0.85rem;margin-top:4px;display:block;">
                 Try: order number (ORD-000010), customer name, or product SKU (MKS006-29)
             </small>
@@ -427,7 +423,8 @@ if (isset($_SESSION['error'])) {
             <div>
                 <label style="display:block;font-weight:500;margin-bottom:8px;font-size:0.9rem;">Order Status</label>
                 <select name="status" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;">
-                    <option value="to_prepare" <?= $statusFilter === 'to_prepare' ? 'selected' : '' ?>>To Prepare</option>
+                    <option value="to_prepare" <?= $statusFilter === 'to_prepare' ? 'selected' : '' ?>>To Prepare
+                    </option>
                     <option value="ready" <?= $statusFilter === 'ready' ? 'selected' : '' ?>>Ready for Handover</option>
                     <option value="handed" <?= $statusFilter === 'handed' ? 'selected' : '' ?>>With Sales Rep</option>
                     <option value="all" <?= $statusFilter === 'all' ? 'selected' : '' ?>>All</option>
@@ -436,7 +433,8 @@ if (isset($_SESSION['error'])) {
 
             <div>
                 <label style="display:block;font-weight:500;margin-bottom:8px;font-size:0.9rem;">Sales Rep</label>
-                <select name="sales_rep" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;">
+                <select name="sales_rep"
+                    style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;">
                     <option value="0">All Sales Reps</option>
                     <?php foreach ($salesReps as $rep): ?>
                         <option value="<?= $rep['id'] ?>" <?= $salesRepFilter === $rep['id'] ? 'selected' : '' ?>>
@@ -458,7 +456,8 @@ if (isset($_SESSION['error'])) {
 
 <!-- Results Summary -->
 <?php if ($searchQuery || $salesRepFilter > 0): ?>
-    <div style="background:var(--bg);padding:12px 20px;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+    <div
+        style="background:var(--bg);padding:12px 20px;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
         <div>
             <strong><?= count($orders) ?></strong> order(s) found
             <?php if ($searchQuery): ?>
@@ -523,7 +522,8 @@ if (isset($_SESSION['error'])) {
             <div style="border-bottom:2px solid #000;padding:12px 16px;background:#f9f9f9;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <div style="display:flex;gap:20px;align-items:center;font-size:0.9rem;">
-                        <strong style="font-size:1.1rem;"><?= htmlspecialchars($order['order_number'] ?? 'ORD-' . str_pad((string)$order['id'], 6, '0', STR_PAD_LEFT), ENT_QUOTES, 'UTF-8') ?></strong>
+                        <strong
+                            style="font-size:1.1rem;"><?= htmlspecialchars($order['order_number'] ?? 'ORD-' . str_pad((string)$order['id'], 6, '0', STR_PAD_LEFT), ENT_QUOTES, 'UTF-8') ?></strong>
                         <?php if ($order['sales_rep_name']): ?>
                             <span>Rep: <?= htmlspecialchars($order['sales_rep_name'], ENT_QUOTES, 'UTF-8') ?></span>
                         <?php endif; ?>
@@ -532,10 +532,21 @@ if (isset($_SESSION['error'])) {
                             <span>Tel: <?= htmlspecialchars($order['customer_phone'], ENT_QUOTES, 'UTF-8') ?></span>
                         <?php endif; ?>
                         <span><?= date('d/m/Y', strtotime($order['created_at'])) ?></span>
-                        <span><?= $order['order_type'] === 'van_stock_sale' ? 'Van' : 'Company' ?></span>
+                        <span
+                            style="<?= $order['order_type'] === 'customer_order' ? 'background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:4px;font-weight:600;' : '' ?>">
+                            <?php
+                            echo match ($order['order_type']) {
+                                'customer_order' => '🛒 Online',
+                                'van_stock_sale' => 'Van',
+                                'company_order' => 'Company',
+                                default => ucwords(str_replace('_', ' ', $order['order_type']))
+                            };
+                            ?>
+                        </span>
                     </div>
                     <div>
-                        <strong style="text-transform:uppercase;font-size:0.85rem;"><?= htmlspecialchars($statusLabels[$order['status']] ?? ucfirst($order['status']), ENT_QUOTES, 'UTF-8') ?></strong>
+                        <strong
+                            style="text-transform:uppercase;font-size:0.85rem;"><?= htmlspecialchars($statusLabels[$order['status']] ?? ucfirst($order['status']), ENT_QUOTES, 'UTF-8') ?></strong>
                     </div>
                 </div>
                 <?php if (!empty($order['order_notes'])): ?>
@@ -568,10 +579,12 @@ if (isset($_SESSION['error'])) {
                             <td style="padding:10px;text-align:center;border-right:1px solid #ddd;">
                                 <?php if (!empty($item['image_url'])): ?>
                                     <img src="<?= htmlspecialchars($item['image_url'], ENT_QUOTES, 'UTF-8') ?>"
-                                         alt="<?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                                         style="width:60px;height:60px;object-fit:cover;border:1px solid #ccc;">
+                                        alt="<?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                                        style="width:60px;height:60px;object-fit:cover;border:1px solid #ccc;">
                                 <?php else: ?>
-                                    <div style="width:60px;height:60px;background:#f5f5f5;display:flex;align-items:center;justify-content:center;border:1px solid #ccc;">-</div>
+                                    <div
+                                        style="width:60px;height:60px;background:#f5f5f5;display:flex;align-items:center;justify-content:center;border:1px solid #ccc;">
+                                        -</div>
                                 <?php endif; ?>
                             </td>
                             <td style="padding:10px;border-right:1px solid #ddd;">
@@ -580,27 +593,27 @@ if (isset($_SESSION['error'])) {
                             <td style="padding:10px;border-right:1px solid #ddd;">
                                 <div style="font-weight:600;"><?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
                                 <?php if ($item['description']): ?>
-                                    <div style="font-size:0.85rem;color:#666;"><?= htmlspecialchars($item['description'], ENT_QUOTES, 'UTF-8') ?></div>
+                                    <div style="font-size:0.85rem;color:#666;">
+                                        <?= htmlspecialchars($item['description'], ENT_QUOTES, 'UTF-8') ?></div>
                                 <?php endif; ?>
                             </td>
                             <td style="padding:10px;text-align:center;border-right:1px solid #ddd;">
                                 <strong><?= number_format($qtyOrdered, 0) ?></strong>
-                                <div style="font-size:0.8rem;color:#666;"><?= htmlspecialchars($item['unit'], ENT_QUOTES, 'UTF-8') ?></div>
+                                <div style="font-size:0.8rem;color:#666;">
+                                    <?= htmlspecialchars($item['unit'], ENT_QUOTES, 'UTF-8') ?></div>
                             </td>
-                            <td style="padding:10px;text-align:center;border-right:1px solid #ddd;<?= !$hasStock ? 'background:#ffe5e5;' : '' ?>">
+                            <td
+                                style="padding:10px;text-align:center;border-right:1px solid #ddd;<?= !$hasStock ? 'background:#ffe5e5;' : '' ?>">
                                 <strong><?= number_format($qtyInStock, 0) ?></strong>
                                 <?php if (!$hasStock): ?>
                                     <div style="font-size:0.75rem;color:#d00;font-weight:600;">SHORT</div>
                                 <?php endif; ?>
                             </td>
                             <td style="padding:10px;text-align:center;">
-                                <input type="number"
-                                       name="qty_to_ship_<?= $item['id'] ?>"
-                                       value="<?= min($qtyOrdered, $qtyInStock) ?>"
-                                       min="0"
-                                       max="<?= $qtyInStock ?>"
-                                       style="width:80px;padding:6px;text-align:center;border:1px solid #000;font-size:1rem;font-weight:600;"
-                                       data-item-id="<?= $item['id'] ?>">
+                                <input type="number" name="qty_to_ship_<?= $item['id'] ?>"
+                                    value="<?= min($qtyOrdered, $qtyInStock) ?>" min="0" max="<?= $qtyInStock ?>"
+                                    style="width:80px;padding:6px;text-align:center;border:1px solid #000;font-size:1rem;font-weight:600;"
+                                    data-item-id="<?= $item['id'] ?>">
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -608,16 +621,19 @@ if (isset($_SESSION['error'])) {
             </table>
 
             <!-- Actions -->
-            <div style="padding:16px;background:#f9f9f9;border-top:1px solid #000;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+            <div
+                style="padding:16px;background:#f9f9f9;border-top:1px solid #000;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                    <button type="button" onclick="checkStock(<?= $order['id'] ?>)" style="padding:8px 16px;background:#fff;border:1px solid #000;cursor:pointer;font-weight:600;">
+                    <button type="button" onclick="checkStock(<?= $order['id'] ?>)"
+                        style="padding:8px 16px;background:#fff;border:1px solid #000;cursor:pointer;font-weight:600;">
                         CHECK STOCK
                     </button>
                     <a href="print_picklist.php?order_id=<?= $order['id'] ?>" target="_blank"
-                       style="padding:8px 16px;background:#fff;border:1px solid #000;text-decoration:none;color:#000;font-weight:600;display:inline-block;">
+                        style="padding:8px 16px;background:#fff;border:1px solid #000;text-decoration:none;color:#000;font-weight:600;display:inline-block;">
                         PRINT
                     </a>
-                    <button type="button" onclick="showOrderHistory(<?= $order['id'] ?>)" style="padding:8px 16px;background:#6366f1;color:#fff;border:none;cursor:pointer;font-weight:600;">
+                    <button type="button" onclick="showOrderHistory(<?= $order['id'] ?>)"
+                        style="padding:8px 16px;background:#6366f1;color:#fff;border:none;cursor:pointer;font-weight:600;">
                         HISTORY
                     </button>
                     <?php if (!in_array($order['status'], ['ready', 'ready_for_handover', 'handed_to_sales_rep', 'completed', 'cancelled'])): ?>
@@ -626,27 +642,32 @@ if (isset($_SESSION['error'])) {
                             <form method="POST" style="display:inline;">
                                 <input type="hidden" name="action" value="resume_order">
                                 <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
-                                <button type="submit" style="padding:8px 16px;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-weight:600;">
+                                <button type="submit"
+                                    style="padding:8px 16px;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-weight:600;">
                                     RESUME
                                 </button>
                             </form>
                         <?php else: ?>
                             <!-- Put on hold -->
-                            <button type="button" onclick="showHoldModal(<?= $order['id'] ?>)" style="padding:8px 16px;background:#f59e0b;color:#fff;border:none;cursor:pointer;font-weight:600;">
+                            <button type="button" onclick="showHoldModal(<?= $order['id'] ?>)"
+                                style="padding:8px 16px;background:#f59e0b;color:#fff;border:none;cursor:pointer;font-weight:600;">
                                 HOLD
                             </button>
                         <?php endif; ?>
                         <!-- Cancel -->
-                        <button type="button" onclick="showCancelModal(<?= $order['id'] ?>)" style="padding:8px 16px;background:#dc2626;color:#fff;border:none;cursor:pointer;font-weight:600;">
+                        <button type="button" onclick="showCancelModal(<?= $order['id'] ?>)"
+                            style="padding:8px 16px;background:#dc2626;color:#fff;border:none;cursor:pointer;font-weight:600;">
                             CANCEL
                         </button>
                     <?php endif; ?>
                 </div>
                 <?php if (!in_array($order['status'], ['ready', 'ready_for_handover', 'handed_to_sales_rep', 'completed', 'cancelled'])): ?>
-                    <form method="POST" style="display:inline;" onsubmit="return confirm('Mark this order as ready for handover? Stock will NOT be deducted until sales rep accepts.');">
+                    <form method="POST" style="display:inline;"
+                        onsubmit="return confirm('Mark this order as ready for handover? Stock will NOT be deducted until sales rep accepts.');">
                         <input type="hidden" name="action" value="mark_prepared">
                         <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
-                        <button type="submit" style="padding:10px 24px;background:#000;color:#fff;border:none;cursor:pointer;font-weight:600;font-size:0.95rem;">
+                        <button type="submit"
+                            style="padding:10px 24px;background:#000;color:#fff;border:none;cursor:pointer;font-weight:600;font-size:0.95rem;">
                             MARK AS READY
                         </button>
                     </form>
@@ -657,7 +678,8 @@ if (isset($_SESSION['error'])) {
                         $salesRepVerified = $otpData['sales_rep_verified_at'] !== null;
                         $bothVerified = $warehouseVerified && $salesRepVerified;
                         ?>
-                        <div style="display:flex;flex-direction:column;gap:12px;padding:12px;background:#fff;border:2px solid #000;border-radius:4px;">
+                        <div
+                            style="display:flex;flex-direction:column;gap:12px;padding:12px;background:#fff;border:2px solid #000;border-radius:4px;">
                             <?php if ($bothVerified): ?>
                                 <div style="text-align:center;padding:8px;background:#22c55e;color:#fff;font-weight:700;border-radius:4px;">
                                     ✓ STOCK TRANSFERRED
@@ -665,8 +687,10 @@ if (isset($_SESSION['error'])) {
                             <?php else: ?>
                                 <!-- Warehouse OTP Display -->
                                 <div style="background:#fef3c7;padding:12px;border-radius:4px;border:2px solid #f59e0b;">
-                                    <div style="font-size:0.75rem;font-weight:600;color:#92400e;margin-bottom:4px;">YOUR OTP (Show to Sales Rep):</div>
-                                    <div style="font-size:2rem;font-weight:700;letter-spacing:8px;color:#000;text-align:center;font-family:monospace;">
+                                    <div style="font-size:0.75rem;font-weight:600;color:#92400e;margin-bottom:4px;">YOUR OTP (Show to Sales
+                                        Rep):</div>
+                                    <div
+                                        style="font-size:2rem;font-weight:700;letter-spacing:8px;color:#000;text-align:center;font-family:monospace;">
                                         <?= htmlspecialchars($otpData['warehouse_otp'], ENT_QUOTES, 'UTF-8') ?>
                                     </div>
                                 </div>
@@ -676,17 +700,21 @@ if (isset($_SESSION['error'])) {
                                     <input type="hidden" name="action" value="verify_otp_warehouse">
                                     <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
                                     <div>
-                                        <label style="font-size:0.75rem;font-weight:600;display:block;margin-bottom:4px;">Enter Sales Rep OTP:</label>
-                                        <input type="text" name="sales_rep_otp" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required
-                                               style="width:100%;padding:12px;font-size:1.5rem;text-align:center;letter-spacing:8px;font-family:monospace;border:2px solid #000;font-weight:700;"
-                                               <?= $warehouseVerified ? 'disabled' : '' ?>>
+                                        <label style="font-size:0.75rem;font-weight:600;display:block;margin-bottom:4px;">Enter Sales Rep
+                                            OTP:</label>
+                                        <input type="text" name="sales_rep_otp" placeholder="000000" maxlength="6" pattern="[0-9]{6}"
+                                            required
+                                            style="width:100%;padding:12px;font-size:1.5rem;text-align:center;letter-spacing:8px;font-family:monospace;border:2px solid #000;font-weight:700;"
+                                            <?= $warehouseVerified ? 'disabled' : '' ?>>
                                     </div>
                                     <?php if (!$warehouseVerified): ?>
-                                        <button type="submit" style="padding:12px;background:#000;color:#fff;border:none;cursor:pointer;font-weight:600;font-size:0.95rem;">
+                                        <button type="submit"
+                                            style="padding:12px;background:#000;color:#fff;border:none;cursor:pointer;font-weight:600;font-size:0.95rem;">
                                             VERIFY & COMPLETE TRANSFER
                                         </button>
                                     <?php else: ?>
-                                        <div style="padding:8px;background:#22c55e;color:#fff;font-weight:600;text-align:center;border-radius:4px;">
+                                        <div
+                                            style="padding:8px;background:#22c55e;color:#fff;font-weight:600;text-align:center;border-radius:4px;">
                                             ✓ Warehouse Verified - Waiting for Sales Rep
                                         </div>
                                     <?php endif; ?>
@@ -694,10 +722,12 @@ if (isset($_SESSION['error'])) {
                             <?php endif; ?>
                         </div>
                     <?php else: ?>
-                        <form method="POST" style="display:inline;" onsubmit="return confirm('OTP has expired. Generate new OTP codes for this order?');">
+                        <form method="POST" style="display:inline;"
+                            onsubmit="return confirm('OTP has expired. Generate new OTP codes for this order?');">
                             <input type="hidden" name="action" value="regenerate_otp">
                             <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
-                            <button type="submit" style="padding:10px 24px;background:#dc2626;color:#fff;border:none;cursor:pointer;font-weight:600;">
+                            <button type="submit"
+                                style="padding:10px 24px;background:#dc2626;color:#fff;border:none;cursor:pointer;font-weight:600;">
                                 🔄 OTP EXPIRED - REGENERATE
                             </button>
                         </form>
@@ -709,15 +739,18 @@ if (isset($_SESSION['error'])) {
 <?php endif; ?>
 
 <!-- Hold Order Modal -->
-<div id="holdModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
-    <div style="background:#fff;border-radius:8px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+<div id="holdModal"
+    style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
+    <div
+        style="background:#fff;border-radius:8px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
         <h3 style="margin:0 0 16px;font-size:1.2rem;">Put Order On Hold</h3>
         <form method="POST" id="holdForm">
             <input type="hidden" name="action" value="put_on_hold">
             <input type="hidden" name="order_id" id="holdOrderId" value="">
             <div style="margin-bottom:16px;">
                 <label style="display:block;font-weight:600;margin-bottom:8px;">Reason (optional):</label>
-                <select name="hold_reason" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:1rem;">
+                <select name="hold_reason"
+                    style="width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:1rem;">
                     <option value="Insufficient stock">Insufficient stock</option>
                     <option value="Awaiting customer confirmation">Awaiting customer confirmation</option>
                     <option value="Payment pending">Payment pending</option>
@@ -726,10 +759,12 @@ if (isset($_SESSION['error'])) {
                 </select>
             </div>
             <div style="display:flex;gap:12px;justify-content:flex-end;">
-                <button type="button" onclick="closeHoldModal()" style="padding:10px 20px;background:#6b7280;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
+                <button type="button" onclick="closeHoldModal()"
+                    style="padding:10px 20px;background:#6b7280;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
                     Cancel
                 </button>
-                <button type="submit" style="padding:10px 20px;background:#f59e0b;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
+                <button type="submit"
+                    style="padding:10px 20px;background:#f59e0b;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
                     Put On Hold
                 </button>
             </div>
@@ -738,16 +773,20 @@ if (isset($_SESSION['error'])) {
 </div>
 
 <!-- Cancel Order Modal -->
-<div id="cancelModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
-    <div style="background:#fff;border-radius:8px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+<div id="cancelModal"
+    style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
+    <div
+        style="background:#fff;border-radius:8px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
         <h3 style="margin:0 0 16px;font-size:1.2rem;color:#dc2626;">Cancel Order</h3>
-        <p style="margin:0 0 16px;color:#666;">Are you sure you want to cancel this order? This action cannot be undone.</p>
+        <p style="margin:0 0 16px;color:#666;">Are you sure you want to cancel this order? This action cannot be undone.
+        </p>
         <form method="POST" id="cancelForm">
             <input type="hidden" name="action" value="cancel_order">
             <input type="hidden" name="order_id" id="cancelOrderId" value="">
             <div style="margin-bottom:16px;">
                 <label style="display:block;font-weight:600;margin-bottom:8px;">Reason:</label>
-                <select name="cancel_reason" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:1rem;">
+                <select name="cancel_reason"
+                    style="width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:1rem;">
                     <option value="Insufficient stock - cannot fulfill">Insufficient stock - cannot fulfill</option>
                     <option value="Customer requested cancellation">Customer requested cancellation</option>
                     <option value="Duplicate order">Duplicate order</option>
@@ -756,10 +795,12 @@ if (isset($_SESSION['error'])) {
                 </select>
             </div>
             <div style="display:flex;gap:12px;justify-content:flex-end;">
-                <button type="button" onclick="closeCancelModal()" style="padding:10px 20px;background:#6b7280;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
+                <button type="button" onclick="closeCancelModal()"
+                    style="padding:10px 20px;background:#6b7280;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
                     Go Back
                 </button>
-                <button type="submit" style="padding:10px 20px;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
+                <button type="submit"
+                    style="padding:10px 20px;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
                     Cancel Order
                 </button>
             </div>
@@ -768,11 +809,14 @@ if (isset($_SESSION['error'])) {
 </div>
 
 <!-- Order History Modal -->
-<div id="historyModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;overflow-y:auto;">
-    <div style="background:#fff;border-radius:8px;padding:24px;max-width:700px;width:95%;margin:20px auto;box-shadow:0 4px 20px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto;">
+<div id="historyModal"
+    style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;overflow-y:auto;">
+    <div
+        style="background:#fff;border-radius:8px;padding:24px;max-width:700px;width:95%;margin:20px auto;box-shadow:0 4px 20px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <h3 style="margin:0;font-size:1.2rem;">Order History</h3>
-            <button type="button" onclick="closeHistoryModal()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#666;">&times;</button>
+            <button type="button" onclick="closeHistoryModal()"
+                style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#666;">&times;</button>
         </div>
 
         <div id="historyContent">
@@ -782,203 +826,216 @@ if (isset($_SESSION['error'])) {
 </div>
 
 <script>
-function checkStock(orderId) {
-    // Get all input fields in the order
-    const inputs = document.querySelectorAll('input[type="number"]');
-    let hasIssues = false;
-    let message = 'Stock Check:\n\n';
+    function checkStock(orderId) {
+        // Get all input fields in the order
+        const inputs = document.querySelectorAll('input[type="number"]');
+        let hasIssues = false;
+        let message = 'Stock Check:\n\n';
 
-    inputs.forEach(input => {
-        const toShip = parseInt(input.value) || 0;
-        const max = parseInt(input.max) || 0;
-        const row = input.closest('tr');
+        inputs.forEach(input => {
+            const toShip = parseInt(input.value) || 0;
+            const max = parseInt(input.max) || 0;
+            const row = input.closest('tr');
 
-        if (toShip > max) {
-            hasIssues = true;
-            const sku = row.querySelector('td:nth-child(2)').textContent.trim();
-            message += `${sku}: Cannot ship ${toShip}, only ${max} in stock\n`;
-            row.style.background = '#ffe5e5';
-        } else if (toShip === 0) {
-            const sku = row.querySelector('td:nth-child(2)').textContent.trim();
-            message += `${sku}: Quantity set to 0 (will not ship)\n`;
-            row.style.background = '#fff9e5';
-        } else {
-            row.style.background = '';
+            if (toShip > max) {
+                hasIssues = true;
+                const sku = row.querySelector('td:nth-child(2)').textContent.trim();
+                message += `${sku}: Cannot ship ${toShip}, only ${max} in stock\n`;
+                row.style.background = '#ffe5e5';
+            } else if (toShip === 0) {
+                const sku = row.querySelector('td:nth-child(2)').textContent.trim();
+                message += `${sku}: Quantity set to 0 (will not ship)\n`;
+                row.style.background = '#fff9e5';
+            } else {
+                row.style.background = '';
+            }
+        });
+
+        if (!hasIssues) {
+            message += 'All quantities are within available stock.';
         }
-    });
 
-    if (!hasIssues) {
-        message += 'All quantities are within available stock.';
+        alert(message);
     }
 
-    alert(message);
-}
+    function showHoldModal(orderId) {
+        document.getElementById('holdOrderId').value = orderId;
+        document.getElementById('holdModal').style.display = 'flex';
+    }
 
-function showHoldModal(orderId) {
-    document.getElementById('holdOrderId').value = orderId;
-    document.getElementById('holdModal').style.display = 'flex';
-}
+    function closeHoldModal() {
+        document.getElementById('holdModal').style.display = 'none';
+    }
 
-function closeHoldModal() {
-    document.getElementById('holdModal').style.display = 'none';
-}
+    function showCancelModal(orderId) {
+        document.getElementById('cancelOrderId').value = orderId;
+        document.getElementById('cancelModal').style.display = 'flex';
+    }
 
-function showCancelModal(orderId) {
-    document.getElementById('cancelOrderId').value = orderId;
-    document.getElementById('cancelModal').style.display = 'flex';
-}
+    function closeCancelModal() {
+        document.getElementById('cancelModal').style.display = 'none';
+    }
 
-function closeCancelModal() {
-    document.getElementById('cancelModal').style.display = 'none';
-}
-
-// Close modals when clicking outside
-document.getElementById('holdModal').addEventListener('click', function(e) {
-    if (e.target === this) closeHoldModal();
-});
-document.getElementById('cancelModal').addEventListener('click', function(e) {
-    if (e.target === this) closeCancelModal();
-});
-document.getElementById('historyModal').addEventListener('click', function(e) {
-    if (e.target === this) closeHistoryModal();
-});
-
-function showOrderHistory(orderId) {
-    const modal = document.getElementById('historyModal');
-    const content = document.getElementById('historyContent');
-
-    content.innerHTML = '<p style="text-align:center;color:#666;padding:20px;">Loading... </p>';
-    modal.style.display = 'flex';
-
-    fetch('../../api/order_history.php?order_id=' + orderId)
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                content.innerHTML = '<p style="color:#dc2626;text-align:center;">' + data.error + '</p>';
-                return;
-            }
-
-            let html = '';
-
-            // Action History Section
-            html += '<div style="margin-bottom:24px;">';
-            html += '<h4 style="margin:0 0 12px;font-size:1rem;color:#374151;">Action History</h4>';
-
-            if (data.history && data.history.length > 0) {
-                html += '<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">';
-                data.history.forEach((item, idx) => {
-                    const bgColor = idx % 2 === 0 ? '#fff' : '#f9fafb';
-                    const actionColors = {
-                        'created': '#22c55e',
-                        'put_on_hold': '#f59e0b',
-                        'resumed': '#3b82f6',
-                        'cancelled': '#dc2626',
-                        'marked_ready': '#22c55e',
-                        'accepted_by_rep': '#22c55e',
-                        'completed': '#22c55e',
-                        'status_changed': '#6366f1'
-                    };
-                    const actionColor = actionColors[item.action] || '#6b7280';
-
-                    html += '<div style="padding:12px;background:' + bgColor + ';border-bottom:1px solid #e5e7eb;">';
-                    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">';
-                    html += '<div>';
-                    html += '<span style="display:inline-block;padding:4px 8px;background:' + actionColor + ';color:#fff;border-radius:4px;font-size:0.75rem;font-weight:600;text-transform:uppercase;">' + item.action.replace(/_/g, ' ') + '</span>';
-
-                    if (item.from_status && item.to_status) {
-                        html += '<span style="margin-left:8px;font-size:0.85rem;color:#6b7280;">' + item.from_status + ' → ' + item.to_status + '</span>';
-                    }
-
-                    html += '</div>';
-                    html += '<div style="text-align:right;font-size:0.8rem;color:#9ca3af;">' + item.formatted_time + '</div>';
-                    html += '</div>';
-
-                    html += '<div style="margin-top:6px;font-size:0.85rem;color:#374151;">';
-                    html += 'By: <strong>' + item.performed_by + '</strong> (' + item.role + ')';
-                    html += '</div>';
-
-                    if (item.reason) {
-                        html += '<div style="margin-top:4px;font-size:0.85rem;color:#6b7280;">Reason: ' + item.reason + '</div>';
-                    }
-
-                    html += '</div>';
-                });
-                html += '</div>';
-            } else {
-                html += '<p style="color:#6b7280;font-size:0.9rem;">No action history recorded yet.</p>';
-            }
-            html += '</div>';
-
-            // Stock Movements Section
-            html += '<div>';
-            html += '<h4 style="margin:0 0 12px;font-size:1rem;color:#374151;">Stock Movements</h4>';
-
-            if (data.movements && data.movements.length > 0) {
-                html += '<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">';
-                data.movements.forEach((move, idx) => {
-                    const bgColor = idx % 2 === 0 ? '#fff' : '#f9fafb';
-                    html += '<div style="padding:12px;background:' + bgColor + ';border-bottom:1px solid #e5e7eb;">';
-                    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">';
-                    html += '<div>';
-                    html += '<strong>' + move.product + '</strong>';
-                    html += '<span style="margin-left:8px;font-weight:600;color:#22c55e;">×' + move.quantity + '</span>';
-                    html += '</div>';
-                    html += '<div style="text-align:right;font-size:0.8rem;color:#9ca3af;">' + move.formatted_time + '</div>';
-                    html += '</div>';
-                    html += '<div style="margin-top:4px;font-size:0.85rem;color:#6b7280;">';
-                    html += move.from + ' → ' + move.to;
-                    html += '</div>';
-                    html += '<div style="margin-top:4px;font-size:0.8rem;color:#9ca3af;">';
-                    html += 'Warehouse: ' + move.warehouse_before + ' → ' + move.warehouse_after;
-                    html += ' | Van: ' + move.sales_rep_before + ' → ' + move.sales_rep_after;
-                    html += '</div>';
-                    html += '</div>';
-                });
-                html += '</div>';
-            } else {
-                html += '<p style="color:#6b7280;font-size:0.9rem;">No stock movements recorded yet. Stock is transferred when sales rep accepts the order.</p>';
-            }
-            html += '</div>';
-
-            content.innerHTML = html;
-        })
-        .catch(err => {
-            content.innerHTML = '<p style="color:#dc2626;text-align:center;">Failed to load history: ' + err.message + '</p>';
-        });
-}
-
-function closeHistoryModal() {
-    document.getElementById('historyModal').style.display = 'none';
-}
-
-// Double-click prevention for all forms
-document.querySelectorAll('form').forEach(form => {
-    form.addEventListener('submit', function(e) {
-        const submitBtn = form.querySelector('button[type="submit"]');
-        if (submitBtn) {
-            // Prevent double submission
-            if (submitBtn.dataset.submitting === 'true') {
-                e.preventDefault();
-                return false;
-            }
-            submitBtn.dataset.submitting = 'true';
-            submitBtn.disabled = true;
-            submitBtn.style.opacity = '0.7';
-
-            // Store original text and show loading
-            const originalText = submitBtn.textContent;
-            submitBtn.textContent = 'Processing...';
-
-            // Re-enable after 10 seconds (fallback for failed submissions)
-            setTimeout(() => {
-                submitBtn.dataset.submitting = 'false';
-                submitBtn.disabled = false;
-                submitBtn.style.opacity = '1';
-                submitBtn.textContent = originalText;
-            }, 10000);
-        }
+    // Close modals when clicking outside
+    document.getElementById('holdModal').addEventListener('click', function(e) {
+        if (e.target === this) closeHoldModal();
     });
-});
+    document.getElementById('cancelModal').addEventListener('click', function(e) {
+        if (e.target === this) closeCancelModal();
+    });
+    document.getElementById('historyModal').addEventListener('click', function(e) {
+        if (e.target === this) closeHistoryModal();
+    });
+
+    function showOrderHistory(orderId) {
+        const modal = document.getElementById('historyModal');
+        const content = document.getElementById('historyContent');
+
+        content.innerHTML = '<p style="text-align:center;color:#666;padding:20px;">Loading... </p>';
+        modal.style.display = 'flex';
+
+        fetch('../../api/order_history.php?order_id=' + orderId)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    content.innerHTML = '<p style="color:#dc2626;text-align:center;">' + data.error + '</p>';
+                    return;
+                }
+
+                let html = '';
+
+                // Action History Section
+                html += '<div style="margin-bottom:24px;">';
+                html += '<h4 style="margin:0 0 12px;font-size:1rem;color:#374151;">Action History</h4>';
+
+                if (data.history && data.history.length > 0) {
+                    html += '<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">';
+                    data.history.forEach((item, idx) => {
+                        const bgColor = idx % 2 === 0 ? '#fff' : '#f9fafb';
+                        const actionColors = {
+                            'created': '#22c55e',
+                            'put_on_hold': '#f59e0b',
+                            'resumed': '#3b82f6',
+                            'cancelled': '#dc2626',
+                            'marked_ready': '#22c55e',
+                            'accepted_by_rep': '#22c55e',
+                            'completed': '#22c55e',
+                            'status_changed': '#6366f1'
+                        };
+                        const actionColor = actionColors[item.action] || '#6b7280';
+
+                        html += '<div style="padding:12px;background:' + bgColor +
+                            ';border-bottom:1px solid #e5e7eb;">';
+                        html +=
+                            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">';
+                        html += '<div>';
+                        html += '<span style="display:inline-block;padding:4px 8px;background:' + actionColor +
+                            ';color:#fff;border-radius:4px;font-size:0.75rem;font-weight:600;text-transform:uppercase;">' +
+                            item.action.replace(/_/g, ' ') + '</span>';
+
+                        if (item.from_status && item.to_status) {
+                            html += '<span style="margin-left:8px;font-size:0.85rem;color:#6b7280;">' + item
+                                .from_status + ' → ' + item.to_status + '</span>';
+                        }
+
+                        html += '</div>';
+                        html += '<div style="text-align:right;font-size:0.8rem;color:#9ca3af;">' + item
+                            .formatted_time + '</div>';
+                        html += '</div>';
+
+                        html += '<div style="margin-top:6px;font-size:0.85rem;color:#374151;">';
+                        html += 'By: <strong>' + item.performed_by + '</strong> (' + item.role + ')';
+                        html += '</div>';
+
+                        if (item.reason) {
+                            html += '<div style="margin-top:4px;font-size:0.85rem;color:#6b7280;">Reason: ' +
+                                item.reason + '</div>';
+                        }
+
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                } else {
+                    html += '<p style="color:#6b7280;font-size:0.9rem;">No action history recorded yet.</p>';
+                }
+                html += '</div>';
+
+                // Stock Movements Section
+                html += '<div>';
+                html += '<h4 style="margin:0 0 12px;font-size:1rem;color:#374151;">Stock Movements</h4>';
+
+                if (data.movements && data.movements.length > 0) {
+                    html += '<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">';
+                    data.movements.forEach((move, idx) => {
+                        const bgColor = idx % 2 === 0 ? '#fff' : '#f9fafb';
+                        html += '<div style="padding:12px;background:' + bgColor +
+                            ';border-bottom:1px solid #e5e7eb;">';
+                        html +=
+                            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">';
+                        html += '<div>';
+                        html += '<strong>' + move.product + '</strong>';
+                        html += '<span style="margin-left:8px;font-weight:600;color:#22c55e;">×' + move
+                            .quantity + '</span>';
+                        html += '</div>';
+                        html += '<div style="text-align:right;font-size:0.8rem;color:#9ca3af;">' + move
+                            .formatted_time + '</div>';
+                        html += '</div>';
+                        html += '<div style="margin-top:4px;font-size:0.85rem;color:#6b7280;">';
+                        html += move.from + ' → ' + move.to;
+                        html += '</div>';
+                        html += '<div style="margin-top:4px;font-size:0.8rem;color:#9ca3af;">';
+                        html += 'Warehouse: ' + move.warehouse_before + ' → ' + move.warehouse_after;
+                        html += ' | Van: ' + move.sales_rep_before + ' → ' + move.sales_rep_after;
+                        html += '</div>';
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                } else {
+                    html +=
+                        '<p style="color:#6b7280;font-size:0.9rem;">No stock movements recorded yet. Stock is transferred when sales rep accepts the order.</p>';
+                }
+                html += '</div>';
+
+                content.innerHTML = html;
+            })
+            .catch(err => {
+                content.innerHTML = '<p style="color:#dc2626;text-align:center;">Failed to load history: ' + err
+                    .message + '</p>';
+            });
+    }
+
+    function closeHistoryModal() {
+        document.getElementById('historyModal').style.display = 'none';
+    }
+
+    // Double-click prevention for all forms
+    document.querySelectorAll('form').forEach(form => {
+        form.addEventListener('submit', function(e) {
+            const submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) {
+                // Prevent double submission
+                if (submitBtn.dataset.submitting === 'true') {
+                    e.preventDefault();
+                    return false;
+                }
+                submitBtn.dataset.submitting = 'true';
+                submitBtn.disabled = true;
+                submitBtn.style.opacity = '0.7';
+
+                // Store original text and show loading
+                const originalText = submitBtn.textContent;
+                submitBtn.textContent = 'Processing...';
+
+                // Re-enable after 10 seconds (fallback for failed submissions)
+                setTimeout(() => {
+                    submitBtn.dataset.submitting = 'false';
+                    submitBtn.disabled = false;
+                    submitBtn.style.opacity = '1';
+                    submitBtn.textContent = originalText;
+                }, 10000);
+            }
+        });
+    });
 </script>
 
 <?php

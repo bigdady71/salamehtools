@@ -1228,24 +1228,26 @@ if (!$canCreateOrder) {
     echo '</div>';
 } else {
 ?>
-    <!-- Filter Bar -->
-    <div class="filter-bar">
-        <select id="categoryFilter" onchange="filterProducts()">
-            <option value="">جميع الفئات</option>
-            <?php foreach ($categories as $cat): ?>
-                <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></option>
-            <?php endforeach; ?>
-        </select>
-        <input type="text" id="searchFilter" placeholder="بحث بالاسم أو الكود..." oninput="filterProducts()">
-        <label class="toggle-filter" style="display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;">
-            <input type="checkbox" id="hideZeroToggle" checked onchange="filterProducts()" style="width:18px; height:18px; cursor:pointer;">
-            <span style="font-size:0.9rem; color:var(--text);">إخفاء الكمية 0 والسعر 0</span>
-        </label>
-    </div>
+<!-- Filter Bar -->
+<div class="filter-bar">
+    <select id="categoryFilter" onchange="filterProducts()">
+        <option value="">جميع الفئات</option>
+        <?php foreach ($categories as $cat): ?>
+        <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>">
+            <?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></option>
+        <?php endforeach; ?>
+    </select>
+    <input type="text" id="searchFilter" placeholder="بحث بالاسم أو الكود..." oninput="filterProducts()">
+    <label class="toggle-filter" style="display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;">
+        <input type="checkbox" id="hideZeroToggle" checked onchange="filterProducts()"
+            style="width:18px; height:18px; cursor:pointer;">
+        <span style="font-size:0.9rem; color:var(--text);">إخفاء الكمية 0 والسعر 0</span>
+    </label>
+</div>
 
-    <!-- Product Grid -->
-    <div class="product-grid" id="productGrid">
-        <?php foreach ($products as $product):
+<!-- Product Grid -->
+<div class="product-grid" id="productGrid">
+    <?php foreach ($products as $product):
             $sku = $product['sku'] ?? '';
             $itemName = htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8');
             $category = $product['category'] ?? '';
@@ -1273,287 +1275,288 @@ if (!$canCreateOrder) {
             $imageSrc = $imagePath . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
             $fallbackSrc = '../../images/products/default.jpg' . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
         ?>
-            <div class="product-card"
-                 data-id="<?= $product['id'] ?>"
-                 data-name="<?= $itemName ?>"
-                 data-sku="<?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?>"
-                 data-price="<?= $priceUSD ?>"
-                 data-stock="<?= $stock ?>"
-                 data-category="<?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>">
-                <img src="<?= htmlspecialchars($imageSrc, ENT_QUOTES, 'UTF-8') ?>"
-                     alt="<?= $itemName ?>"
-                     loading="lazy"
-                     class="lazy-image"
-                     onload="this.classList.add('is-loaded')"
-                     onerror="this.src='<?= htmlspecialchars($fallbackSrc, ENT_QUOTES, 'UTF-8') ?>'">
-                <div class="product-sku"><?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?></div>
-                <div class="product-name"><?= $itemName ?></div>
-                <div class="product-price">$<?= number_format($priceUSD, 2) ?></div>
-                <div class="product-stock <?= $stock <= 5 ? 'low' : '' ?>">
-                    المخزون: <?= number_format($stock, 1) ?>
-                </div>
-                <div class="product-controls" id="controls-<?= $product['id'] ?>" onclick="event.stopPropagation();">
-                    <button type="button" class="product-qty-btn minus" onclick="decreaseQtyFromCard(<?= $product['id'] ?>)">−</button>
-                    <span class="product-qty-display" id="qty-display-<?= $product['id'] ?>">0</span>
-                    <button type="button" class="product-qty-btn plus" onclick="increaseQtyFromCard(<?= $product['id'] ?>)" id="plus-btn-<?= $product['id'] ?>">+</button>
-                </div>
-            </div>
-        <?php endforeach; ?>
+    <div class="product-card" data-id="<?= $product['id'] ?>" data-name="<?= $itemName ?>"
+        data-sku="<?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?>" data-price="<?= $priceUSD ?>"
+        data-stock="<?= $stock ?>" data-category="<?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>">
+        <img src="<?= htmlspecialchars($imageSrc, ENT_QUOTES, 'UTF-8') ?>" alt="<?= $itemName ?>" loading="lazy"
+            class="lazy-image" onload="this.classList.add('is-loaded')"
+            onerror="this.src='<?= htmlspecialchars($fallbackSrc, ENT_QUOTES, 'UTF-8') ?>'">
+        <div class="product-sku"><?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?></div>
+        <div class="product-name"><?= $itemName ?></div>
+        <div class="product-price">$<?= number_format($priceUSD, 2) ?></div>
+        <div class="product-stock <?= $stock <= 5 ? 'low' : '' ?>">
+            المخزون: <?= number_format($stock, 1) ?>
+        </div>
+        <div class="product-controls" id="controls-<?= $product['id'] ?>" onclick="event.stopPropagation();">
+            <button type="button" class="product-qty-btn minus"
+                onclick="decreaseQtyFromCard(<?= $product['id'] ?>)">−</button>
+            <span class="product-qty-display" id="qty-display-<?= $product['id'] ?>">0</span>
+            <button type="button" class="product-qty-btn plus" onclick="increaseQtyFromCard(<?= $product['id'] ?>)"
+                id="plus-btn-<?= $product['id'] ?>">+</button>
+        </div>
+    </div>
+    <?php endforeach; ?>
+</div>
+
+<!-- Floating Cart Button -->
+<button class="cart-button empty" id="cartButton" onclick="openCart()">
+    <span>🛒</span>
+    <span id="cartTotal">$0.00</span>
+    <span class="cart-badge" id="cartBadge">0</span>
+</button>
+
+<!-- Cart Overlay -->
+<div class="cart-overlay" id="cartOverlay" onclick="closeCart()"></div>
+
+<!-- Cart Panel -->
+<div class="cart-panel" id="cartPanel">
+    <div class="cart-header">
+        <h2>🛒 سلتك</h2>
+        <button class="cart-close" onclick="closeCart()">&times;</button>
     </div>
 
-    <!-- Floating Cart Button -->
-    <button class="cart-button empty" id="cartButton" onclick="openCart()">
-        <span>🛒</span>
-        <span id="cartTotal">$0.00</span>
-        <span class="cart-badge" id="cartBadge">0</span>
-    </button>
+    <form method="POST" action="" id="cartForm">
+        <input type="hidden" name="action" value="create_order">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+        <input type="hidden" name="customer_id" id="customerId" value="">
+        <input type="hidden" name="cents_discount" id="centsDiscount" value="0">
 
-    <!-- Cart Overlay -->
-    <div class="cart-overlay" id="cartOverlay" onclick="closeCart()"></div>
-
-    <!-- Cart Panel -->
-    <div class="cart-panel" id="cartPanel">
-        <div class="cart-header">
-            <h2>🛒 سلتك</h2>
-            <button class="cart-close" onclick="closeCart()">&times;</button>
+        <div class="cart-items" id="cartItems">
+            <div class="empty-state" id="emptyCart">
+                <div class="empty-state-icon">🛒</div>
+                <p>سلتك فارغة. اضغط على المنتجات لإضافتها.</p>
+            </div>
         </div>
 
-        <form method="POST" action="" id="cartForm">
-            <input type="hidden" name="action" value="create_order">
-            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-            <input type="hidden" name="customer_id" id="customerId" value="">
-            <input type="hidden" name="cents_discount" id="centsDiscount" value="0">
+        <div class="cart-customer">
+            <label>اختر الزبون</label>
+            <div class="customer-search-wrapper">
+                <input type="text" id="customerSearch" class="customer-input" placeholder="بحث بالاسم أو رقم الهاتف..."
+                    autocomplete="off">
+                <div id="customerDropdown" class="customer-dropdown"></div>
+            </div>
+            <div id="customerSelected" class="customer-selected">
+                <strong id="selectedCustomerName"></strong>
+                <div id="selectedCustomerInfo" style="font-size: 0.85rem; color: #15803d;"></div>
+            </div>
+        </div>
 
-            <div class="cart-items" id="cartItems">
-                <div class="empty-state" id="emptyCart">
-                    <div class="empty-state-icon">🛒</div>
-                    <p>سلتك فارغة. اضغط على المنتجات لإضافتها.</p>
+        <div class="cart-notes">
+            <label>ملاحظات (اختياري)</label>
+            <textarea name="notes" id="orderNotes" placeholder="أضف ملاحظات..."></textarea>
+        </div>
+
+        <div class="cart-totals">
+            <div class="total-row">
+                <span>المنتجات:</span>
+                <span id="totalItems">0</span>
+            </div>
+            <div class="total-row" id="subtotalRow">
+                <span>المجموع الفرعي:</span>
+                <span id="subtotalUSD">$0.00</span>
+            </div>
+            <div class="total-row" id="discountRow" style="display:none; color:#059669;">
+                <span>خصم القروش:</span>
+                <span id="discountAmount">-$0.00</span>
+            </div>
+            <div class="total-row grand">
+                <span>المجموع بالدولار:</span>
+                <span id="totalUSD">$0.00</span>
+            </div>
+            <div class="total-row">
+                <span>المجموع بالليرة:</span>
+                <span id="totalLBP">ل.ل. 0</span>
+            </div>
+        </div>
+
+        <div class="cart-payment">
+            <h4>الدفع</h4>
+            <div class="payment-grid">
+                <div class="payment-group">
+                    <label>دولار $</label>
+                    <input type="number" name="payment_usd" id="paymentUSD" step="0.01" min="0" placeholder="0.00"
+                        oninput="updatePaymentDisplay()">
+                </div>
+                <div class="payment-group">
+                    <label>ليرة ل.ل.</label>
+                    <input type="number" name="payment_lbp" id="paymentLBP" step="1000" min="0" placeholder="0"
+                        oninput="updatePaymentDisplay()">
                 </div>
             </div>
-
-            <div class="cart-customer">
-                <label>اختر الزبون</label>
-                <div class="customer-search-wrapper">
-                    <input type="text"
-                           id="customerSearch"
-                           class="customer-input"
-                           placeholder="بحث بالاسم أو رقم الهاتف..."
-                           autocomplete="off">
-                    <div id="customerDropdown" class="customer-dropdown"></div>
+            <div id="paymentRemaining" class="payment-remaining" style="display:none;">
+                <div class="payment-remaining-row">
+                    <span>المجموع المستحق:</span>
+                    <span id="displayTotalDue">$0.00</span>
                 </div>
-                <div id="customerSelected" class="customer-selected">
-                    <strong id="selectedCustomerName"></strong>
-                    <div id="selectedCustomerInfo" style="font-size: 0.85rem; color: #15803d;"></div>
+                <div class="payment-remaining-row">
+                    <span>المدفوع:</span>
+                    <span id="displayTotalPaid">$0.00</span>
                 </div>
-            </div>
-
-            <div class="cart-notes">
-                <label>ملاحظات (اختياري)</label>
-                <textarea name="notes" id="orderNotes" placeholder="أضف ملاحظات..."></textarea>
-            </div>
-
-            <div class="cart-totals">
-                <div class="total-row">
-                    <span>المنتجات:</span>
-                    <span id="totalItems">0</span>
+                <div class="payment-remaining-row highlight">
+                    <span id="remainingLabel">المتبقي:</span>
+                    <span id="displayRemaining">$0.00</span>
                 </div>
-                <div class="total-row" id="subtotalRow">
-                    <span>المجموع الفرعي:</span>
-                    <span id="subtotalUSD">$0.00</span>
-                </div>
-                <div class="total-row" id="discountRow" style="display:none; color:#059669;">
-                    <span>خصم القروش:</span>
-                    <span id="discountAmount">-$0.00</span>
-                </div>
-                <div class="total-row grand">
-                    <span>المجموع بالدولار:</span>
-                    <span id="totalUSD">$0.00</span>
-                </div>
-                <div class="total-row">
-                    <span>المجموع بالليرة:</span>
-                    <span id="totalLBP">ل.ل. 0</span>
+                <div class="payment-remaining-row"
+                    style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,0.1);">
+                    <span>بالليرة:</span>
+                    <span id="displayRemainingLBP">ل.ل. 0</span>
                 </div>
             </div>
-
-            <div class="cart-payment">
-                <h4>الدفع</h4>
-                <div class="payment-grid">
-                    <div class="payment-group">
-                        <label>دولار $</label>
-                        <input type="number" name="payment_usd" id="paymentUSD" step="0.01" min="0" placeholder="0.00" oninput="updatePaymentDisplay()">
-                    </div>
-                    <div class="payment-group">
-                        <label>ليرة ل.ل.</label>
-                        <input type="number" name="payment_lbp" id="paymentLBP" step="1000" min="0" placeholder="0" oninput="updatePaymentDisplay()">
-                    </div>
-                </div>
-                <div id="paymentRemaining" class="payment-remaining" style="display:none;">
-                    <div class="payment-remaining-row">
-                        <span>المجموع المستحق:</span>
-                        <span id="displayTotalDue">$0.00</span>
-                    </div>
-                    <div class="payment-remaining-row">
-                        <span>المدفوع:</span>
-                        <span id="displayTotalPaid">$0.00</span>
-                    </div>
-                    <div class="payment-remaining-row highlight">
-                        <span id="remainingLabel">المتبقي:</span>
-                        <span id="displayRemaining">$0.00</span>
-                    </div>
-                    <div class="payment-remaining-row" style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,0.1);">
-                        <span>بالليرة:</span>
-                        <span id="displayRemainingLBP">ل.ل. 0</span>
-                    </div>
-                </div>
-                <div id="changeDisplay" class="change-display" style="display:none;">
-                    <h5>💵 الباقي:</h5>
-                    <div class="change-amount">
-                        <span id="changeUSD">$0.00</span> / <span id="changeLBP">ل.ل. 0</span>
-                    </div>
+            <div id="changeDisplay" class="change-display" style="display:none;">
+                <h5>💵 الباقي:</h5>
+                <div class="change-amount">
+                    <span id="changeUSD">$0.00</span> / <span id="changeLBP">ل.ل. 0</span>
                 </div>
             </div>
+        </div>
 
-            <div class="cart-submit">
-                <button type="submit" class="btn-submit" id="submitBtn" disabled>
-                    إتمام البيع وطباعة الفاتورة
-                </button>
-            </div>
+        <div class="cart-submit">
+            <button type="submit" class="btn-submit" id="submitBtn" disabled onclick="console.log('Button clicked');">
+                إتمام البيع
+            </button>
+        </div>
 
-            <!-- Hidden cart items inputs -->
-            <div id="cartInputs"></div>
-        </form>
-    </div>
+        <!-- Hidden cart items inputs -->
+        <div id="cartInputs"></div>
+    </form>
+</div>
 
-    <script>
-        const exchangeRate = <?= json_encode($exchangeRate ?? 0, JSON_UNESCAPED_UNICODE) ?>;
-        let cart = {};
-        let debounceTimer = null;
+<script>
+const exchangeRate = <?= json_encode($exchangeRate ?? 0, JSON_UNESCAPED_UNICODE) ?>;
+let cart = {};
+let debounceTimer = null;
 
-        // Filter products
-        function filterProducts() {
-            const category = document.getElementById('categoryFilter').value.toLowerCase();
-            const search = document.getElementById('searchFilter').value.toLowerCase();
-            const hideZero = document.getElementById('hideZeroToggle').checked;
+// Filter products
+function filterProducts() {
+    const category = document.getElementById('categoryFilter').value.toLowerCase();
+    const search = document.getElementById('searchFilter').value.toLowerCase();
+    const hideZero = document.getElementById('hideZeroToggle').checked;
 
-            document.querySelectorAll('.product-card').forEach(card => {
-                const cardCategory = (card.dataset.category || '').toLowerCase();
-                const cardName = (card.dataset.name || '').toLowerCase();
-                const cardSku = (card.dataset.sku || '').toLowerCase();
-                const cardStock = parseFloat(card.dataset.stock) || 0;
-                const cardPrice = parseFloat(card.dataset.price) || 0;
+    document.querySelectorAll('.product-card').forEach(card => {
+        const cardCategory = (card.dataset.category || '').toLowerCase();
+        const cardName = (card.dataset.name || '').toLowerCase();
+        const cardSku = (card.dataset.sku || '').toLowerCase();
+        const cardStock = parseFloat(card.dataset.stock) || 0;
+        const cardPrice = parseFloat(card.dataset.price) || 0;
 
-                const matchesCategory = !category || cardCategory === category;
-                const matchesSearch = !search || cardName.includes(search) || cardSku.includes(search);
-                const matchesZeroFilter = !hideZero || (cardStock > 0 && cardPrice > 0);
+        const matchesCategory = !category || cardCategory === category;
+        const matchesSearch = !search || cardName.includes(search) || cardSku.includes(search);
+        const matchesZeroFilter = !hideZero || (cardStock > 0 && cardPrice > 0);
 
-                card.style.display = (matchesCategory && matchesSearch && matchesZeroFilter) ? 'block' : 'none';
-            });
+        card.style.display = (matchesCategory && matchesSearch && matchesZeroFilter) ? 'block' : 'none';
+    });
+}
+
+// Toggle item selection (select/deselect)
+function toggleSelectItem(cardElement) {
+    const id = cardElement.dataset.id;
+    const name = cardElement.dataset.name;
+    const sku = cardElement.dataset.sku;
+    const price = parseFloat(cardElement.dataset.price);
+    const stock = parseFloat(cardElement.dataset.stock);
+
+    if (cart[id]) {
+        // Already in cart - remove it (deselect)
+        delete cart[id];
+    } else {
+        // Not in cart - add with quantity 1 (select)
+        cart[id] = {
+            name,
+            sku,
+            price,
+            stock,
+            quantity: 1
+        };
+    }
+
+    updateCartDisplay();
+    updateProductCards();
+}
+
+// Increase quantity from product card controls
+function increaseQtyFromCard(id) {
+    if (cart[id] && cart[id].quantity < cart[id].stock) {
+        cart[id].quantity++;
+        updateCartDisplay();
+        updateProductCards();
+    }
+}
+
+// Decrease quantity from product card controls
+function decreaseQtyFromCard(id) {
+    if (cart[id]) {
+        cart[id].quantity--;
+        if (cart[id].quantity <= 0) {
+            delete cart[id];
         }
+        updateCartDisplay();
+        updateProductCards();
+    }
+}
 
-        // Toggle item selection (select/deselect)
-        function toggleSelectItem(cardElement) {
-            const id = cardElement.dataset.id;
-            const name = cardElement.dataset.name;
-            const sku = cardElement.dataset.sku;
-            const price = parseFloat(cardElement.dataset.price);
-            const stock = parseFloat(cardElement.dataset.stock);
+// Update product cards to show in-cart state
+function updateProductCards() {
+    document.querySelectorAll('.product-card').forEach(card => {
+        const id = card.dataset.id;
+        const qtyDisplay = document.getElementById('qty-display-' + id);
+        const plusBtn = document.getElementById('plus-btn-' + id);
 
-            if (cart[id]) {
-                // Already in cart - remove it (deselect)
-                delete cart[id];
-            } else {
-                // Not in cart - add with quantity 1 (select)
-                cart[id] = { name, sku, price, stock, quantity: 1 };
-            }
-
-            updateCartDisplay();
-            updateProductCards();
+        if (cart[id]) {
+            card.classList.add('in-cart');
+            card.dataset.cartQty = cart[id].quantity;
+            if (qtyDisplay) qtyDisplay.textContent = cart[id].quantity;
+            if (plusBtn) plusBtn.disabled = cart[id].quantity >= cart[id].stock;
+        } else {
+            card.classList.remove('in-cart');
+            delete card.dataset.cartQty;
+            if (qtyDisplay) qtyDisplay.textContent = '0';
         }
+    });
+}
 
-        // Increase quantity from product card controls
-        function increaseQtyFromCard(id) {
-            if (cart[id] && cart[id].quantity < cart[id].stock) {
-                cart[id].quantity++;
-                updateCartDisplay();
-                updateProductCards();
-            }
-        }
+// Update cart display
+function updateCartDisplay() {
+    const cartItems = document.getElementById('cartItems');
+    const cartInputs = document.getElementById('cartInputs');
+    const cartButton = document.getElementById('cartButton');
+    const cartBadge = document.getElementById('cartBadge');
+    const cartTotal = document.getElementById('cartTotal');
+    const submitBtn = document.getElementById('submitBtn');
 
-        // Decrease quantity from product card controls
-        function decreaseQtyFromCard(id) {
-            if (cart[id]) {
-                cart[id].quantity--;
-                if (cart[id].quantity <= 0) {
-                    delete cart[id];
-                }
-                updateCartDisplay();
-                updateProductCards();
-            }
-        }
+    const keys = Object.keys(cart);
 
-        // Update product cards to show in-cart state
-        function updateProductCards() {
-            document.querySelectorAll('.product-card').forEach(card => {
-                const id = card.dataset.id;
-                const qtyDisplay = document.getElementById('qty-display-' + id);
-                const plusBtn = document.getElementById('plus-btn-' + id);
-
-                if (cart[id]) {
-                    card.classList.add('in-cart');
-                    card.dataset.cartQty = cart[id].quantity;
-                    if (qtyDisplay) qtyDisplay.textContent = cart[id].quantity;
-                    if (plusBtn) plusBtn.disabled = cart[id].quantity >= cart[id].stock;
-                } else {
-                    card.classList.remove('in-cart');
-                    delete card.dataset.cartQty;
-                    if (qtyDisplay) qtyDisplay.textContent = '0';
-                }
-            });
-        }
-
-        // Update cart display
-        function updateCartDisplay() {
-            const cartItems = document.getElementById('cartItems');
-            const cartInputs = document.getElementById('cartInputs');
-            const cartButton = document.getElementById('cartButton');
-            const cartBadge = document.getElementById('cartBadge');
-            const cartTotal = document.getElementById('cartTotal');
-            const submitBtn = document.getElementById('submitBtn');
-
-            const keys = Object.keys(cart);
-
-            if (keys.length === 0) {
-                cartItems.innerHTML = `
+    if (keys.length === 0) {
+        cartItems.innerHTML = `
                     <div class="empty-state" id="emptyCart">
                         <div class="empty-state-icon">🛒</div>
                         <p>سلتك فارغة. اضغط على المنتجات لإضافتها.</p>
                     </div>
                 `;
-                cartInputs.innerHTML = '';
-                cartButton.classList.add('empty');
-                cartBadge.textContent = '0';
-                cartTotal.textContent = '$0.00';
-                submitBtn.disabled = true;
-                document.getElementById('totalItems').textContent = '0';
-                document.getElementById('totalUSD').textContent = '$0.00';
-                document.getElementById('totalLBP').textContent = 'ل.ل. 0';
-                return;
-            }
+        cartInputs.innerHTML = '';
+        cartButton.classList.add('empty');
+        cartBadge.textContent = '0';
+        cartTotal.textContent = '$0.00';
+        submitBtn.disabled = true;
+        document.getElementById('totalItems').textContent = '0';
+        document.getElementById('totalUSD').textContent = '$0.00';
+        document.getElementById('totalLBP').textContent = 'ل.ل. 0';
+        return;
+    }
 
-            cartButton.classList.remove('empty');
+    cartButton.classList.remove('empty');
 
-            let totalQty = 0;
-            let totalUSD = 0;
-            let itemsHtml = '';
-            let inputsHtml = '';
+    let totalQty = 0;
+    let totalUSD = 0;
+    let itemsHtml = '';
+    let inputsHtml = '';
 
-            keys.forEach(id => {
-                const item = cart[id];
-                const subtotal = item.price * item.quantity;
-                totalQty += item.quantity;
-                totalUSD += subtotal;
+    keys.forEach(id => {
+        const item = cart[id];
+        const subtotal = item.price * item.quantity;
+        totalQty += item.quantity;
+        totalUSD += subtotal;
 
-                itemsHtml += `
+        itemsHtml += `
                     <div class="cart-item">
                         <div class="cart-item-info">
                             <div class="cart-item-sku">${escapeHtml(item.sku || '')}</div>
@@ -1570,346 +1573,377 @@ if (!$canCreateOrder) {
                     </div>
                 `;
 
-                inputsHtml += `
+        inputsHtml += `
                     <input type="hidden" name="items[${id}][product_id]" value="${id}">
                     <input type="hidden" name="items[${id}][quantity]" value="${item.quantity}">
                 `;
-            });
+    });
 
-            cartItems.innerHTML = itemsHtml;
-            cartInputs.innerHTML = inputsHtml;
+    cartItems.innerHTML = itemsHtml;
+    cartInputs.innerHTML = inputsHtml;
 
-            cartBadge.textContent = keys.length;
+    cartBadge.textContent = keys.length;
 
-            // Calculate cents discount: if total >= $20 and has decimals, discount the cents
-            let centsDiscount = 0;
-            let finalTotalUSD = totalUSD;
-            const cents = totalUSD - Math.floor(totalUSD);
+    // Calculate cents discount: if total >= $20 and has decimals, discount the cents
+    let centsDiscount = 0;
+    let finalTotalUSD = totalUSD;
+    const cents = totalUSD - Math.floor(totalUSD);
 
-            if (totalUSD >= 20 && cents > 0.001) {
-                centsDiscount = cents;
-                finalTotalUSD = Math.floor(totalUSD);
-            }
+    if (totalUSD >= 20 && cents > 0.001) {
+        centsDiscount = cents;
+        finalTotalUSD = Math.floor(totalUSD);
+    }
 
-            // Update hidden field for backend
-            document.getElementById('centsDiscount').value = centsDiscount.toFixed(2);
+    // Update hidden field for backend
+    document.getElementById('centsDiscount').value = centsDiscount.toFixed(2);
 
-            // Show/hide discount row
-            const discountRow = document.getElementById('discountRow');
-            const subtotalRow = document.getElementById('subtotalRow');
-            if (centsDiscount > 0) {
-                subtotalRow.style.display = 'flex';
-                discountRow.style.display = 'flex';
-                document.getElementById('subtotalUSD').textContent = '$' + totalUSD.toFixed(2);
-                document.getElementById('discountAmount').textContent = '-$' + centsDiscount.toFixed(2);
-            } else {
-                subtotalRow.style.display = 'none';
-                discountRow.style.display = 'none';
-            }
+    // Show/hide discount row
+    const discountRow = document.getElementById('discountRow');
+    const subtotalRow = document.getElementById('subtotalRow');
+    if (centsDiscount > 0) {
+        subtotalRow.style.display = 'flex';
+        discountRow.style.display = 'flex';
+        document.getElementById('subtotalUSD').textContent = '$' + totalUSD.toFixed(2);
+        document.getElementById('discountAmount').textContent = '-$' + centsDiscount.toFixed(2);
+    } else {
+        subtotalRow.style.display = 'none';
+        discountRow.style.display = 'none';
+    }
 
-            cartTotal.textContent = '$' + finalTotalUSD.toFixed(2);
+    cartTotal.textContent = '$' + finalTotalUSD.toFixed(2);
 
-            document.getElementById('totalItems').textContent = totalQty;
-            document.getElementById('totalUSD').textContent = '$' + finalTotalUSD.toFixed(2);
-            document.getElementById('totalLBP').textContent = 'ل.ل. ' + Math.round(finalTotalUSD * exchangeRate).toLocaleString();
+    document.getElementById('totalItems').textContent = totalQty;
+    document.getElementById('totalUSD').textContent = '$' + finalTotalUSD.toFixed(2);
+    document.getElementById('totalLBP').textContent = 'ل.ل. ' + Math.round(finalTotalUSD * exchangeRate)
+        .toLocaleString();
 
-            // Enable submit only if customer is selected
-            const customerId = document.getElementById('customerId').value;
-            submitBtn.disabled = !customerId;
+    // Enable submit only if customer is selected
+    const customerId = document.getElementById('customerId').value;
+    submitBtn.disabled = !customerId;
+}
+
+// Remove from cart
+function removeFromCart(id) {
+    if (cart[id]) {
+        cart[id].quantity--;
+        if (cart[id].quantity <= 0) {
+            delete cart[id];
         }
+    }
+    updateCartDisplay();
+    updateProductCards();
+}
 
-        // Remove from cart
-        function removeFromCart(id) {
-            if (cart[id]) {
-                cart[id].quantity--;
-                if (cart[id].quantity <= 0) {
-                    delete cart[id];
-                }
-            }
-            updateCartDisplay();
-            updateProductCards();
-        }
+// Increase quantity
+function increaseQty(id) {
+    if (cart[id] && cart[id].quantity < cart[id].stock) {
+        cart[id].quantity++;
+        updateCartDisplay();
+        updateProductCards();
+    }
+}
 
-        // Increase quantity
-        function increaseQty(id) {
-            if (cart[id] && cart[id].quantity < cart[id].stock) {
-                cart[id].quantity++;
-                updateCartDisplay();
-                updateProductCards();
-            }
-        }
+// Open/close cart
+function openCart() {
+    document.getElementById('cartPanel').classList.add('open');
+    document.getElementById('cartOverlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
 
-        // Open/close cart
-        function openCart() {
-            document.getElementById('cartPanel').classList.add('open');
-            document.getElementById('cartOverlay').classList.add('open');
-            document.body.style.overflow = 'hidden';
-        }
+function closeCart() {
+    document.getElementById('cartPanel').classList.remove('open');
+    document.getElementById('cartOverlay').classList.remove('open');
+    document.body.style.overflow = '';
+}
 
-        function closeCart() {
-            document.getElementById('cartPanel').classList.remove('open');
-            document.getElementById('cartOverlay').classList.remove('open');
-            document.body.style.overflow = '';
-        }
+// Customer search
+const customerSearch = document.getElementById('customerSearch');
+const customerDropdown = document.getElementById('customerDropdown');
+const customerSelected = document.getElementById('customerSelected');
+const customerIdInput = document.getElementById('customerId');
 
-        // Customer search
-        const customerSearch = document.getElementById('customerSearch');
-        const customerDropdown = document.getElementById('customerDropdown');
-        const customerSelected = document.getElementById('customerSelected');
-        const customerIdInput = document.getElementById('customerId');
+customerSearch.addEventListener('input', function() {
+    const query = this.value.trim();
+    clearTimeout(debounceTimer);
 
-        customerSearch.addEventListener('input', function() {
-            const query = this.value.trim();
-            clearTimeout(debounceTimer);
+    if (query.length < 1) {
+        customerDropdown.classList.remove('show');
+        return;
+    }
 
-            if (query.length < 1) {
-                customerDropdown.classList.remove('show');
-                return;
-            }
-
-            debounceTimer = setTimeout(() => {
-                fetch(`?action=search_customers&q=${encodeURIComponent(query)}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.results && data.results.length > 0) {
-                            customerDropdown.innerHTML = data.results.map(c => `
+    debounceTimer = setTimeout(() => {
+        fetch(`?action=search_customers&q=${encodeURIComponent(query)}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.results && data.results.length > 0) {
+                    customerDropdown.innerHTML = data.results.map(c => `
                                 <div class="customer-option" onclick="selectCustomer(${c.id}, '${escapeHtml(c.name)}', '${escapeHtml(c.phone || '')}', '${escapeHtml(c.city || '')}')">
                                     <strong>${escapeHtml(c.name)}</strong>
                                     <small>${escapeHtml(c.phone || 'لا يوجد هاتف')} ${c.city ? '| ' + escapeHtml(c.city) : ''}</small>
                                 </div>
                             `).join('');
-                            customerDropdown.classList.add('show');
-                        } else {
-                            customerDropdown.innerHTML = '<div class="customer-option" style="cursor:default;">لم يتم العثور على زبائن</div>';
-                            customerDropdown.classList.add('show');
-                        }
-                    });
-            }, 300);
-        });
-
-        function selectCustomer(id, name, phone, city) {
-            customerIdInput.value = id;
-            customerSearch.value = name;
-            customerDropdown.classList.remove('show');
-
-            document.getElementById('selectedCustomerName').textContent = name;
-            document.getElementById('selectedCustomerInfo').textContent = `${phone || 'لا يوجد هاتف'}${city ? ' | ' + city : ''}`;
-            customerSelected.classList.add('show');
-
-            // Enable submit if cart has items
-            if (Object.keys(cart).length > 0) {
-                document.getElementById('submitBtn').disabled = false;
-            }
-        }
-
-        // Close dropdown when clicking outside
-        document.addEventListener('click', function(e) {
-            if (!customerSearch.contains(e.target) && !customerDropdown.contains(e.target)) {
-                customerDropdown.classList.remove('show');
-            }
-        });
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // Update payment display with remaining and change
-        function updatePaymentDisplay() {
-            const paymentUSDInput = document.getElementById('paymentUSD');
-            const paymentLBPInput = document.getElementById('paymentLBP');
-            const paymentUSD = parseFloat(paymentUSDInput.value) || 0;
-            const paymentLBP = parseFloat(paymentLBPInput.value) || 0;
-            const paymentRemainingDiv = document.getElementById('paymentRemaining');
-            const changeDisplayDiv = document.getElementById('changeDisplay');
-
-            // Calculate total due (before discount)
-            let subtotalUSD = 0;
-            Object.keys(cart).forEach(id => {
-                subtotalUSD += cart[id].price * cart[id].quantity;
+                    customerDropdown.classList.add('show');
+                } else {
+                    customerDropdown.innerHTML =
+                        '<div class="customer-option" style="cursor:default;">لم يتم العثور على زبائن</div>';
+                    customerDropdown.classList.add('show');
+                }
             });
+    }, 300);
+});
 
-            // Apply cents discount if applicable
-            let totalDueUSD = subtotalUSD;
-            const cents = subtotalUSD - Math.floor(subtotalUSD);
-            if (subtotalUSD >= 20 && cents > 0.001) {
-                totalDueUSD = Math.floor(subtotalUSD);
-            }
+function selectCustomer(id, name, phone, city) {
+    customerIdInput.value = id;
+    customerSearch.value = name;
+    customerDropdown.classList.remove('show');
 
-            if (totalDueUSD <= 0) {
-                paymentRemainingDiv.style.display = 'none';
-                changeDisplayDiv.style.display = 'none';
-                // Reset placeholders
-                paymentUSDInput.placeholder = '0.00';
-                paymentLBPInput.placeholder = '0';
-                return;
-            }
+    document.getElementById('selectedCustomerName').textContent = name;
+    document.getElementById('selectedCustomerInfo').textContent =
+        `${phone || 'لا يوجد هاتف'}${city ? ' | ' + city : ''}`;
+    customerSelected.classList.add('show');
 
-            // Convert LBP payment to USD
-            const paymentLBPinUSD = paymentLBP / exchangeRate;
-            const totalPaidUSD = paymentUSD + paymentLBPinUSD;
-            const remainingUSD = totalDueUSD - totalPaidUSD;
-            const remainingLBP = remainingUSD * exchangeRate;
+    // Enable submit if cart has items
+    if (Object.keys(cart).length > 0) {
+        document.getElementById('submitBtn').disabled = false;
+    }
+}
 
-            // Update placeholders with remaining amounts
-            if (remainingUSD > 0.01) {
-                // Show remaining in placeholders
-                paymentUSDInput.placeholder = 'المتبقي: $' + remainingUSD.toFixed(2);
-                paymentLBPInput.placeholder = 'المتبقي: ' + Math.round(remainingLBP).toLocaleString();
-            } else {
-                // Paid in full or overpaid
-                paymentUSDInput.placeholder = '0.00';
-                paymentLBPInput.placeholder = '0';
-            }
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    if (!customerSearch.contains(e.target) && !customerDropdown.contains(e.target)) {
+        customerDropdown.classList.remove('show');
+    }
+});
 
-            // Update display
-            document.getElementById('displayTotalDue').textContent = '$' + totalDueUSD.toFixed(2);
-            document.getElementById('displayTotalPaid').textContent = '$' + totalPaidUSD.toFixed(2);
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 
-            if (remainingUSD > 0.01) {
-                // Still owes money
-                document.getElementById('remainingLabel').textContent = 'المتبقي:';
-                document.getElementById('displayRemaining').textContent = '$' + remainingUSD.toFixed(2);
-                document.getElementById('displayRemainingLBP').textContent = 'ل.ل. ' + Math.round(remainingLBP).toLocaleString();
-                paymentRemainingDiv.className = 'payment-remaining';
-                changeDisplayDiv.style.display = 'none';
-            } else if (remainingUSD < -0.01) {
-                // Overpaid - show change
-                const changeUSD = Math.abs(remainingUSD);
-                const changeLBP = changeUSD * exchangeRate;
-                document.getElementById('remainingLabel').textContent = 'زيادة:';
-                document.getElementById('displayRemaining').textContent = '$' + changeUSD.toFixed(2);
-                document.getElementById('displayRemainingLBP').textContent = 'ل.ل. ' + Math.round(changeLBP).toLocaleString();
-                paymentRemainingDiv.className = 'payment-remaining overpaid';
+// Update payment display with remaining and change
+function updatePaymentDisplay() {
+    const paymentUSDInput = document.getElementById('paymentUSD');
+    const paymentLBPInput = document.getElementById('paymentLBP');
+    const paymentUSD = parseFloat(paymentUSDInput.value) || 0;
+    const paymentLBP = parseFloat(paymentLBPInput.value) || 0;
+    const paymentRemainingDiv = document.getElementById('paymentRemaining');
+    const changeDisplayDiv = document.getElementById('changeDisplay');
 
-                // Show change to return
-                document.getElementById('changeUSD').textContent = '$' + changeUSD.toFixed(2);
-                document.getElementById('changeLBP').textContent = 'ل.ل. ' + Math.round(changeLBP).toLocaleString();
-                changeDisplayDiv.style.display = 'block';
-            } else {
-                // Exact payment
-                document.getElementById('remainingLabel').textContent = 'المتبقي:';
-                document.getElementById('displayRemaining').textContent = '$0.00';
-                document.getElementById('displayRemainingLBP').textContent = 'ل.ل. 0';
-                paymentRemainingDiv.className = 'payment-remaining paid';
-                changeDisplayDiv.style.display = 'none';
-            }
+    // Calculate total due (before discount)
+    let subtotalUSD = 0;
+    Object.keys(cart).forEach(id => {
+        subtotalUSD += cart[id].price * cart[id].quantity;
+    });
 
-            paymentRemainingDiv.style.display = 'block';
-        }
+    // Apply cents discount if applicable
+    let totalDueUSD = subtotalUSD;
+    const cents = subtotalUSD - Math.floor(subtotalUSD);
+    if (subtotalUSD >= 20 && cents > 0.001) {
+        totalDueUSD = Math.floor(subtotalUSD);
+    }
 
-        // Also update payment display when cart changes
-        const originalUpdateCartDisplay = updateCartDisplay;
-        updateCartDisplay = function() {
-            originalUpdateCartDisplay();
-            updatePaymentDisplay();
-        };
+    if (totalDueUSD <= 0) {
+        paymentRemainingDiv.style.display = 'none';
+        changeDisplayDiv.style.display = 'none';
+        // Reset placeholders
+        paymentUSDInput.placeholder = '0.00';
+        paymentLBPInput.placeholder = '0';
+        return;
+    }
 
-        function showAjaxFlash(type, title, message, list) {
-            const host = document.getElementById('ajaxFlash');
-            const safeTitle = title || (type === 'success' ? 'تم' : 'خطأ');
-            let html = `<div class="flash ${type}">`;
-            html += `<h4>${safeTitle}</h4>`;
-            if (message) html += `<p>${message}</p>`;
-            if (Array.isArray(list) && list.length > 0) {
-                html += '<ul>';
-                list.forEach(item => {
-                    html += `<li>${item}</li>`;
-                });
-                html += '</ul>';
-            }
-            html += '</div>';
-            if (host) {
-                host.innerHTML = html;
-                host.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            } else {
-                alert(message || safeTitle);
-            }
-        }
+    // Convert LBP payment to USD
+    const paymentLBPinUSD = paymentLBP / exchangeRate;
+    const totalPaidUSD = paymentUSD + paymentLBPinUSD;
+    const remainingUSD = totalDueUSD - totalPaidUSD;
+    const remainingLBP = remainingUSD * exchangeRate;
 
-        // Form validation + AJAX submit
-        document.getElementById('cartForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const customerId = document.getElementById('customerId').value;
-            const itemCount = Object.keys(cart).length;
-            const submitBtn = document.getElementById('submitBtn');
+    // Update placeholders with remaining amounts
+    if (remainingUSD > 0.01) {
+        // Show remaining in placeholders
+        paymentUSDInput.placeholder = 'المتبقي: $' + remainingUSD.toFixed(2);
+        paymentLBPInput.placeholder = 'المتبقي: ' + Math.round(remainingLBP).toLocaleString();
+    } else {
+        // Paid in full or overpaid
+        paymentUSDInput.placeholder = '0.00';
+        paymentLBPInput.placeholder = '0';
+    }
 
-            if (!customerId) {
-                showAjaxFlash('error', 'يرجى اختيار زبون', 'يرجى اختيار زبون.');
-                return false;
-            }
+    // Update display
+    document.getElementById('displayTotalDue').textContent = '$' + totalDueUSD.toFixed(2);
+    document.getElementById('displayTotalPaid').textContent = '$' + totalPaidUSD.toFixed(2);
 
-            if (itemCount === 0) {
-                showAjaxFlash('error', 'السلة فارغة', 'يرجى إضافة منتج واحد على الأقل.');
-                return false;
-            }
+    if (remainingUSD > 0.01) {
+        // Still owes money
+        document.getElementById('remainingLabel').textContent = 'المتبقي:';
+        document.getElementById('displayRemaining').textContent = '$' + remainingUSD.toFixed(2);
+        document.getElementById('displayRemainingLBP').textContent = 'ل.ل. ' + Math.round(remainingLBP)
+            .toLocaleString();
+        paymentRemainingDiv.className = 'payment-remaining';
+        changeDisplayDiv.style.display = 'none';
+    } else if (remainingUSD < -0.01) {
+        // Overpaid - show change
+        const changeUSD = Math.abs(remainingUSD);
+        const changeLBP = changeUSD * exchangeRate;
+        document.getElementById('remainingLabel').textContent = 'زيادة:';
+        document.getElementById('displayRemaining').textContent = '$' + changeUSD.toFixed(2);
+        document.getElementById('displayRemainingLBP').textContent = 'ل.ل. ' + Math.round(changeLBP).toLocaleString();
+        paymentRemainingDiv.className = 'payment-remaining overpaid';
 
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'جاري المعالجة...';
+        // Show change to return
+        document.getElementById('changeUSD').textContent = '$' + changeUSD.toFixed(2);
+        document.getElementById('changeLBP').textContent = 'ل.ل. ' + Math.round(changeLBP).toLocaleString();
+        changeDisplayDiv.style.display = 'block';
+    } else {
+        // Exact payment
+        document.getElementById('remainingLabel').textContent = 'المتبقي:';
+        document.getElementById('displayRemaining').textContent = '$0.00';
+        document.getElementById('displayRemainingLBP').textContent = 'ل.ل. 0';
+        paymentRemainingDiv.className = 'payment-remaining paid';
+        changeDisplayDiv.style.display = 'none';
+    }
 
-            try {
-                const formData = new FormData(this);
-                const response = await fetch(window.location.href, {
-                    method: 'POST',
-                    body: formData,
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'Accept': 'application/json'
-                    }
-                });
-                const payload = await response.json();
+    paymentRemainingDiv.style.display = 'block';
+}
 
-                if (!payload.ok) {
-                    showAjaxFlash('error', 'فشل الطلب', payload.message || 'تعذر إنشاء الطلب.', payload.errors || []);
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'إتمام البيع';
-                    return;
-                }
+// Also update payment display when cart changes
+const originalUpdateCartDisplay = updateCartDisplay;
+updateCartDisplay = function() {
+    originalUpdateCartDisplay();
+    updatePaymentDisplay();
+};
 
-                showAjaxFlash('success', 'تمت العملية', payload.message || 'تمت عملية البيع بنجاح.');
-                cart = {};
-                updateCartDisplay();
-                updateProductCards();
-                closeCart();
-                document.getElementById('customerId').value = '';
-                document.getElementById('customerSearch').value = '';
-                document.getElementById('customerSelected').classList.remove('show');
-                document.getElementById('selectedCustomerName').textContent = '';
-                document.getElementById('selectedCustomerInfo').textContent = '';
-                const notes = document.getElementById('orderNotes');
-                if (notes) notes.value = '';
-                document.getElementById('paymentUSD').value = '';
-                document.getElementById('paymentLBP').value = '';
-                updatePaymentDisplay();
-                submitBtn.disabled = true;
-                submitBtn.textContent = 'إتمام البيع';
+function showAjaxFlash(type, title, message, list) {
+    const host = document.getElementById('ajaxFlash');
+    const safeTitle = title || (type === 'success' ? 'تم' : 'خطأ');
+    let html = `<div class="flash ${type}">`;
+    html += `<h4>${safeTitle}</h4>`;
+    if (message) html += `<p>${message}</p>`;
+    if (Array.isArray(list) && list.length > 0) {
+        html += '<ul>';
+        list.forEach(item => {
+            html += `<li>${item}</li>`;
+        });
+        html += '</ul>';
+    }
+    html += '</div>';
+    if (host) {
+        host.innerHTML = html;
+        host.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+        });
+    } else {
+        alert(message || safeTitle);
+    }
+}
 
-                if (payload.redirect_url) {
-                    window.open(payload.redirect_url, '_blank');
-                }
-            } catch (err) {
-                showAjaxFlash('error', 'خطأ بالشبكة', 'تعذر إرسال الطلب، حاول مرة أخرى.');
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'إتمام البيع';
+// Form validation + AJAX submit
+document.getElementById('cartForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const customerId = document.getElementById('customerId').value;
+    const itemCount = Object.keys(cart).length;
+    const submitBtn = document.getElementById('submitBtn');
+
+    console.log('Form submit triggered', {
+        customerId,
+        itemCount,
+        cart
+    });
+
+    if (!customerId) {
+        showAjaxFlash('error', 'يرجى اختيار زبون', 'يرجى اختيار زبون.');
+        return false;
+    }
+
+    if (itemCount === 0) {
+        showAjaxFlash('error', 'السلة فارغة', 'يرجى إضافة منتج واحد على الأقل.');
+        return false;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'جاري المعالجة...';
+
+    try {
+        const formData = new FormData(this);
+        console.log('Sending form data...');
+
+        const response = await fetch(window.location.href, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json'
             }
         });
 
-        // Add click listeners to all product cards
-        document.querySelectorAll('.product-card').forEach(card => {
-            card.addEventListener('click', function(e) {
-                // Don't trigger if clicking on controls
-                if (e.target.closest('.product-controls')) {
-                    return;
-                }
-                toggleSelectItem(this);
-            });
-        });
+        console.log('Response status:', response.status);
+        const responseText = await response.text();
+        console.log('Response text:', responseText.substring(0, 500));
 
-        // Apply filter on page load to hide 0 qty and 0 price items by default
-        filterProducts();
+        let payload;
+        try {
+            payload = JSON.parse(responseText);
+        } catch (parseErr) {
+            console.error('JSON parse error:', parseErr);
+            showAjaxFlash('error', 'خطأ في الاستجابة',
+                'الخادم أرجع استجابة غير صالحة. يرجى المحاولة مرة أخرى.');
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'إتمام البيع';
+            return;
+        }
 
-    </script>
+        if (!payload.ok) {
+            showAjaxFlash('error', 'فشل الطلب', payload.message || 'تعذر إنشاء الطلب.', payload.errors ||
+            []);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'إتمام البيع';
+            return;
+        }
+
+        showAjaxFlash('success', 'تمت العملية', payload.message || 'تمت عملية البيع بنجاح.');
+        cart = {};
+        updateCartDisplay();
+        updateProductCards();
+        closeCart();
+        document.getElementById('customerId').value = '';
+        document.getElementById('customerSearch').value = '';
+        document.getElementById('customerSelected').classList.remove('show');
+        document.getElementById('selectedCustomerName').textContent = '';
+        document.getElementById('selectedCustomerInfo').textContent = '';
+        const notes = document.getElementById('orderNotes');
+        if (notes) notes.value = '';
+        document.getElementById('paymentUSD').value = '';
+        document.getElementById('paymentLBP').value = '';
+        updatePaymentDisplay();
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'إتمام البيع';
+
+        if (payload.redirect_url) {
+            window.open(payload.redirect_url, '_blank');
+        }
+    } catch (err) {
+        console.error('Fetch error:', err);
+        showAjaxFlash('error', 'خطأ بالشبكة', 'تعذر إرسال الطلب، حاول مرة أخرى. ' + err.message);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'إتمام البيع';
+    }
+});
+
+// Add click listeners to all product cards
+document.querySelectorAll('.product-card').forEach(card => {
+    card.addEventListener('click', function(e) {
+        // Don't trigger if clicking on controls
+        if (e.target.closest('.product-controls')) {
+            return;
+        }
+        toggleSelectItem(this);
+    });
+});
+
+// Apply filter on page load to hide 0 qty and 0 price items by default
+filterProducts();
+</script>
 <?php
 }
 

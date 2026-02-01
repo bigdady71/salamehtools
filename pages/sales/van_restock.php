@@ -41,7 +41,11 @@ function render_restock_cart_html(array $cartItems, string $csrfToken): string
             echo '<input type="hidden" name="csrf_token" value="', htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'), '">';
             echo '<input type="hidden" name="action" value="update_quantity">';
             echo '<input type="hidden" name="item_id" value="', (int)$item['id'], '">';
+            echo '<div class="cart-qty-controls">';
+            echo '<button type="button" class="cart-qty-btn cart-qty-minus" onclick="adjustCartQty(this, -1)">−</button>';
             echo '<input type="number" name="quantity" class="cart-qty-input" value="', number_format((float)$item['quantity'], 0), '" min="0" step="1" onchange="this.form.requestSubmit()">';
+            echo '<button type="button" class="cart-qty-btn cart-qty-plus" onclick="adjustCartQty(this, 1)">+</button>';
+            echo '</div>';
             echo '</form>';
             echo '<form method="POST" class="ajax-cart-form">';
             echo '<input type="hidden" name="csrf_token" value="', htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'), '">';
@@ -100,11 +104,28 @@ function normalize_number_string($value): string
 {
     $value = (string)$value;
     $map = [
-        '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
-        '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
-        '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
-        '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
-        ',' => '.', ' ' => '',
+        '٠' => '0',
+        '١' => '1',
+        '٢' => '2',
+        '٣' => '3',
+        '٤' => '4',
+        '٥' => '5',
+        '٦' => '6',
+        '٧' => '7',
+        '٨' => '8',
+        '٩' => '9',
+        '۰' => '0',
+        '۱' => '1',
+        '۲' => '2',
+        '۳' => '3',
+        '۴' => '4',
+        '۵' => '5',
+        '۶' => '6',
+        '۷' => '7',
+        '۸' => '8',
+        '۹' => '9',
+        ',' => '.',
+        ' ' => '',
     ];
     return strtr($value, $map);
 }
@@ -633,13 +654,70 @@ sales_portal_render_layout_start([
             gap: 8px;
             align-items: center;
         }
+        .qty-controls {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+        .qty-btn {
+            width: 32px;
+            height: 32px;
+            border: 2px solid var(--border);
+            background: #f1f5f9;
+            border-radius: 6px;
+            font-size: 1.2rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+            user-select: none;
+        }
+        .qty-btn:hover { background: #e2e8f0; }
+        .qty-btn:active { transform: scale(0.95); }
+        .qty-minus { color: #dc2626; }
+        .qty-plus { color: #059669; }
         .qty-input {
-            width: 80px;
-            padding: 8px;
+            width: 60px;
+            padding: 6px;
             border: 2px solid var(--border);
             border-radius: 8px;
             text-align: center;
-            font-weight: 600;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: #1e293b;
+            background: #fff;
+        }
+        .qty-input:focus {
+            border-color: var(--primary);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+        .qty-input::placeholder {
+            color: #94a3b8;
+            font-weight: 400;
+        }
+        .hide-images-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            background: #f1f5f9;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            user-select: none;
+        }
+        .hide-images-toggle:hover { background: #e2e8f0; }
+        .hide-images-toggle input { cursor: pointer; }
+        .product-list.hide-images .product-image { display: none !important; }
+        .product-list.hide-images.card-view .product-item { padding-top: 8px; }
+        @media (max-width: 480px) {
+            .qty-btn { width: 28px; height: 28px; font-size: 1rem; }
+            .qty-input { width: 50px; padding: 4px; }
+            .hide-images-toggle { padding: 6px 8px; font-size: 0.8rem; }
         }
         .btn {
             padding: 8px 16px;
@@ -723,9 +801,30 @@ sales_portal_render_layout_start([
                 margin-top: 8px;
             }
         }
+        .cart-qty-controls {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+        .cart-qty-btn {
+            width: 28px;
+            height: 28px;
+            border: 1px solid var(--border);
+            background: #f1f5f9;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .cart-qty-btn:hover { background: #e2e8f0; }
+        .cart-qty-minus { color: #dc2626; }
+        .cart-qty-plus { color: #059669; }
         .cart-qty-input {
-            width: 60px;
-            padding: 6px;
+            width: 50px;
+            padding: 4px;
             border: 2px solid var(--border);
             border-radius: 6px;
             text-align: center;
@@ -818,13 +917,20 @@ foreach ($flashes as $flash) {
                 <select id="categoryFilter" onchange="filterProducts()">
                     <option value="">جميع الفئات</option>
                     <?php foreach ($categories as $cat): ?>
-                        <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></option>
+                        <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>">
+                            <?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></option>
                     <?php endforeach; ?>
                 </select>
                 <div class="view-toggle">
-                    <button type="button" class="view-toggle-btn" id="listViewBtn" onclick="setView('list')" title="عرض قائمة">☰</button>
-                    <button type="button" class="view-toggle-btn active" id="cardViewBtn" onclick="setView('card')" title="عرض بطاقات">▦</button>
+                    <button type="button" class="view-toggle-btn" id="listViewBtn" onclick="setView('list')"
+                        title="عرض قائمة">☰</button>
+                    <button type="button" class="view-toggle-btn active" id="cardViewBtn" onclick="setView('card')"
+                        title="عرض بطاقات">▦</button>
                 </div>
+                <label class="hide-images-toggle" title="إخفاء الصور لتسريع التحميل">
+                    <input type="checkbox" id="hideImagesToggle" onchange="toggleImages()">
+                    <span>🖼️ إخفاء الصور</span>
+                </label>
             </div>
 
             <?php
@@ -839,19 +945,19 @@ foreach ($flashes as $flash) {
                     elseif ($product['warehouse_stock'] <= 10) $stockClass = 'low';
                 ?>
                     <div class="product-item"
-                         data-name="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                         data-sku="<?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?>"
-                         data-category="<?= htmlspecialchars($product['category'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
+                        data-name="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                        data-sku="<?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?>"
+                        data-category="<?= htmlspecialchars($product['category'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
                         <img src="<?= htmlspecialchars($product['image_path'], ENT_QUOTES, 'UTF-8') ?>"
-                             alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                             class="product-image lazy-image"
-                             loading="lazy"
-                             onload="this.classList.add('is-loaded')"
-                             onerror="this.src='<?= htmlspecialchars($defaultImageSrc, ENT_QUOTES, 'UTF-8') ?>'">
+                            alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                            class="product-image lazy-image" loading="lazy" onload="this.classList.add('is-loaded')"
+                            onerror="this.src='<?= htmlspecialchars($defaultImageSrc, ENT_QUOTES, 'UTF-8') ?>'">
                         <div class="product-info">
-                            <div class="product-name"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
+                            <div class="product-name"><?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>
+                            </div>
                             <div class="product-meta">
-                                <span class="product-sku"><?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?></span>
+                                <span
+                                    class="product-sku"><?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?></span>
                                 <span class="product-price" style="color: var(--primary); font-weight: 700;">
                                     $<?= number_format((float)$product['wholesale_price_usd'], 2) ?>
                                 </span>
@@ -860,12 +966,22 @@ foreach ($flashes as $flash) {
                                 </span>
                             </div>
                         </div>
-                        <form method="POST" class="add-form ajax-cart-form" data-product-id="<?= (int)$product['id'] ?>" data-product-sku="<?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?>">
-                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                        <form method="POST" class="add-form ajax-cart-form" data-product-id="<?= (int)$product['id'] ?>"
+                            data-product-sku="<?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?>">
+                            <input type="hidden" name="csrf_token"
+                                value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                             <input type="hidden" name="action" value="add_to_cart">
                             <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
-                            <input type="hidden" name="sku" value="<?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?>">
-                            <input type="number" name="quantity" class="qty-input" value="1" min="1" step="1">
+                            <input type="hidden" name="sku"
+                                value="<?= htmlspecialchars($product['sku'], ENT_QUOTES, 'UTF-8') ?>">
+                            <div class="qty-controls">
+                                <button type="button" class="qty-btn qty-minus" onclick="adjustQty(this, -1)">−</button>
+                                <input type="number" name="quantity" class="qty-input" value="1" min="1"
+                                    max="<?= (int)$product['warehouse_stock'] ?>" step="1"
+                                    data-max="<?= (int)$product['warehouse_stock'] ?>" placeholder="1"
+                                    onfocus="this.select()">
+                                <button type="button" class="qty-btn qty-plus" onclick="adjustQty(this, 1)">+</button>
+                            </div>
                             <button type="submit" class="btn btn-primary">+ إضافة</button>
                         </form>
                     </div>
@@ -875,30 +991,32 @@ foreach ($flashes as $flash) {
 
         <!-- History Section -->
         <?php if (!empty($requestHistory)): ?>
-        <div class="section-card history-section">
-            <h2 class="section-title">📜 سجل الطلبات</h2>
-            <?php foreach ($requestHistory as $history): ?>
-                <div class="history-item">
-                    <div>
-                        <strong><?= (int)$history['item_count'] ?> منتج</strong>
-                        <span style="color: var(--muted);">- <?= number_format((float)$history['total_quantity'], 1) ?> وحدة</span>
-                        <br>
-                        <small style="color: var(--muted);"><?= date('Y/m/d H:i', strtotime($history['created_at'])) ?></small>
+            <div class="section-card history-section">
+                <h2 class="section-title">📜 سجل الطلبات</h2>
+                <?php foreach ($requestHistory as $history): ?>
+                    <div class="history-item">
+                        <div>
+                            <strong><?= (int)$history['item_count'] ?> منتج</strong>
+                            <span style="color: var(--muted);">- <?= number_format((float)$history['total_quantity'], 1) ?>
+                                وحدة</span>
+                            <br>
+                            <small
+                                style="color: var(--muted);"><?= date('Y/m/d H:i', strtotime($history['created_at'])) ?></small>
+                        </div>
+                        <span class="history-status status-<?= $history['status'] ?>">
+                            <?php
+                            $statusLabels = [
+                                'submitted' => 'مرسل',
+                                'approved' => 'معتمد',
+                                'fulfilled' => 'مكتمل',
+                                'rejected' => 'مرفوض'
+                            ];
+                            echo $statusLabels[$history['status']] ?? $history['status'];
+                            ?>
+                        </span>
                     </div>
-                    <span class="history-status status-<?= $history['status'] ?>">
-                        <?php
-                        $statusLabels = [
-                            'submitted' => 'مرسل',
-                            'approved' => 'معتمد',
-                            'fulfilled' => 'مكتمل',
-                            'rejected' => 'مرفوض'
-                        ];
-                        echo $statusLabels[$history['status']] ?? $history['status'];
-                        ?>
-                    </span>
-                </div>
-            <?php endforeach; ?>
-        </div>
+                <?php endforeach; ?>
+            </div>
         <?php endif; ?>
     </div>
 
@@ -916,138 +1034,231 @@ foreach ($flashes as $flash) {
 </div>
 
 <script>
-// View toggle functionality
-let currentView = localStorage.getItem('vanRestockView') || 'card';
+    // View toggle functionality
+    let currentView = localStorage.getItem('vanRestockView') || 'card';
+    let hideImages = localStorage.getItem('vanRestockHideImages') === 'true';
 
-function setView(view) {
-    currentView = view;
-    localStorage.setItem('vanRestockView', view);
+    function setView(view) {
+        currentView = view;
+        localStorage.setItem('vanRestockView', view);
 
-    const productList = document.getElementById('productList');
-    const listBtn = document.getElementById('listViewBtn');
-    const cardBtn = document.getElementById('cardViewBtn');
+        const productList = document.getElementById('productList');
+        const listBtn = document.getElementById('listViewBtn');
+        const cardBtn = document.getElementById('cardViewBtn');
 
-    if (view === 'list') {
-        productList.classList.remove('card-view');
-        productList.classList.add('list-view');
-        listBtn.classList.add('active');
-        cardBtn.classList.remove('active');
-    } else {
-        productList.classList.remove('list-view');
-        productList.classList.add('card-view');
-        cardBtn.classList.add('active');
-        listBtn.classList.remove('active');
-    }
-
-    // Reapply filter to fix display property
-    filterProducts();
-}
-
-function filterProducts() {
-    const search = document.getElementById('searchFilter').value.toLowerCase().trim();
-    const category = document.getElementById('categoryFilter').value;
-    const isCardView = document.getElementById('productList').classList.contains('card-view');
-
-    document.querySelectorAll('.product-item').forEach(item => {
-        const name = (item.dataset.name || '').toLowerCase();
-        const sku = (item.dataset.sku || '').toLowerCase();
-        const itemCategory = item.dataset.category || '';
-
-        const matchesSearch = !search || name.includes(search) || sku.includes(search);
-        const matchesCategory = !category || itemCategory === category;
-
-        if (matchesSearch && matchesCategory) {
-            item.style.display = isCardView ? 'flex' : 'flex';
+        if (view === 'list') {
+            productList.classList.remove('card-view');
+            productList.classList.add('list-view');
+            listBtn.classList.add('active');
+            cardBtn.classList.remove('active');
         } else {
-            item.style.display = 'none';
+            productList.classList.remove('list-view');
+            productList.classList.add('card-view');
+            cardBtn.classList.add('active');
+            listBtn.classList.remove('active');
         }
-    });
-}
 
-function showAjaxFlash(type, message) {
-    const host = document.getElementById('ajaxFlash');
-    if (!host) {
-        return;
+        // Reapply filter to fix display property
+        filterProducts();
     }
-    const title = type === 'success' ? 'تم' : 'خطأ';
-    host.innerHTML = `<div class="flash ${type}"><h4>${title}</h4><p>${message}</p></div>`;
-    host.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
 
-async function submitCartForm(form) {
-    const normalizeDigits = (value) => {
-        const map = {
-            '٠':'0','١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9',
-            '۰':'0','۱':'1','۲':'2','۳':'3','۴':'4','۵':'5','۶':'6','۷':'7','۸':'8','۹':'9'
+    function toggleImages() {
+        const checkbox = document.getElementById('hideImagesToggle');
+        const productList = document.getElementById('productList');
+        hideImages = checkbox.checked;
+        localStorage.setItem('vanRestockHideImages', hideImages);
+
+        if (hideImages) {
+            productList.classList.add('hide-images');
+        } else {
+            productList.classList.remove('hide-images');
+        }
+    }
+
+    function adjustQty(btn, delta) {
+        const container = btn.closest('.qty-controls');
+        const input = container.querySelector('.qty-input');
+        const max = parseInt(input.dataset.max) || 9999;
+        let val = parseInt(input.value) || 1;
+        val += delta;
+        if (val < 1) val = 1;
+        if (val > max) {
+            val = max;
+            // Visual feedback for max reached
+            input.style.borderColor = '#f59e0b';
+            setTimeout(() => {
+                input.style.borderColor = '';
+            }, 300);
+        }
+        input.value = val;
+    }
+
+    function initHideImages() {
+        const checkbox = document.getElementById('hideImagesToggle');
+        const productList = document.getElementById('productList');
+        if (checkbox && hideImages) {
+            checkbox.checked = true;
+            productList.classList.add('hide-images');
+        }
+    }
+
+    function adjustCartQty(btn, delta) {
+        const container = btn.closest('.cart-qty-controls');
+        const input = container.querySelector('.cart-qty-input');
+        let val = parseInt(input.value) || 0;
+        val += delta;
+        if (val < 0) val = 0;
+        input.value = val;
+        // Trigger form submit
+        input.dispatchEvent(new Event('change', {
+            bubbles: true
+        }));
+    }
+
+    function filterProducts() {
+        const search = document.getElementById('searchFilter').value.toLowerCase().trim();
+        const category = document.getElementById('categoryFilter').value;
+        const isCardView = document.getElementById('productList').classList.contains('card-view');
+
+        document.querySelectorAll('.product-item').forEach(item => {
+            const name = (item.dataset.name || '').toLowerCase();
+            const sku = (item.dataset.sku || '').toLowerCase();
+            const itemCategory = item.dataset.category || '';
+
+            const matchesSearch = !search || name.includes(search) || sku.includes(search);
+            const matchesCategory = !category || itemCategory === category;
+
+            if (matchesSearch && matchesCategory) {
+                item.style.display = isCardView ? 'flex' : 'flex';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    }
+
+    function showAjaxFlash(type, message) {
+        const host = document.getElementById('ajaxFlash');
+        if (!host) {
+            return;
+        }
+        const title = type === 'success' ? 'تم' : 'خطأ';
+        host.innerHTML = `<div class="flash ${type}"><h4>${title}</h4><p>${message}</p></div>`;
+        host.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+        });
+    }
+
+    async function submitCartForm(form) {
+        const normalizeDigits = (value) => {
+            const map = {
+                '٠': '0',
+                '١': '1',
+                '٢': '2',
+                '٣': '3',
+                '٤': '4',
+                '٥': '5',
+                '٦': '6',
+                '٧': '7',
+                '٨': '8',
+                '٩': '9',
+                '۰': '0',
+                '۱': '1',
+                '۲': '2',
+                '۳': '3',
+                '۴': '4',
+                '۵': '5',
+                '۶': '6',
+                '۷': '7',
+                '۸': '8',
+                '۹': '9'
+            };
+            return (value || '').toString().split('').map(ch => map[ch] ?? ch).join('').replace(/,/g, '.').trim();
         };
-        return (value || '').toString().split('').map(ch => map[ch] ?? ch).join('').replace(/,/g, '.').trim();
-    };
-    const formData = new FormData(form);
-    const productIdInput = form.querySelector('[name="product_id"]');
-    const skuInput = form.querySelector('[name="sku"]');
-    const quantityInput = form.querySelector('[name="quantity"]');
-    const productId = normalizeDigits(productIdInput ? productIdInput.value : form.dataset.productId);
-    let quantity = normalizeDigits(quantityInput ? quantityInput.value : '');
-    const sku = normalizeDigits(skuInput ? skuInput.value : form.dataset.productSku);
-    if (!productId && form.dataset.productId) {
-        formData.set('product_id', form.dataset.productId);
-    } else if (productId) {
-        formData.set('product_id', productId);
-    }
-    if (sku) {
-        formData.set('sku', sku);
-    }
-    if (!quantity || Number(quantity) <= 0) {
-        quantity = '1';
-    }
-    formData.set('quantity', quantity);
-    try {
-        const response = await fetch(window.location.href, {
-            method: 'POST',
-            body: formData,
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'Accept': 'application/json'
+        const formData = new FormData(form);
+        const productIdInput = form.querySelector('[name="product_id"]');
+        const skuInput = form.querySelector('[name="sku"]');
+        const quantityInput = form.querySelector('[name="quantity"]');
+        const productId = normalizeDigits(productIdInput ? productIdInput.value : form.dataset.productId);
+        let quantity = normalizeDigits(quantityInput ? quantityInput.value : '');
+        const sku = normalizeDigits(skuInput ? skuInput.value : form.dataset.productSku);
+        if (!productId && form.dataset.productId) {
+            formData.set('product_id', form.dataset.productId);
+        } else if (productId) {
+            formData.set('product_id', productId);
+        }
+        if (sku) {
+            formData.set('sku', sku);
+        }
+        if (!quantity || Number(quantity) <= 0) {
+            quantity = '1';
+        }
+        formData.set('quantity', quantity);
+        try {
+            const response = await fetch(window.location.href, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                }
+            });
+            const payload = await response.json();
+            if (!payload.ok) {
+                showAjaxFlash('error', payload.message || 'تعذر تحديث السلة.');
+                return;
             }
-        });
-        const payload = await response.json();
-        if (!payload.ok) {
-            showAjaxFlash('error', payload.message || 'تعذر تحديث السلة.');
-            return;
-        }
-        if (payload.message) {
-            showAjaxFlash('success', payload.message);
-        }
-        if (payload.cart_html) {
-            const cartContent = document.getElementById('cartContent');
-            if (cartContent) {
-                cartContent.innerHTML = payload.cart_html;
+            if (payload.message) {
+                showAjaxFlash('success', payload.message);
             }
+            if (payload.cart_html) {
+                const cartContent = document.getElementById('cartContent');
+                if (cartContent) {
+                    cartContent.innerHTML = payload.cart_html;
+                }
+            }
+            bindAjaxCartForms();
+        } catch (err) {
+            showAjaxFlash('error', 'تعذر الاتصال بالخادم.');
         }
-        bindAjaxCartForms();
-    } catch (err) {
-        showAjaxFlash('error', 'تعذر الاتصال بالخادم.');
     }
-}
 
-function bindAjaxCartForms() {
-    document.querySelectorAll('form.ajax-cart-form, #cartContent form').forEach(form => {
-        if (form.dataset.ajaxBound === '1') {
-            return;
-        }
-        form.dataset.ajaxBound = '1';
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            submitCartForm(form);
+    function bindAjaxCartForms() {
+        document.querySelectorAll('form.ajax-cart-form, #cartContent form').forEach(form => {
+            if (form.dataset.ajaxBound === '1') {
+                return;
+            }
+            form.dataset.ajaxBound = '1';
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                submitCartForm(form);
+            });
+        });
+    }
+
+    // Initialize view on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        setView(currentView);
+        initHideImages();
+        bindAjaxCartForms();
+
+        // Prevent over-adjustment: validate quantity on input change
+        document.querySelectorAll('.qty-input').forEach(input => {
+            input.addEventListener('change', function() {
+                const max = parseInt(this.dataset.max) || 9999;
+                let val = parseInt(this.value) || 1;
+                if (val < 1) val = 1;
+                if (val > max) {
+                    val = max;
+                    this.style.borderColor = '#f59e0b';
+                    setTimeout(() => {
+                        this.style.borderColor = '';
+                    }, 300);
+                }
+                this.value = val;
+            });
         });
     });
-}
-
-// Initialize view on page load
-document.addEventListener('DOMContentLoaded', function() {
-    setView(currentView);
-    bindAjaxCartForms();
-});
 </script>
 
 <?php

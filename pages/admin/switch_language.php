@@ -22,7 +22,15 @@ if (!in_array($lang, ['en', 'ar'])) {
 // Set the language
 set_user_language($lang);
 
+// Calculate base path dynamically
+$scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
+$basePath = '';
+$pos = strpos($scriptPath, '/pages/');
+if ($pos !== false) {
+    $basePath = substr($scriptPath, 0, $pos);
+}
+
 // Redirect back to referer or dashboard
-$redirect = $_SERVER['HTTP_REFERER'] ?? '/salamehtools/pages/sales/dashboard.php';
+$redirect = $_SERVER['HTTP_REFERER'] ?? $basePath . '/pages/sales/dashboard.php';
 header('Location: ' . $redirect);
 exit;

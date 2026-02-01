@@ -19,17 +19,28 @@ function customer_portal_bootstrap(): array
         session_start();
     }
 
-    // Check if user is logged in and has viewer role or empty role (customer)
+    // Calculate base path dynamically (works on both local and Hostinger)
+    $scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
+    $basePath = '';
+    $pos = strpos($scriptPath, '/pages/');
+    if ($pos !== false) {
+        $basePath = substr($scriptPath, 0, $pos);
+    }
+    $loginUrl = $basePath . '/pages/login.php';
+
+    // Check if user is logged in and has customer role
     if (!isset($_SESSION['user']) || !isset($_SESSION['user']['role'])) {
         // Redirect to main login
-        header('Location: /salamehtools/pages/login.php');
+        header('Location: ' . $loginUrl);
         exit;
     }
 
     $userRole = $_SESSION['user']['role'];
-    if ($userRole !== 'viewer' && $userRole !== '') {
+
+    // Customer role can be 'customer', 'viewer', or empty string
+    if ($userRole !== 'customer' && $userRole !== 'viewer' && $userRole !== '') {
         // Not a customer - redirect to appropriate dashboard
-        header('Location: /salamehtools/pages/login.php');
+        header('Location: ' . $loginUrl);
         exit;
     }
 
@@ -39,19 +50,23 @@ function customer_portal_bootstrap(): array
     // Get database connection
     $pdo = db();
 
-    // Find customer by user_id
-    $customerLookup = $pdo->prepare("SELECT id FROM customers WHERE user_id = ? LIMIT 1");
-    $customerLookup->execute([$userId]);
-    $customerRow = $customerLookup->fetch(PDO::FETCH_ASSOC);
+    // For customer role, the session user ID IS the customer ID
+    if ($userRole === 'customer') {
+        $customerId = $userId;
+    } else {
+        // Legacy: Find customer by user_id (for viewer role)
+        $customerLookup = $pdo->prepare("SELECT id FROM customers WHERE user_id = ? LIMIT 1");
+        $customerLookup->execute([$userId]);
+        $customerRow = $customerLookup->fetch(PDO::FETCH_ASSOC);
 
-    if (!$customerRow) {
-        // No customer record found for this user
-        session_destroy();
-        header('Location: /salamehtools/pages/login.php?error=no_customer_record');
-        exit;
+        if (!$customerRow) {
+            // No customer record found for this user
+            session_destroy();
+            header('Location: ' . $loginUrl . '?error=no_customer_record');
+            exit;
+        }
+        $customerId = (int)$customerRow['id'];
     }
-
-    $customerId = (int)$customerRow['id'];
 
     // Fetch customer data from database
     $stmt = $pdo->prepare("
@@ -79,7 +94,7 @@ function customer_portal_bootstrap(): array
     if (!$customer) {
         // Customer not found or disabled - logout
         session_destroy();
-        header('Location: /salamehtools/pages/login.php?error=account_disabled');
+        header('Location: ' . $loginUrl . '?error=account_disabled');
         exit;
     }
 

@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Sales Rep Order Acceptance Page
  *
@@ -117,6 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // Get orders ready for this sales rep
+// Include: orders assigned to this rep, OR customer orders assigned to customers of this rep
 $readyOrdersStmt = $pdo->prepare("
     SELECT
         o.id,
@@ -132,7 +134,10 @@ $readyOrdersStmt = $pdo->prepare("
         (SELECT SUM(quantity * unit_price_usd) FROM order_items WHERE order_id = o.id) as total_value
     FROM orders o
     INNER JOIN customers c ON c.id = o.customer_id
-    WHERE o.sales_rep_id = :sales_rep_id
+    WHERE (
+        o.sales_rep_id = :sales_rep_id
+        OR (o.order_type = 'customer_order' AND c.assigned_sales_rep_id = :sales_rep_id2)
+    )
     AND o.status IN ('ready', 'ready_for_handover', 'handed_to_sales_rep')
     ORDER BY
         CASE o.status
@@ -142,7 +147,7 @@ $readyOrdersStmt = $pdo->prepare("
         END,
         o.created_at ASC
 ");
-$readyOrdersStmt->execute(['sales_rep_id' => $user['id']]);
+$readyOrdersStmt->execute(['sales_rep_id' => $user['id'], 'sales_rep_id2' => $user['id']]);
 $orders = $readyOrdersStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $statusLabels = [
@@ -195,14 +200,14 @@ if (isset($_SESSION['error'])) {
 </div>
 
 <?php if (empty($orders)): ?>
-    <div class="card">
-        <p style="text-align:center;color:var(--muted);padding:40px 0;">
-            No orders ready for pickup at this time.
-        </p>
-    </div>
+<div class="card">
+    <p style="text-align:center;color:var(--muted);padding:40px 0;">
+        No orders ready for pickup at this time.
+    </p>
+</div>
 <?php else: ?>
-    <?php foreach ($orders as $order): ?>
-        <?php
+<?php foreach ($orders as $order): ?>
+<?php
         // Get order items
         $itemsStmt = $pdo->prepare("
             SELECT
@@ -232,133 +237,145 @@ if (isset($_SESSION['error'])) {
         }
         ?>
 
-        <div class="card" style="margin-bottom:24px;border:2px solid <?= $order['status'] === 'handed_to_sales_rep' ? '#3b82f6' : '#22c55e' ?>;">
-            <!-- Order Header -->
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:16px;">
-                <div>
-                    <h3 style="margin:0 0 4px;">
-                        <?= htmlspecialchars($order['order_number'] ?? 'ORD-' . str_pad((string)$order['id'], 6, '0', STR_PAD_LEFT), ENT_QUOTES, 'UTF-8') ?>
-                    </h3>
-                    <p style="margin:0;color:var(--muted);">
-                        <?= htmlspecialchars($order['customer_name'], ENT_QUOTES, 'UTF-8') ?>
-                        <?php if ($order['customer_phone']): ?>
-                            • <?= htmlspecialchars($order['customer_phone'], ENT_QUOTES, 'UTF-8') ?>
-                        <?php endif; ?>
-                    </p>
-                    <?php if ($order['customer_location']): ?>
-                        <p style="margin:4px 0 0;font-size:0.85rem;color:var(--muted);">
-                            📍 <?= htmlspecialchars($order['customer_location'], ENT_QUOTES, 'UTF-8') ?>
-                        </p>
-                    <?php endif; ?>
+<div class="card"
+    style="margin-bottom:24px;border:2px solid <?= $order['status'] === 'handed_to_sales_rep' ? '#3b82f6' : '#22c55e' ?>;">
+    <!-- Order Header -->
+    <div
+        style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:16px;">
+        <div>
+            <h3 style="margin:0 0 4px;">
+                <?= htmlspecialchars($order['order_number'] ?? 'ORD-' . str_pad((string)$order['id'], 6, '0', STR_PAD_LEFT), ENT_QUOTES, 'UTF-8') ?>
+            </h3>
+            <p style="margin:0;color:var(--muted);">
+                <?= htmlspecialchars($order['customer_name'], ENT_QUOTES, 'UTF-8') ?>
+                <?php if ($order['customer_phone']): ?>
+                • <?= htmlspecialchars($order['customer_phone'], ENT_QUOTES, 'UTF-8') ?>
+                <?php endif; ?>
+            </p>
+            <?php if ($order['customer_location']): ?>
+            <p style="margin:4px 0 0;font-size:0.85rem;color:var(--muted);">
+                📍 <?= htmlspecialchars($order['customer_location'], ENT_QUOTES, 'UTF-8') ?>
+            </p>
+            <?php endif; ?>
+        </div>
+        <div style="text-align:right;">
+            <span
+                style="display:inline-block;padding:6px 12px;border-radius:4px;font-weight:600;font-size:0.85rem;<?= $statusStyles[$order['status']] ?? '' ?>">
+                <?= htmlspecialchars($statusLabels[$order['status']] ?? ucfirst($order['status']), ENT_QUOTES, 'UTF-8') ?>
+            </span>
+            <p style="margin:8px 0 0;font-size:0.85rem;color:var(--muted);">
+                <?= date('d/m/Y H:i', strtotime($order['created_at'])) ?>
+            </p>
+        </div>
+    </div>
+
+    <!-- Items Summary -->
+    <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:16px;">
+        <strong style="font-size:0.9rem;"><?= count($items) ?> item(s)</strong>
+        <?php if ($order['total_value']): ?>
+        <span style="float:right;font-weight:600;">Total: $<?= number_format((float)$order['total_value'], 2) ?></span>
+        <?php endif; ?>
+
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;">
+            <?php foreach ($items as $item): ?>
+            <div style="display:flex;align-items:center;gap:12px;padding:8px;background:#fff;border-radius:4px;">
+                <?php if (!empty($item['image_url'])): ?>
+                <img src="<?= htmlspecialchars($item['image_url'], ENT_QUOTES, 'UTF-8') ?>"
+                    alt="<?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                    style="width:40px;height:40px;object-fit:cover;border-radius:4px;">
+                <?php else: ?>
+                <div style="width:40px;height:40px;background:#e5e7eb;border-radius:4px;"></div>
+                <?php endif; ?>
+                <div style="flex:1;">
+                    <div style="font-weight:500;"><?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
+                    <div style="font-size:0.8rem;color:var(--muted);">SKU:
+                        <?= htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') ?></div>
                 </div>
                 <div style="text-align:right;">
-                    <span style="display:inline-block;padding:6px 12px;border-radius:4px;font-weight:600;font-size:0.85rem;<?= $statusStyles[$order['status']] ?? '' ?>">
-                        <?= htmlspecialchars($statusLabels[$order['status']] ?? ucfirst($order['status']), ENT_QUOTES, 'UTF-8') ?>
-                    </span>
-                    <p style="margin:8px 0 0;font-size:0.85rem;color:var(--muted);">
-                        <?= date('d/m/Y H:i', strtotime($order['created_at'])) ?>
-                    </p>
+                    <div style="font-weight:600;"><?= number_format((float)$item['quantity'], 0) ?>
+                        <?= htmlspecialchars($item['unit'], ENT_QUOTES, 'UTF-8') ?></div>
+                    <div style="font-size:0.8rem;color:var(--muted);">
+                        $<?= number_format((float)$item['unit_price'], 2) ?> each</div>
                 </div>
             </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
 
-            <!-- Items Summary -->
-            <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:16px;">
-                <strong style="font-size:0.9rem;"><?= count($items) ?> item(s)</strong>
-                <?php if ($order['total_value']): ?>
-                    <span style="float:right;font-weight:600;">Total: $<?= number_format((float)$order['total_value'], 2) ?></span>
-                <?php endif; ?>
-
-                <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;">
-                    <?php foreach ($items as $item): ?>
-                        <div style="display:flex;align-items:center;gap:12px;padding:8px;background:#fff;border-radius:4px;">
-                            <?php if (!empty($item['image_url'])): ?>
-                                <img src="<?= htmlspecialchars($item['image_url'], ENT_QUOTES, 'UTF-8') ?>"
-                                     alt="<?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                                     style="width:40px;height:40px;object-fit:cover;border-radius:4px;">
-                            <?php else: ?>
-                                <div style="width:40px;height:40px;background:#e5e7eb;border-radius:4px;"></div>
-                            <?php endif; ?>
-                            <div style="flex:1;">
-                                <div style="font-weight:500;"><?= htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') ?></div>
-                                <div style="font-size:0.8rem;color:var(--muted);">SKU: <?= htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') ?></div>
-                            </div>
-                            <div style="text-align:right;">
-                                <div style="font-weight:600;"><?= number_format((float)$item['quantity'], 0) ?> <?= htmlspecialchars($item['unit'], ENT_QUOTES, 'UTF-8') ?></div>
-                                <div style="font-size:0.8rem;color:var(--muted);">$<?= number_format((float)$item['unit_price'], 2) ?> each</div>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-
-            <!-- Action Section -->
-            <?php if (in_array($order['status'], ['ready', 'ready_for_handover'])): ?>
-                <?php if ($otpData): ?>
-                    <?php
+    <!-- Action Section -->
+    <?php if (in_array($order['status'], ['ready', 'ready_for_handover'])): ?>
+    <?php if ($otpData): ?>
+    <?php
                     $warehouseVerified = $otpData['warehouse_verified_at'] !== null;
                     $salesRepVerified = $otpData['sales_rep_verified_at'] !== null;
                     $bothVerified = $warehouseVerified && $salesRepVerified;
                     ?>
 
-                    <?php if ($bothVerified): ?>
-                        <div style="text-align:center;padding:16px;background:#22c55e;color:#fff;border-radius:8px;font-weight:700;">
-                            ✓ VERIFIED - LOADING STOCK TO VAN...
-                        </div>
-                    <?php else: ?>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-                            <!-- Your OTP to show warehouse -->
-                            <div style="background:#fef3c7;padding:16px;border-radius:8px;border:2px solid #f59e0b;">
-                                <div style="font-size:0.75rem;font-weight:600;color:#92400e;margin-bottom:8px;">YOUR OTP (Show to Warehouse):</div>
-                                <div style="font-size:2rem;font-weight:700;letter-spacing:8px;color:#000;text-align:center;font-family:monospace;">
-                                    <?= htmlspecialchars($otpData['sales_rep_otp'], ENT_QUOTES, 'UTF-8') ?>
-                                </div>
-                                <?php if ($salesRepVerified): ?>
-                                    <div style="margin-top:8px;text-align:center;color:#22c55e;font-weight:600;">✓ Your code verified</div>
-                                <?php endif; ?>
-                            </div>
-
-                            <!-- Enter warehouse OTP -->
-                            <form method="POST" style="background:#e0e7ff;padding:16px;border-radius:8px;border:2px solid #6366f1;">
-                                <input type="hidden" name="action" value="verify_otp_sales_rep">
-                                <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
-                                <div style="font-size:0.75rem;font-weight:600;color:#3730a3;margin-bottom:8px;">Enter Warehouse OTP:</div>
-                                <input type="text" name="warehouse_otp" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required
-                                       style="width:100%;padding:12px;font-size:1.5rem;text-align:center;letter-spacing:8px;font-family:monospace;border:2px solid #000;font-weight:700;border-radius:4px;"
-                                       <?= $salesRepVerified ? 'disabled' : '' ?>>
-                                <?php if (!$salesRepVerified): ?>
-                                    <button type="submit" style="width:100%;margin-top:12px;padding:12px;background:#000;color:#fff;border:none;cursor:pointer;font-weight:600;border-radius:4px;">
-                                        VERIFY & ACCEPT ORDER
-                                    </button>
-                                <?php else: ?>
-                                    <div style="margin-top:12px;padding:8px;background:#22c55e;color:#fff;font-weight:600;text-align:center;border-radius:4px;">
-                                        ✓ Waiting for Warehouse
-                                    </div>
-                                <?php endif; ?>
-                            </form>
-                        </div>
-                    <?php endif; ?>
-                <?php else: ?>
-                    <div style="text-align:center;padding:16px;background:#fee2e2;color:#991b1b;border-radius:8px;">
-                        <strong>OTP Expired</strong><br>
-                        <span style="font-size:0.9rem;">Please ask warehouse to re-mark this order as ready.</span>
-                    </div>
-                <?php endif; ?>
-            <?php elseif ($order['status'] === 'handed_to_sales_rep'): ?>
-                <div style="display:flex;gap:12px;justify-content:center;">
-                    <form method="POST" onsubmit="return confirm('Mark this order as completed? This confirms delivery to customer.');">
-                        <input type="hidden" name="action" value="complete_order">
-                        <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
-                        <button type="submit" style="padding:12px 32px;background:#22c55e;color:#fff;border:none;cursor:pointer;font-weight:600;font-size:1rem;border-radius:8px;">
-                            ✓ MARK AS DELIVERED
-                        </button>
-                    </form>
-                </div>
-                <p style="text-align:center;margin:12px 0 0;font-size:0.85rem;color:var(--muted);">
-                    Stock is in your van. Click above when delivered to customer.
-                </p>
+    <?php if ($bothVerified): ?>
+    <div style="text-align:center;padding:16px;background:#22c55e;color:#fff;border-radius:8px;font-weight:700;">
+        ✓ VERIFIED - LOADING STOCK TO VAN...
+    </div>
+    <?php else: ?>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <!-- Your OTP to show warehouse -->
+        <div style="background:#fef3c7;padding:16px;border-radius:8px;border:2px solid #f59e0b;">
+            <div style="font-size:0.75rem;font-weight:600;color:#92400e;margin-bottom:8px;">YOUR OTP (Show to
+                Warehouse):</div>
+            <div
+                style="font-size:2rem;font-weight:700;letter-spacing:8px;color:#000;text-align:center;font-family:monospace;">
+                <?= htmlspecialchars($otpData['sales_rep_otp'], ENT_QUOTES, 'UTF-8') ?>
+            </div>
+            <?php if ($salesRepVerified): ?>
+            <div style="margin-top:8px;text-align:center;color:#22c55e;font-weight:600;">✓ Your code verified</div>
             <?php endif; ?>
         </div>
-    <?php endforeach; ?>
+
+        <!-- Enter warehouse OTP -->
+        <form method="POST" style="background:#e0e7ff;padding:16px;border-radius:8px;border:2px solid #6366f1;">
+            <input type="hidden" name="action" value="verify_otp_sales_rep">
+            <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
+            <div style="font-size:0.75rem;font-weight:600;color:#3730a3;margin-bottom:8px;">Enter Warehouse OTP:</div>
+            <input type="text" name="warehouse_otp" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required
+                style="width:100%;padding:12px;font-size:1.5rem;text-align:center;letter-spacing:8px;font-family:monospace;border:2px solid #000;font-weight:700;border-radius:4px;"
+                <?= $salesRepVerified ? 'disabled' : '' ?>>
+            <?php if (!$salesRepVerified): ?>
+            <button type="submit"
+                style="width:100%;margin-top:12px;padding:12px;background:#000;color:#fff;border:none;cursor:pointer;font-weight:600;border-radius:4px;">
+                VERIFY & ACCEPT ORDER
+            </button>
+            <?php else: ?>
+            <div
+                style="margin-top:12px;padding:8px;background:#22c55e;color:#fff;font-weight:600;text-align:center;border-radius:4px;">
+                ✓ Waiting for Warehouse
+            </div>
+            <?php endif; ?>
+        </form>
+    </div>
+    <?php endif; ?>
+    <?php else: ?>
+    <div style="text-align:center;padding:16px;background:#fee2e2;color:#991b1b;border-radius:8px;">
+        <strong>OTP Expired</strong><br>
+        <span style="font-size:0.9rem;">Please ask warehouse to re-mark this order as ready.</span>
+    </div>
+    <?php endif; ?>
+    <?php elseif ($order['status'] === 'handed_to_sales_rep'): ?>
+    <div style="display:flex;gap:12px;justify-content:center;">
+        <form method="POST"
+            onsubmit="return confirm('Mark this order as completed? This confirms delivery to customer.');">
+            <input type="hidden" name="action" value="complete_order">
+            <input type="hidden" name="order_id" value="<?= $order['id'] ?>">
+            <button type="submit"
+                style="padding:12px 32px;background:#22c55e;color:#fff;border:none;cursor:pointer;font-weight:600;font-size:1rem;border-radius:8px;">
+                ✓ MARK AS DELIVERED
+            </button>
+        </form>
+    </div>
+    <p style="text-align:center;margin:12px 0 0;font-size:0.85rem;color:var(--muted);">
+        Stock is in your van. Click above when delivered to customer.
+    </p>
+    <?php endif; ?>
+</div>
+<?php endforeach; ?>
 <?php endif; ?>
 
 <script>

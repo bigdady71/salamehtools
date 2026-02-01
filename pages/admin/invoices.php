@@ -4,23 +4,22 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/db.php';
-require_once __DIR__ . '/../../includes/sales_portal.php';
 require_once __DIR__ . '/../../includes/admin_page.php';
 require_once __DIR__ . '/../../includes/flash.php';
 require_once __DIR__ . '/../../includes/audit.php';
 
-// Sales rep authentication
+// Admin authentication
 require_login();
 $user = auth_user();
-if (!$user || ($user['role'] ?? '') !== 'sales_rep') {
+if (!$user || !in_array($user['role'] ?? '', ['admin', 'super_admin'], true)) {
     http_response_code(403);
-    echo 'Forbidden - Sales representatives only';
+    echo 'Forbidden - Admin access only';
     exit;
 }
 
 $pdo = db();
-$title = 'Sales · Invoices';
-$repId = (int)$user['id'];
+$title = 'Admin · Invoices';
+$adminId = (int)$user['id'];
 
 $statusLabels = [
     'draft' => 'Draft',
@@ -65,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $pdo->beginTransaction();
 
-                // Verify invoice belongs to sales rep's customer
+                // Get invoice details (admin can access all invoices)
                 $invoiceStmt = $pdo->prepare("
                     SELECT
                         i.id,
@@ -73,17 +72,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         i.status,
                         i.total_usd,
                         i.total_lbp,
-                        c.assigned_sales_rep_id,
                         COALESCE(SUM(p.amount_usd), 0) AS paid_usd,
                         COALESCE(SUM(p.amount_lbp), 0) AS paid_lbp
                     FROM invoices i
-                    INNER JOIN orders o ON o.id = i.order_id
-                    INNER JOIN customers c ON c.id = o.customer_id
                     LEFT JOIN payments p ON p.invoice_id = i.id
-                    WHERE i.id = :id AND c.assigned_sales_rep_id = :rep_id
+                    WHERE i.id = :id
                     GROUP BY i.id
                 ");
-                $invoiceStmt->execute([':id' => $invoiceId, ':rep_id' => $repId]);
+                $invoiceStmt->execute([':id' => $invoiceId]);
                 $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
 
                 if (!$invoice) {
@@ -136,13 +132,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ':method' => $method,
                     ':amount_usd' => $amountUsd,
                     ':amount_lbp' => $amountLbp,
-                    ':user_id' => $repId,
+                    ':user_id' => $adminId,
                     ':received_at' => $receivedAt
                 ]);
                 $paymentId = (int)$pdo->lastInsertId();
 
                 // Audit log: payment recorded
-                audit_log($pdo, $repId, 'payment_recorded', 'payments', $paymentId, [
+                audit_log($pdo, $adminId, 'payment_recorded', 'payments', $paymentId, [
                     'invoice_number' => $invoice['invoice_number'],
                     'invoice_id' => $invoiceId,
                     'amount_usd' => $amountUsd,
@@ -214,9 +210,15 @@ if ($action === 'export') {
     $customerFilter = (int)($_GET['customer'] ?? 0);
     $dateFrom = $_GET['date_from'] ?? '';
     $dateTo = $_GET['date_to'] ?? '';
+    $salesRepFilter = (int)($_GET['sales_rep'] ?? 0);
 
-    $where = ['c.assigned_sales_rep_id = :rep_id'];
-    $params = [':rep_id' => $repId];
+    $where = ['1=1']; // Admin sees all invoices
+    $params = [];
+
+    if ($salesRepFilter > 0) {
+        $where[] = "i.sales_rep_id = :sales_rep_id";
+        $params[':sales_rep_id'] = $salesRepFilter;
+    }
 
     if ($search !== '') {
         $where[] = "(i.invoice_number LIKE :search OR o.order_number LIKE :search OR c.name LIKE :search OR c.phone LIKE :search)";
@@ -343,9 +345,15 @@ $statusFilter = $_GET['status'] ?? '';
 $customerFilter = (int)($_GET['customer'] ?? 0);
 $dateFrom = $_GET['date_from'] ?? '';
 $dateTo = $_GET['date_to'] ?? '';
+$salesRepFilter = (int)($_GET['sales_rep'] ?? 0);
 
-$where = ['c.assigned_sales_rep_id = :rep_id'];
-$params = [':rep_id' => $repId];
+$where = ['1=1']; // Admin sees all invoices
+$params = [];
+
+if ($salesRepFilter > 0) {
+    $where[] = "i.sales_rep_id = :sales_rep_id";
+    $params[':sales_rep_id'] = $salesRepFilter;
+}
 
 if ($search !== '') {
     $where[] = "(i.invoice_number LIKE :search OR o.order_number LIKE :search OR c.name LIKE :search OR c.phone LIKE :search)";
@@ -446,8 +454,8 @@ $invoiceStmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $invoiceStmt->execute();
 $invoices = $invoiceStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Get summary statistics
-$statsStmt = $pdo->prepare("
+// Get summary statistics (all invoices for admin)
+$statsStmt = $pdo->query("
     SELECT
         COUNT(i.id) AS total_invoices,
         SUM(CASE WHEN i.status = 'issued' THEN 1 ELSE 0 END) AS issued_count,
@@ -461,28 +469,27 @@ $statsStmt = $pdo->prepare("
             ELSE i.total_lbp - COALESCE(pay.paid_lbp, 0)
         END) AS outstanding_lbp
     FROM invoices i
-    INNER JOIN orders o ON o.id = i.order_id
-    INNER JOIN customers c ON c.id = o.customer_id
     LEFT JOIN (
         SELECT invoice_id, SUM(amount_usd) AS paid_usd, SUM(amount_lbp) AS paid_lbp
         FROM payments
         GROUP BY invoice_id
     ) pay ON pay.invoice_id = i.id
-    WHERE c.assigned_sales_rep_id = :rep_id
-      AND i.status IN ('issued', 'paid')
+    WHERE i.status IN ('issued', 'paid')
 ");
-$statsStmt->execute([':rep_id' => $repId]);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
-// Get customer list for filter dropdown
-$customersStmt = $pdo->prepare("
+// Get customer list for filter dropdown (all active customers for admin)
+$customersStmt = $pdo->query("
     SELECT id, name
     FROM customers
-    WHERE assigned_sales_rep_id = :rep_id AND is_active = 1
+    WHERE is_active = 1
     ORDER BY name ASC
 ");
-$customersStmt->execute([':rep_id' => $repId]);
 $customers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Get sales reps for filter dropdown
+$salesRepsStmt = $pdo->query("SELECT id, name FROM users WHERE role = 'sales_rep' AND is_active = 1 ORDER BY name");
+$salesReps = $salesRepsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $flashes = consume_flashes();
 
@@ -731,10 +738,10 @@ td.text-center { text-align: center; }
 </style>
 HTML;
 
-sales_portal_render_layout_start([
-    'title' => 'الفواتير والتحصيلات',
-    'heading' => 'الفواتير والتحصيلات',
-    'subtitle' => 'إدارة الفواتير وتسجيل المدفوعات لزبائنك',
+admin_render_layout_start([
+    'title' => 'Invoices & Payments',
+    'heading' => 'Invoices & Payments',
+    'subtitle' => 'Manage invoices and record payments',
     'user' => $user,
     'active' => 'invoices',
     'extra_head' => $extraHead,
@@ -744,42 +751,49 @@ admin_render_flashes($flashes);
 ?>
 
 <!-- LBP Currency Toggle -->
-<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+<div
+    style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
     <div style="display: flex; align-items: center; gap: 12px;">
         <span style="font-weight: 600; color: #374151; font-size: 0.95rem;">Show LBP Values</span>
-        <label class="currency-toggle-switch" style="position: relative; display: inline-block; width: 52px; height: 28px;">
+        <label class="currency-toggle-switch"
+            style="position: relative; display: inline-block; width: 52px; height: 28px;">
             <input type="checkbox" id="lbpToggle" style="opacity: 0; width: 0; height: 0;">
-            <span class="currency-toggle-slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; border-radius: 28px; transition: 0.3s;"></span>
+            <span class="currency-toggle-slider"
+                style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; border-radius: 28px; transition: 0.3s;"></span>
         </label>
     </div>
-    <small style="color: #6b7280; font-size: 0.85rem;">Toggle to show/hide Lebanese Pound values (Rate: 9,000 LBP = $1 USD)</small>
+    <small style="color: #6b7280; font-size: 0.85rem;">Toggle to show/hide Lebanese Pound values (Rate: 9,000 LBP = $1
+        USD)</small>
 </div>
 
 <style>
-    .currency-toggle-switch input:checked + .currency-toggle-slider {
-        background-color: #6666ff;
-    }
-    .currency-toggle-slider:before {
-        position: absolute;
-        content: "";
-        height: 20px;
-        width: 20px;
-        left: 4px;
-        bottom: 4px;
-        background-color: white;
-        border-radius: 50%;
-        transition: 0.3s;
-    }
-    .currency-toggle-switch input:checked + .currency-toggle-slider:before {
-        transform: translateX(24px);
-    }
+.currency-toggle-switch input:checked+.currency-toggle-slider {
+    background-color: #6666ff;
+}
 
-    .lbp-value {
-        display: none;
-    }
-    body.show-lbp .lbp-value {
-        display: inline;
-    }
+.currency-toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    border-radius: 50%;
+    transition: 0.3s;
+}
+
+.currency-toggle-switch input:checked+.currency-toggle-slider:before {
+    transform: translateX(24px);
+}
+
+.lbp-value {
+    display: none;
+}
+
+body.show-lbp .lbp-value {
+    display: inline;
+}
 </style>
 
 <!-- Statistics Cards -->
@@ -801,9 +815,9 @@ admin_render_flashes($flashes);
         <div class="stat-value orange">
             $<?= number_format((float)($stats['outstanding_usd'] ?? 0), 2) ?>
             <?php if ((float)($stats['outstanding_lbp'] ?? 0) > 0): ?>
-                <div class="lbp-value" style="font-size: 1rem; font-weight: 400; margin-top: 4px;">
-                    <?= number_format((float)$stats['outstanding_lbp'], 0) ?> LBP
-                </div>
+            <div class="lbp-value" style="font-size: 1rem; font-weight: 400; margin-top: 4px;">
+                <?= number_format((float)$stats['outstanding_lbp'], 0) ?> LBP
+            </div>
             <?php endif; ?>
         </div>
     </div>
@@ -816,7 +830,7 @@ admin_render_flashes($flashes);
             <div class="filter-field">
                 <label>Search</label>
                 <input type="text" name="search" value="<?= htmlspecialchars($search, ENT_QUOTES, 'UTF-8') ?>"
-                       placeholder="Invoice #, order #, customer...">
+                    placeholder="Invoice #, order #, customer...">
             </div>
 
             <div class="filter-field">
@@ -824,9 +838,9 @@ admin_render_flashes($flashes);
                 <select name="status">
                     <option value="">All Statuses</option>
                     <?php foreach ($statusLabels as $key => $label): ?>
-                        <option value="<?= $key ?>" <?= $statusFilter === $key ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
-                        </option>
+                    <option value="<?= $key ?>" <?= $statusFilter === $key ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
+                    </option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -836,9 +850,10 @@ admin_render_flashes($flashes);
                 <select name="customer">
                     <option value="">All Customers</option>
                     <?php foreach ($customers as $customer): ?>
-                        <option value="<?= $customer['id'] ?>" <?= $customerFilter === (int)$customer['id'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($customer['name'], ENT_QUOTES, 'UTF-8') ?>
-                        </option>
+                    <option value="<?= $customer['id'] ?>"
+                        <?= $customerFilter === (int)$customer['id'] ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($customer['name'], ENT_QUOTES, 'UTF-8') ?>
+                    </option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -885,128 +900,137 @@ admin_render_flashes($flashes);
 <div class="table-card">
     <h2 style="margin: 0 0 20px 0; font-size: 1.3rem;">
         Invoices
-        <span style="color: var(--muted); font-weight: 400; font-size: 1rem;">(<?= number_format($totalMatches) ?> total)</span>
+        <span style="color: var(--muted); font-weight: 400; font-size: 1rem;">(<?= number_format($totalMatches) ?>
+            total)</span>
     </h2>
 
     <?php if (empty($invoices)): ?>
-        <div class="empty-state">
-            <div class="empty-state-icon">📄</div>
-            <h3 style="margin: 0 0 8px 0;">No invoices found</h3>
-            <p style="margin: 0; color: var(--muted);">
-                <?= $search || $statusFilter || $customerFilter || $dateFrom || $dateTo
+    <div class="empty-state">
+        <div class="empty-state-icon">📄</div>
+        <h3 style="margin: 0 0 8px 0;">No invoices found</h3>
+        <p style="margin: 0; color: var(--muted);">
+            <?= $search || $statusFilter || $customerFilter || $dateFrom || $dateTo
                     ? 'Try adjusting your filters'
                     : 'Invoices will appear here when orders are processed' ?>
-            </p>
-        </div>
+        </p>
+    </div>
     <?php else: ?>
-        <table>
-            <thead>
-                <tr>
-                    <th>Invoice #</th>
-                    <th>Customer</th>
-                    <th>Order #</th>
-                    <th class="text-right">Total</th>
-                    <th class="text-right">Paid</th>
-                    <th class="text-right">Balance</th>
-                    <th class="text-center">Status</th>
-                    <th>Issued</th>
-                    <th class="text-center">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($invoices as $invoice):
+    <table>
+        <thead>
+            <tr>
+                <th>Invoice #</th>
+                <th>Customer</th>
+                <th>Order #</th>
+                <th class="text-right">Total</th>
+                <th class="text-right">Paid</th>
+                <th class="text-right">Balance</th>
+                <th class="text-center">Status</th>
+                <th>Issued</th>
+                <th class="text-center">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($invoices as $invoice):
                     $balanceUsd = max(0, (float)$invoice['total_usd'] - (float)($invoice['paid_usd'] ?? 0));
                     $balanceLbp = max(0, (float)$invoice['total_lbp'] - (float)($invoice['paid_lbp'] ?? 0));
                     $issuedDate = $invoice['issued_at'] ? date('M d, Y', strtotime($invoice['issued_at'])) : '—';
                 ?>
-                <tr>
-                    <td>
-                        <span class="invoice-number"><?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?></span>
-                    </td>
-                    <td>
-                        <?= htmlspecialchars($invoice['customer_name'] ?? '—', ENT_QUOTES, 'UTF-8') ?>
-                        <?php if ($invoice['customer_phone']): ?>
-                            <br><small style="color: var(--muted);"><?= htmlspecialchars($invoice['customer_phone'], ENT_QUOTES, 'UTF-8') ?></small>
-                        <?php endif; ?>
-                    </td>
-                    <td>
-                        <?php if ($invoice['order_number']): ?>
-                            <?= htmlspecialchars($invoice['order_number'], ENT_QUOTES, 'UTF-8') ?>
-                        <?php else: ?>
-                            <span style="color: var(--muted);">—</span>
-                        <?php endif; ?>
-                    </td>
-                    <td class="text-right">
-                        <strong>$<?= number_format((float)$invoice['total_usd'], 2) ?></strong>
-                        <?php if ((float)$invoice['total_lbp'] > 0): ?>
-                            <br><small class="lbp-value" style="color: var(--muted);"><?= number_format((float)$invoice['total_lbp'], 0) ?> LBP</small>
-                        <?php endif; ?>
-                    </td>
-                    <td class="text-right">
-                        <?php if ((float)($invoice['paid_usd'] ?? 0) > 0 || (float)($invoice['paid_lbp'] ?? 0) > 0): ?>
-                            $<?= number_format((float)($invoice['paid_usd'] ?? 0), 2) ?>
-                            <?php if ((float)($invoice['paid_lbp'] ?? 0) > 0): ?>
-                                <br><small class="lbp-value" style="color: var(--muted);"><?= number_format((float)$invoice['paid_lbp'], 0) ?> LBP</small>
-                            <?php endif; ?>
-                        <?php else: ?>
-                            <span style="color: var(--muted);">—</span>
-                        <?php endif; ?>
-                    </td>
-                    <td class="text-right">
-                        <?php
-                        // Show "Paid" if status is paid OR if either currency is fully paid (since they represent the same debt)
-                        $paidInFullUsd = (float)($invoice['paid_usd'] ?? 0) >= (float)$invoice['total_usd'] - 0.01;
-                        $paidInFullLbp = (float)($invoice['paid_lbp'] ?? 0) >= (float)$invoice['total_lbp'] - 0.01;
-                        $isFullyPaid = $invoice['status'] === 'paid' || $paidInFullUsd || $paidInFullLbp;
-                        ?>
-                        <?php if (!$isFullyPaid): ?>
-                            <strong style="color: #ea580c;">$<?= number_format($balanceUsd, 2) ?></strong>
-                            <?php if ($balanceLbp > 0.01): ?>
-                                <br><small class="lbp-value" style="color: #ea580c;"><?= number_format($balanceLbp, 0) ?> LBP</small>
-                            <?php endif; ?>
-                        <?php else: ?>
-                            <span style="color: #15803d; font-weight: 600;">Paid</span>
-                        <?php endif; ?>
-                    </td>
-                    <td class="text-center">
-                        <span class="badge" style="<?= $statusBadgeStyles[$invoice['status']] ?? '' ?>">
-                            <?= htmlspecialchars($statusLabels[$invoice['status']] ?? ucfirst($invoice['status']), ENT_QUOTES, 'UTF-8') ?>
-                        </span>
-                    </td>
-                    <td><?= $issuedDate ?></td>
-                    <td class="text-center">
-                        <?php if ($invoice['status'] !== 'voided' && $invoice['status'] !== 'draft' && $invoice['status'] !== 'paid' && ($balanceUsd > 0.01 || $balanceLbp > 0.01)): ?>
-                            <button onclick="openPaymentModal(<?= $invoice['id'] ?>, '<?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?>', <?= $balanceUsd ?>, <?= $balanceLbp ?>)"
-                                    class="btn btn-success btn-sm">
-                                Record Payment
-                            </button>
-                        <?php else: ?>
-                            <span style="color: var(--muted); font-size: 0.85rem;">—</span>
-                        <?php endif; ?>
-                    </td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+            <tr>
+                <td>
+                    <span
+                        class="invoice-number"><?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?></span>
+                </td>
+                <td>
+                    <?= htmlspecialchars($invoice['customer_name'] ?? '—', ENT_QUOTES, 'UTF-8') ?>
+                    <?php if ($invoice['customer_phone']): ?>
+                    <br><small
+                        style="color: var(--muted);"><?= htmlspecialchars($invoice['customer_phone'], ENT_QUOTES, 'UTF-8') ?></small>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <?php if ($invoice['order_number']): ?>
+                    <?= htmlspecialchars($invoice['order_number'], ENT_QUOTES, 'UTF-8') ?>
+                    <?php else: ?>
+                    <span style="color: var(--muted);">—</span>
+                    <?php endif; ?>
+                </td>
+                <td class="text-right">
+                    <strong>$<?= number_format((float)$invoice['total_usd'], 2) ?></strong>
+                    <?php if ((float)$invoice['total_lbp'] > 0): ?>
+                    <br><small class="lbp-value"
+                        style="color: var(--muted);"><?= number_format((float)$invoice['total_lbp'], 0) ?> LBP</small>
+                    <?php endif; ?>
+                </td>
+                <td class="text-right">
+                    <?php if ((float)($invoice['paid_usd'] ?? 0) > 0 || (float)($invoice['paid_lbp'] ?? 0) > 0): ?>
+                    $<?= number_format((float)($invoice['paid_usd'] ?? 0), 2) ?>
+                    <?php if ((float)($invoice['paid_lbp'] ?? 0) > 0): ?>
+                    <br><small class="lbp-value"
+                        style="color: var(--muted);"><?= number_format((float)$invoice['paid_lbp'], 0) ?> LBP</small>
+                    <?php endif; ?>
+                    <?php else: ?>
+                    <span style="color: var(--muted);">—</span>
+                    <?php endif; ?>
+                </td>
+                <td class="text-right">
+                    <?php
+                            // Show "Paid" if status is paid OR if either currency is fully paid (since they represent the same debt)
+                            $paidInFullUsd = (float)($invoice['paid_usd'] ?? 0) >= (float)$invoice['total_usd'] - 0.01;
+                            $paidInFullLbp = (float)($invoice['paid_lbp'] ?? 0) >= (float)$invoice['total_lbp'] - 0.01;
+                            $isFullyPaid = $invoice['status'] === 'paid' || $paidInFullUsd || $paidInFullLbp;
+                            ?>
+                    <?php if (!$isFullyPaid): ?>
+                    <strong style="color: #ea580c;">$<?= number_format($balanceUsd, 2) ?></strong>
+                    <?php if ($balanceLbp > 0.01): ?>
+                    <br><small class="lbp-value" style="color: #ea580c;"><?= number_format($balanceLbp, 0) ?>
+                        LBP</small>
+                    <?php endif; ?>
+                    <?php else: ?>
+                    <span style="color: #15803d; font-weight: 600;">Paid</span>
+                    <?php endif; ?>
+                </td>
+                <td class="text-center">
+                    <span class="badge" style="<?= $statusBadgeStyles[$invoice['status']] ?? '' ?>">
+                        <?= htmlspecialchars($statusLabels[$invoice['status']] ?? ucfirst($invoice['status']), ENT_QUOTES, 'UTF-8') ?>
+                    </span>
+                </td>
+                <td><?= $issuedDate ?></td>
+                <td class="text-center">
+                    <?php if ($invoice['status'] !== 'voided' && $invoice['status'] !== 'draft' && $invoice['status'] !== 'paid' && ($balanceUsd > 0.01 || $balanceLbp > 0.01)): ?>
+                    <button
+                        onclick="openPaymentModal(<?= $invoice['id'] ?>, '<?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?>', <?= $balanceUsd ?>, <?= $balanceLbp ?>)"
+                        class="btn btn-success btn-sm">
+                        Record Payment
+                    </button>
+                    <?php else: ?>
+                    <span style="color: var(--muted); font-size: 0.85rem;">—</span>
+                    <?php endif; ?>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
 
-        <!-- Pagination -->
-        <?php if ($totalPages > 1): ?>
-            <div class="pagination">
-                <?php if ($page > 1): ?>
-                    <a href="?page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $customerFilter ? '&customer=' . $customerFilter : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>">
-                        ← Previous
-                    </a>
-                <?php endif; ?>
-
-                <span class="current">Page <?= $page ?> of <?= $totalPages ?></span>
-
-                <?php if ($page < $totalPages): ?>
-                    <a href="?page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $customerFilter ? '&customer=' . $customerFilter : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>">
-                        Next →
-                    </a>
-                <?php endif; ?>
-            </div>
+    <!-- Pagination -->
+    <?php if ($totalPages > 1): ?>
+    <div class="pagination">
+        <?php if ($page > 1): ?>
+        <a
+            href="?page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $customerFilter ? '&customer=' . $customerFilter : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>">
+            ← Previous
+        </a>
         <?php endif; ?>
+
+        <span class="current">Page <?= $page ?> of <?= $totalPages ?></span>
+
+        <?php if ($page < $totalPages): ?>
+        <a
+            href="?page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $customerFilter ? '&customer=' . $customerFilter : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>">
+            Next →
+        </a>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
     <?php endif; ?>
 </div>
 
@@ -1024,7 +1048,8 @@ admin_render_flashes($flashes);
             <input type="hidden" name="invoice_id" id="payment_invoice_id">
 
             <div style="background: var(--bg-panel-alt); padding: 16px; border-radius: 8px; margin-bottom: 20px;">
-                <div style="font-weight: 600; margin-bottom: 4px;">Invoice: <span id="payment_invoice_number"></span></div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Invoice: <span id="payment_invoice_number"></span>
+                </div>
                 <div style="color: var(--muted); font-size: 0.9rem;">
                     Balance: $<span id="payment_balance_usd"></span>
                     <span id="payment_balance_lbp_container" class="lbp-value"></span>
@@ -1045,17 +1070,20 @@ admin_render_flashes($flashes);
 
             <div class="form-field">
                 <label>Amount (USD)</label>
-                <input type="number" name="amount_usd" id="amount_usd" step="0.01" min="0" placeholder="0.00" onchange="convertUsdToLbp()">
+                <input type="number" name="amount_usd" id="amount_usd" step="0.01" min="0" placeholder="0.00"
+                    onchange="convertUsdToLbp()">
                 <small>Enter payment amount in US dollars (will auto-convert to LBP)</small>
             </div>
 
             <div class="form-field">
                 <label>Amount (LBP)</label>
-                <input type="number" name="amount_lbp" id="amount_lbp" step="1" min="0" placeholder="0" onchange="convertLbpToUsd()">
+                <input type="number" name="amount_lbp" id="amount_lbp" step="1" min="0" placeholder="0"
+                    onchange="convertLbpToUsd()">
                 <small>Enter payment amount in Lebanese pounds (Rate: 9,000 LBP = $1 USD)</small>
             </div>
 
-            <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+            <div
+                style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
                 <div style="font-size: 0.875rem; color: #1e40af; margin-bottom: 4px;">
                     <strong>💡 Tip:</strong> Enter amount in either currency
                 </div>
@@ -1127,13 +1155,15 @@ function validatePayment() {
 
     // Validate USD amount doesn't exceed balance
     if (usdValue > currentBalanceUsd + 0.01) {
-        alert('USD payment amount ($' + usdValue.toFixed(2) + ') exceeds remaining balance ($' + currentBalanceUsd.toFixed(2) + ')');
+        alert('USD payment amount ($' + usdValue.toFixed(2) + ') exceeds remaining balance ($' + currentBalanceUsd
+            .toFixed(2) + ')');
         return false;
     }
 
     // Validate LBP amount doesn't exceed balance
     if (lbpValue > currentBalanceLbp + 0.01) {
-        alert('LBP payment amount (' + lbpValue.toFixed(0) + ' LBP) exceeds remaining balance (' + currentBalanceLbp.toFixed(0) + ' LBP)');
+        alert('LBP payment amount (' + lbpValue.toFixed(0) + ' LBP) exceeds remaining balance (' + currentBalanceLbp
+            .toFixed(0) + ' LBP)');
         return false;
     }
 
@@ -1215,4 +1245,4 @@ function convertLbpToUsd() {
 })();
 </script>
 
-<?php sales_portal_render_layout_end(); ?>
+<?php admin_render_layout_end(); ?>

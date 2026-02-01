@@ -4,22 +4,21 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/db.php';
-require_once __DIR__ . '/../../includes/sales_portal.php';
+require_once __DIR__ . '/../../includes/admin_page.php';
 require_once __DIR__ . '/../../includes/flash.php';
 require_once __DIR__ . '/../../includes/counter.php';
 
-// Sales rep authentication
+// Admin authentication
 require_login();
 $user = auth_user();
-if (!$user || ($user['role'] ?? '') !== 'sales_rep') {
+if (!$user || !in_array($user['role'] ?? '', ['admin', 'super_admin'], true)) {
     http_response_code(403);
-    echo 'Forbidden - Sales representatives only';
+    echo 'Forbidden - Admin access only';
     exit;
 }
 
 $pdo = db();
-$title = 'المبيعات · طلباتي';
-$repId = (int)$user['id'];
+$title = 'Admin · All Orders';
 
 // Arabic status labels
 $statusLabels = [
@@ -483,9 +482,10 @@ $statusFilter = $_GET['status'] ?? '';
 $typeFilter = $_GET['type'] ?? '';
 $dateFrom = $_GET['date_from'] ?? '';
 $dateTo = $_GET['date_to'] ?? '';
+$salesRepFilter = (int)($_GET['sales_rep'] ?? 0);
 
-$where = ['c.assigned_sales_rep_id = :rep_id'];
-$params = [':rep_id' => $repId];
+$where = ['1=1']; // Admin sees all orders
+$params = [];
 
 if ($search !== '') {
     $where[] = "(o.order_number LIKE :search OR c.name LIKE :search OR c.phone LIKE :search)";
@@ -500,6 +500,11 @@ if ($statusFilter !== '' && isset($statusLabels[$statusFilter])) {
 if ($typeFilter !== '') {
     $where[] = "o.order_type = :type";
     $params[':type'] = $typeFilter;
+}
+
+if ($salesRepFilter > 0) {
+    $where[] = "o.sales_rep_id = :sales_rep_id";
+    $params[':sales_rep_id'] = $salesRepFilter;
 }
 
 if ($dateFrom !== '') {
@@ -573,7 +578,7 @@ $ordersStmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $ordersStmt->execute();
 $orders = $ordersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Get summary statistics
+// Get summary statistics (all orders for admin)
 $statsSql = "
     SELECT
         COUNT(o.id) as total_orders,
@@ -582,17 +587,18 @@ $statsSql = "
         SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
         SUM(o.total_usd) as total_value_usd
     FROM orders o
-    INNER JOIN customers c ON c.id = o.customer_id
-    WHERE c.assigned_sales_rep_id = :rep_id
 ";
-$statsStmt = $pdo->prepare($statsSql);
-$statsStmt->execute([':rep_id' => $repId]);
+$statsStmt = $pdo->query($statsSql);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
-sales_portal_render_layout_start([
-    'title' => $title,
-    'heading' => 'طلباتي',
-    'subtitle' => 'عرض وإدارة طلبات زبائنك',
+// Get sales reps for filter dropdown
+$salesRepsStmt = $pdo->query("SELECT id, name FROM users WHERE role = 'sales_rep' AND is_active = 1 ORDER BY name");
+$salesReps = $salesRepsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+admin_render_layout_start([
+    'title' => 'All Orders',
+    'heading' => 'All Orders',
+    'subtitle' => 'View and manage all orders',
     'user' => $user,
     'active' => 'orders',
     'extra_head' => '<style>
@@ -782,11 +788,12 @@ sales_portal_render_layout_start([
 <!-- Filters -->
 <div class="filters">
     <form method="GET" action="">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+        <div
+            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
             <div>
                 <label>Search</label>
                 <input type="text" name="search" value="<?= htmlspecialchars($search, ENT_QUOTES, 'UTF-8') ?>"
-                       placeholder="Order #, customer..." class="form-control">
+                    placeholder="Order #, customer..." class="form-control">
             </div>
             <div>
                 <label>Status</label>
@@ -794,7 +801,7 @@ sales_portal_render_layout_start([
                     <option value="">All Statuses</option>
                     <?php foreach ($statusLabels as $key => $label): ?>
                         <option value="<?= htmlspecialchars($key, ENT_QUOTES, 'UTF-8') ?>"
-                                <?= $statusFilter === $key ? 'selected' : '' ?>>
+                            <?= $statusFilter === $key ? 'selected' : '' ?>>
                             <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
                         </option>
                     <?php endforeach; ?>
@@ -804,17 +811,21 @@ sales_portal_render_layout_start([
                 <label>Order Type</label>
                 <select name="type" class="form-control">
                     <option value="">All Types</option>
-                    <option value="company_order" <?= $typeFilter === 'company_order' ? 'selected' : '' ?>>Company Order</option>
-                    <option value="van_stock_sale" <?= $typeFilter === 'van_stock_sale' ? 'selected' : '' ?>>Van Stock Sale</option>
+                    <option value="company_order" <?= $typeFilter === 'company_order' ? 'selected' : '' ?>>Company Order
+                    </option>
+                    <option value="van_stock_sale" <?= $typeFilter === 'van_stock_sale' ? 'selected' : '' ?>>Van Stock
+                        Sale</option>
                 </select>
             </div>
             <div>
                 <label>Date From</label>
-                <input type="date" name="date_from" value="<?= htmlspecialchars($dateFrom, ENT_QUOTES, 'UTF-8') ?>" class="form-control">
+                <input type="date" name="date_from" value="<?= htmlspecialchars($dateFrom, ENT_QUOTES, 'UTF-8') ?>"
+                    class="form-control">
             </div>
             <div>
                 <label>Date To</label>
-                <input type="date" name="date_to" value="<?= htmlspecialchars($dateTo, ENT_QUOTES, 'UTF-8') ?>" class="form-control">
+                <input type="date" name="date_to" value="<?= htmlspecialchars($dateTo, ENT_QUOTES, 'UTF-8') ?>"
+                    class="form-control">
             </div>
         </div>
 
@@ -847,91 +858,101 @@ sales_portal_render_layout_start([
 
 <!-- Orders Table -->
 <?php if (!empty($orders)): ?>
-<div class="table-container">
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Order Number</th>
-                <th>Type</th>
-                <th>Customer</th>
-                <th class="text-right">Total (USD)</th>
-                <th class="text-right">Total (LBP)</th>
-                <th class="text-center">Items</th>
-                <th class="text-center">Status</th>
-                <th>Created</th>
-                <th>Delivery</th>
-                <th class="text-center">Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($orders as $order): ?>
-            <tr>
-                <td><strong><?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?></strong></td>
-                <td><?= $order['order_type'] === 'van_stock_sale' ? '🚚 Van Sale' : '🏢 Company' ?></td>
-                <td>
-                    <div style="font-weight: 500;"><?= htmlspecialchars($order['customer_name'], ENT_QUOTES, 'UTF-8') ?></div>
-                    <?php if ($order['customer_phone']): ?>
-                        <div style="font-size: 0.85rem; color: #6b7280;"><?= htmlspecialchars($order['customer_phone'], ENT_QUOTES, 'UTF-8') ?></div>
-                    <?php endif; ?>
-                </td>
-                <td class="text-right">$<?= number_format((float)$order['total_usd'], 2) ?></td>
-                <td class="text-right"><?= number_format((float)$order['total_lbp'], 0) ?> LBP</td>
-                <td class="text-center"><?= (int)$order['item_count'] ?></td>
-                <td class="text-center">
-                    <span class="badge" style="<?= $statusBadgeStyles[$order['status']] ?? '' ?>">
-                        <?= htmlspecialchars($statusLabels[$order['status']] ?? ucfirst($order['status']), ENT_QUOTES, 'UTF-8') ?>
-                    </span>
-                </td>
-                <td><?= date('M d, Y', strtotime($order['created_at'])) ?></td>
-                <td><?= $order['delivery_date'] ? date('M d, Y', strtotime($order['delivery_date'])) : '—' ?></td>
-                <td class="text-center">
-                    <div style="display: flex; gap: 8px; justify-content: center;">
-                        <button onclick="viewOrderDetails(<?= $order['id'] ?>)" class="btn btn-info btn-sm">View</button>
-                        <?php
-                        $canUpdateStatus = !in_array($order['status'], ['delivered', 'cancelled', 'returned'], true);
-                        ?>
-                        <?php if ($canUpdateStatus): ?>
-                            <button onclick="openStatusModal(<?= $order['id'] ?>, '<?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['status'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['order_type'], ENT_QUOTES, 'UTF-8') ?>', <?= (float)$order['total_usd'] ?>, <?= (float)$order['total_lbp'] ?>, <?= (float)$order['customer_credit_balance'] ?>)" class="btn btn-warning btn-sm">Update Status</button>
-                        <?php else: ?>
-                            <span style="color: #9ca3af; font-size: 0.85rem;">Completed</span>
-                        <?php endif; ?>
-                    </div>
-                </td>
-            </tr>
-            <?php endforeach; ?>
-        </tbody>
-    </table>
-</div>
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Order Number</th>
+                    <th>Type</th>
+                    <th>Customer</th>
+                    <th class="text-right">Total (USD)</th>
+                    <th class="text-right">Total (LBP)</th>
+                    <th class="text-center">Items</th>
+                    <th class="text-center">Status</th>
+                    <th>Created</th>
+                    <th>Delivery</th>
+                    <th class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($orders as $order): ?>
+                    <tr>
+                        <td><strong><?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?></strong>
+                        </td>
+                        <td><?= $order['order_type'] === 'van_stock_sale' ? '🚚 Van Sale' : '🏢 Company' ?></td>
+                        <td>
+                            <div style="font-weight: 500;"><?= htmlspecialchars($order['customer_name'], ENT_QUOTES, 'UTF-8') ?>
+                            </div>
+                            <?php if ($order['customer_phone']): ?>
+                                <div style="font-size: 0.85rem; color: #6b7280;">
+                                    <?= htmlspecialchars($order['customer_phone'], ENT_QUOTES, 'UTF-8') ?></div>
+                            <?php endif; ?>
+                        </td>
+                        <td class="text-right">$<?= number_format((float)$order['total_usd'], 2) ?></td>
+                        <td class="text-right"><?= number_format((float)$order['total_lbp'], 0) ?> LBP</td>
+                        <td class="text-center"><?= (int)$order['item_count'] ?></td>
+                        <td class="text-center">
+                            <span class="badge" style="<?= $statusBadgeStyles[$order['status']] ?? '' ?>">
+                                <?= htmlspecialchars($statusLabels[$order['status']] ?? ucfirst($order['status']), ENT_QUOTES, 'UTF-8') ?>
+                            </span>
+                        </td>
+                        <td><?= date('M d, Y', strtotime($order['created_at'])) ?></td>
+                        <td><?= $order['delivery_date'] ? date('M d, Y', strtotime($order['delivery_date'])) : '—' ?></td>
+                        <td class="text-center">
+                            <div style="display: flex; gap: 8px; justify-content: center;">
+                                <button onclick="viewOrderDetails(<?= $order['id'] ?>)"
+                                    class="btn btn-info btn-sm">View</button>
+                                <?php
+                                $canUpdateStatus = !in_array($order['status'], ['delivered', 'cancelled', 'returned'], true);
+                                ?>
+                                <?php if ($canUpdateStatus): ?>
+                                    <button
+                                        onclick="openStatusModal(<?= $order['id'] ?>, '<?= htmlspecialchars($order['order_number'] ?? 'Order #' . $order['id'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['status'], ENT_QUOTES, 'UTF-8') ?>', '<?= htmlspecialchars($order['order_type'], ENT_QUOTES, 'UTF-8') ?>', <?= (float)$order['total_usd'] ?>, <?= (float)$order['total_lbp'] ?>, <?= (float)$order['customer_credit_balance'] ?>)"
+                                        class="btn btn-warning btn-sm">Update Status</button>
+                                <?php else: ?>
+                                    <span style="color: #9ca3af; font-size: 0.85rem;">Completed</span>
+                                <?php endif; ?>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
 
-<!-- Pagination -->
-<?php if ($totalPages > 1): ?>
-<div class="pagination">
-    <?php if ($page > 1): ?>
-        <a href="?page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $typeFilter ? '&type=' . urlencode($typeFilter) : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>" class="btn btn-secondary">← Previous</a>
+    <!-- Pagination -->
+    <?php if ($totalPages > 1): ?>
+        <div class="pagination">
+            <?php if ($page > 1): ?>
+                <a href="?page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $typeFilter ? '&type=' . urlencode($typeFilter) : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>"
+                    class="btn btn-secondary">← Previous</a>
+            <?php endif; ?>
+
+            <span style="font-weight: 600; color: #374151;">Page <?= $page ?> of <?= $totalPages ?></span>
+
+            <?php if ($page < $totalPages): ?>
+                <a href="?page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $typeFilter ? '&type=' . urlencode($typeFilter) : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>"
+                    class="btn btn-secondary">Next →</a>
+            <?php endif; ?>
+        </div>
     <?php endif; ?>
 
-    <span style="font-weight: 600; color: #374151;">Page <?= $page ?> of <?= $totalPages ?></span>
-
-    <?php if ($page < $totalPages): ?>
-        <a href="?page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $typeFilter ? '&type=' . urlencode($typeFilter) : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>" class="btn btn-secondary">Next →</a>
-    <?php endif; ?>
-</div>
-<?php endif; ?>
-
-<div style="margin-top: 16px; color: #6b7280; font-size: 0.9rem; text-align: center; padding: 12px; background: white; border-radius: 8px;">
-    Showing <strong><?= count($orders) ?></strong> of <strong><?= number_format($totalMatches) ?></strong> orders
-</div>
+    <div
+        style="margin-top: 16px; color: #6b7280; font-size: 0.9rem; text-align: center; padding: 12px; background: white; border-radius: 8px;">
+        Showing <strong><?= count($orders) ?></strong> of <strong><?= number_format($totalMatches) ?></strong> orders
+    </div>
 
 <?php else: ?>
-<div class="empty-state">
-    <div style="font-size: 4rem; margin-bottom: 16px; opacity: 0.6;">📦</div>
-    <h3 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 12px; color: #111827;">No Orders Found</h3>
-    <p style="color: #6b7280; margin-bottom: 32px; font-size: 1.05rem;">Try adjusting your filters or create a new order to get started.</p>
-    <div style="display: flex; gap: 12px; justify-content: center;">
-        <a href="van_stock_sales.php" class="btn btn-success">🚚 New Van Stock Sale</a>
-        <a href="company_order_request.php" class="btn btn-info">🏢 New Company Order</a>
+    <div class="empty-state">
+        <div style="font-size: 4rem; margin-bottom: 16px; opacity: 0.6;">📦</div>
+        <h3 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 12px; color: #111827;">No Orders Found</h3>
+        <p style="color: #6b7280; margin-bottom: 32px; font-size: 1.05rem;">Try adjusting your filters or create a new order
+            to get started.</p>
+        <div style="display: flex; gap: 12px; justify-content: center;">
+            <a href="van_stock_sales.php" class="btn btn-success">🚚 New Van Stock Sale</a>
+            <a href="company_order_request.php" class="btn btn-info">🏢 New Company Order</a>
+        </div>
     </div>
-</div>
 <?php endif; ?>
 
 <!-- Order Details Modal -->
@@ -939,7 +960,8 @@ sales_portal_render_layout_start([
     <div class="modal-content" style="max-width: 900px;">
         <div class="modal-header">
             <h2>Order Details</h2>
-            <button onclick="closeOrderDetailsModal()" style="background: none; border: none; font-size: 2rem; cursor: pointer; color: #9ca3af; line-height: 1; transition: color 0.2s;">&times;</button>
+            <button onclick="closeOrderDetailsModal()"
+                style="background: none; border: none; font-size: 2rem; cursor: pointer; color: #9ca3af; line-height: 1; transition: color 0.2s;">&times;</button>
         </div>
 
         <div id="orderDetailsContent" style="min-height: 200px;">
@@ -956,7 +978,8 @@ sales_portal_render_layout_start([
     <div class="modal-content" style="max-width: 600px;">
         <div class="modal-header">
             <h2 style="font-size: 1.5rem;">Update Order Status</h2>
-            <button onclick="closeStatusModal()" style="background: none; border: none; font-size: 1.8rem; cursor: pointer; color: #9ca3af; transition: color 0.2s;">&times;</button>
+            <button onclick="closeStatusModal()"
+                style="background: none; border: none; font-size: 1.8rem; cursor: pointer; color: #9ca3af; transition: color 0.2s;">&times;</button>
         </div>
 
         <form method="POST" action="" id="statusUpdateForm">
@@ -967,24 +990,29 @@ sales_portal_render_layout_start([
 
             <div style="margin-bottom: 16px;">
                 <div style="font-weight: 500; margin-bottom: 4px;">Order: <span id="modal_order_number"></span></div>
-                <div style="font-size: 0.9rem; color: #6b7280;">Current Status: <span id="modal_current_status"></span></div>
+                <div style="font-size: 0.9rem; color: #6b7280;">Current Status: <span id="modal_current_status"></span>
+                </div>
             </div>
 
             <!-- Order Total Display (shown for delivery) -->
-            <div id="orderTotalSection" style="display: none; margin-bottom: 20px; padding: 16px; background: #f0f9ff; border: 2px solid #0ea5e9; border-radius: 8px;">
+            <div id="orderTotalSection"
+                style="display: none; margin-bottom: 20px; padding: 16px; background: #f0f9ff; border: 2px solid #0ea5e9; border-radius: 8px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                     <span style="font-weight: 600; color: #0369a1;">Order Total (USD):</span>
                     <span id="modal_total_usd" style="font-size: 1.5rem; font-weight: 700; color: #0369a1;">$0.00</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span style="font-weight: 600; color: #0369a1;">Order Total (LBP):</span>
-                    <span id="modal_total_lbp" style="font-size: 1.2rem; font-weight: 600; color: #0369a1;">0 ل.ل.</span>
+                    <span id="modal_total_lbp" style="font-size: 1.2rem; font-weight: 600; color: #0369a1;">0
+                        ل.ل.</span>
                 </div>
             </div>
 
             <div style="margin-bottom: 24px;">
                 <label style="display: block; font-weight: 500; margin-bottom: 8px;">New Status</label>
-                <select name="status" id="modal_new_status" class="form-control" required style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px;" onchange="onStatusChange()">
+                <select name="status" id="modal_new_status" class="form-control" required
+                    style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px;"
+                    onchange="onStatusChange()">
                     <option value="">Select status...</option>
                     <option value="on_hold">On Hold</option>
                     <option value="approved">Approved</option>
@@ -995,44 +1023,52 @@ sales_portal_render_layout_start([
                     <option value="cancelled">Cancelled</option>
                     <option value="returned">Returned</option>
                 </select>
-                <div style="margin-top: 12px; padding: 12px; background: #eff6ff; border-radius: 6px; font-size: 0.85rem; color: #1e40af;">
+                <div
+                    style="margin-top: 12px; padding: 12px; background: #eff6ff; border-radius: 6px; font-size: 0.85rem; color: #1e40af;">
                     ℹ️ Only allowed status transitions will be permitted
                 </div>
             </div>
 
             <!-- Payment Section (shown when "Delivered" is selected for company orders) -->
-            <div id="paymentSection" style="display: none; margin-bottom: 24px; padding: 20px; background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 8px;">
-                <h3 style="margin: 0 0 16px; font-size: 1.1rem; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+            <div id="paymentSection"
+                style="display: none; margin-bottom: 24px; padding: 20px; background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 8px;">
+                <h3
+                    style="margin: 0 0 16px; font-size: 1.1rem; color: #1e293b; display: flex; align-items: center; gap: 8px;">
                     💰 Payment Collection
                 </h3>
                 <p style="margin: 0 0 16px; font-size: 0.9rem; color: #64748b;">
-                    Enter the amount the customer is paying. If not paid in full, the remaining balance will be added to the customer's account.
+                    Enter the amount the customer is paying. If not paid in full, the remaining balance will be added to
+                    the customer's account.
                 </p>
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                     <div>
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #1e293b;">Payment USD $</label>
-                        <input type="number" name="payment_usd" id="payment_usd" class="form-control"
-                               step="0.01" min="0" placeholder="0.00"
-                               style="font-size: 1.2rem; padding: 12px; border: 2px solid #cbd5e1; font-weight: 600;"
-                               oninput="calculatePaymentStatus()">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #1e293b;">Payment USD
+                            $</label>
+                        <input type="number" name="payment_usd" id="payment_usd" class="form-control" step="0.01"
+                            min="0" placeholder="0.00"
+                            style="font-size: 1.2rem; padding: 12px; border: 2px solid #cbd5e1; font-weight: 600;"
+                            oninput="calculatePaymentStatus()">
                     </div>
                     <div>
-                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #1e293b;">Payment LBP ل.ل.</label>
-                        <input type="number" name="payment_lbp" id="payment_lbp" class="form-control"
-                               step="1000" min="0" placeholder="0"
-                               style="font-size: 1.2rem; padding: 12px; border: 2px solid #cbd5e1; font-weight: 600;"
-                               oninput="calculatePaymentStatus()">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #1e293b;">Payment LBP
+                            ل.ل.</label>
+                        <input type="number" name="payment_lbp" id="payment_lbp" class="form-control" step="1000"
+                            min="0" placeholder="0"
+                            style="font-size: 1.2rem; padding: 12px; border: 2px solid #cbd5e1; font-weight: 600;"
+                            oninput="calculatePaymentStatus()">
                     </div>
                 </div>
 
                 <!-- Payment Status Display -->
-                <div id="paymentStatusDisplay" style="margin-top: 16px; padding: 12px; border-radius: 6px; font-weight: 600; text-align: center;">
+                <div id="paymentStatusDisplay"
+                    style="margin-top: 16px; padding: 12px; border-radius: 6px; font-weight: 600; text-align: center;">
                     <!-- Will be filled by JavaScript -->
                 </div>
 
                 <!-- Customer Credit Display -->
-                <div id="customerCreditSection" style="display: none; margin-top: 12px; padding: 12px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px;">
+                <div id="customerCreditSection"
+                    style="display: none; margin-top: 12px; padding: 12px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 0.9rem; color: #92400e;">Customer Current Balance:</span>
                         <span id="customerCredit" style="font-weight: 700; color: #92400e;">$0.00</span>
@@ -1041,256 +1077,310 @@ sales_portal_render_layout_start([
             </div>
 
             <div style="display: flex; gap: 12px;">
-                <button type="submit" class="btn btn-warning" id="submitStatusBtn" style="flex: 1;">Update Status</button>
-                <button type="button" onclick="closeStatusModal()" class="btn btn-secondary" style="flex: 1;">Cancel</button>
+                <button type="submit" class="btn btn-warning" id="submitStatusBtn" style="flex: 1;">Update
+                    Status</button>
+                <button type="button" onclick="closeStatusModal()" class="btn btn-secondary"
+                    style="flex: 1;">Cancel</button>
             </div>
         </form>
     </div>
 </div>
 
 <script>
-// Store current order data for payment calculations
-let currentOrderData = {
-    id: 0,
-    totalUsd: 0,
-    totalLbp: 0,
-    orderType: '',
-    exchangeRate: <?= json_encode((float)($pdo->query("SELECT rate FROM exchange_rates WHERE UPPER(base_currency) = 'USD' AND UPPER(quote_currency) IN ('LBP', 'LEBP') ORDER BY valid_from DESC LIMIT 1")->fetchColumn() ?: 90000)) ?>,
-    customerCredit: 0
-};
+    // Store current order data for payment calculations
+    let currentOrderData = {
+        id: 0,
+        totalUsd: 0,
+        totalLbp: 0,
+        orderType: '',
+        exchangeRate: <?= json_encode((float)($pdo->query("SELECT rate FROM exchange_rates WHERE UPPER(base_currency) = 'USD' AND UPPER(quote_currency) IN ('LBP', 'LEBP') ORDER BY valid_from DESC LIMIT 1")->fetchColumn() ?: 90000)) ?>,
+        customerCredit: 0
+    };
 
-function openStatusModal(orderId, orderNumber, currentStatus, orderType, totalUsd, totalLbp, customerCredit) {
-    currentOrderData.id = orderId;
-    currentOrderData.totalUsd = parseFloat(totalUsd) || 0;
-    currentOrderData.totalLbp = parseFloat(totalLbp) || 0;
-    currentOrderData.orderType = orderType || '';
-    currentOrderData.customerCredit = parseFloat(customerCredit) || 0;
+    function openStatusModal(orderId, orderNumber, currentStatus, orderType, totalUsd, totalLbp, customerCredit) {
+        currentOrderData.id = orderId;
+        currentOrderData.totalUsd = parseFloat(totalUsd) || 0;
+        currentOrderData.totalLbp = parseFloat(totalLbp) || 0;
+        currentOrderData.orderType = orderType || '';
+        currentOrderData.customerCredit = parseFloat(customerCredit) || 0;
 
-    document.getElementById('modal_order_id').value = orderId;
-    document.getElementById('modal_order_type').value = orderType;
-    document.getElementById('modal_order_number').textContent = orderNumber;
-    document.getElementById('modal_current_status').textContent = currentStatus.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        document.getElementById('modal_order_id').value = orderId;
+        document.getElementById('modal_order_type').value = orderType;
+        document.getElementById('modal_order_number').textContent = orderNumber;
+        document.getElementById('modal_current_status').textContent = currentStatus.replace(/_/g, ' ').replace(/\b\w/g, l =>
+            l.toUpperCase());
 
-    // Set order totals display
-    document.getElementById('modal_total_usd').textContent = '$' + currentOrderData.totalUsd.toFixed(2);
-    document.getElementById('modal_total_lbp').textContent = Math.round(currentOrderData.totalLbp).toLocaleString() + ' ل.ل.';
+        // Set order totals display
+        document.getElementById('modal_total_usd').textContent = '$' + currentOrderData.totalUsd.toFixed(2);
+        document.getElementById('modal_total_lbp').textContent = Math.round(currentOrderData.totalLbp).toLocaleString() +
+            ' ل.ل.';
 
-    // Reset form
-    document.getElementById('modal_new_status').value = '';
-    document.getElementById('payment_usd').value = '';
-    document.getElementById('payment_lbp').value = '';
-    document.getElementById('paymentSection').style.display = 'none';
-    document.getElementById('orderTotalSection').style.display = 'none';
-    document.getElementById('submitStatusBtn').textContent = 'Update Status';
+        // Reset form
+        document.getElementById('modal_new_status').value = '';
+        document.getElementById('payment_usd').value = '';
+        document.getElementById('payment_lbp').value = '';
+        document.getElementById('paymentSection').style.display = 'none';
+        document.getElementById('orderTotalSection').style.display = 'none';
+        document.getElementById('submitStatusBtn').textContent = 'Update Status';
 
-    // Show customer credit if exists
-    if (currentOrderData.customerCredit > 0) {
-        const creditUsd = currentOrderData.customerCredit / currentOrderData.exchangeRate;
-        document.getElementById('customerCredit').textContent = '$' + creditUsd.toFixed(2) + ' (' + Math.round(currentOrderData.customerCredit).toLocaleString() + ' ل.ل.)';
-        document.getElementById('customerCreditSection').style.display = 'block';
-    } else {
-        document.getElementById('customerCreditSection').style.display = 'none';
+        // Show customer credit if exists
+        if (currentOrderData.customerCredit > 0) {
+            const creditUsd = currentOrderData.customerCredit / currentOrderData.exchangeRate;
+            document.getElementById('customerCredit').textContent = '$' + creditUsd.toFixed(2) + ' (' + Math.round(
+                currentOrderData.customerCredit).toLocaleString() + ' ل.ل.)';
+            document.getElementById('customerCreditSection').style.display = 'block';
+        } else {
+            document.getElementById('customerCreditSection').style.display = 'none';
+        }
+
+        document.getElementById('statusModal').style.display = 'flex';
     }
 
-    document.getElementById('statusModal').style.display = 'flex';
-}
+    function onStatusChange() {
+        const newStatus = document.getElementById('modal_new_status').value;
+        const paymentSection = document.getElementById('paymentSection');
+        const orderTotalSection = document.getElementById('orderTotalSection');
+        const submitBtn = document.getElementById('submitStatusBtn');
 
-function onStatusChange() {
-    const newStatus = document.getElementById('modal_new_status').value;
-    const paymentSection = document.getElementById('paymentSection');
-    const orderTotalSection = document.getElementById('orderTotalSection');
-    const submitBtn = document.getElementById('submitStatusBtn');
-
-    // Show payment section only for "delivered" status on company orders
-    if (newStatus === 'delivered' && currentOrderData.orderType === 'company_order') {
-        paymentSection.style.display = 'block';
-        orderTotalSection.style.display = 'block';
-        submitBtn.textContent = 'Deliver & Generate Invoice';
-        submitBtn.classList.remove('btn-warning');
-        submitBtn.classList.add('btn-success');
-        calculatePaymentStatus();
-    } else {
-        paymentSection.style.display = 'none';
-        orderTotalSection.style.display = 'none';
-        submitBtn.textContent = 'Update Status';
-        submitBtn.classList.remove('btn-success');
-        submitBtn.classList.add('btn-warning');
+        // Show payment section only for "delivered" status on company orders
+        if (newStatus === 'delivered' && currentOrderData.orderType === 'company_order') {
+            paymentSection.style.display = 'block';
+            orderTotalSection.style.display = 'block';
+            submitBtn.textContent = 'Deliver & Generate Invoice';
+            submitBtn.classList.remove('btn-warning');
+            submitBtn.classList.add('btn-success');
+            calculatePaymentStatus();
+        } else {
+            paymentSection.style.display = 'none';
+            orderTotalSection.style.display = 'none';
+            submitBtn.textContent = 'Update Status';
+            submitBtn.classList.remove('btn-success');
+            submitBtn.classList.add('btn-warning');
+        }
     }
-}
 
-function calculatePaymentStatus() {
-    const paymentUsd = parseFloat(document.getElementById('payment_usd').value) || 0;
-    const paymentLbp = parseFloat(document.getElementById('payment_lbp').value) || 0;
-    const totalUsd = currentOrderData.totalUsd;
-    const exchangeRate = currentOrderData.exchangeRate;
+    function calculatePaymentStatus() {
+        const paymentUsd = parseFloat(document.getElementById('payment_usd').value) || 0;
+        const paymentLbp = parseFloat(document.getElementById('payment_lbp').value) || 0;
+        const totalUsd = currentOrderData.totalUsd;
+        const exchangeRate = currentOrderData.exchangeRate;
 
-    // Convert LBP payment to USD equivalent
-    const paymentLbpInUsd = paymentLbp / exchangeRate;
-    const totalPaidUsd = paymentUsd + paymentLbpInUsd;
+        // Convert LBP payment to USD equivalent
+        const paymentLbpInUsd = paymentLbp / exchangeRate;
+        const totalPaidUsd = paymentUsd + paymentLbpInUsd;
 
-    const statusDisplay = document.getElementById('paymentStatusDisplay');
-    const remainingUsd = totalUsd - totalPaidUsd;
+        const statusDisplay = document.getElementById('paymentStatusDisplay');
+        const remainingUsd = totalUsd - totalPaidUsd;
 
-    if (totalPaidUsd >= totalUsd) {
-        // Fully paid or overpaid
-        if (totalPaidUsd > totalUsd) {
-            const overpayment = totalPaidUsd - totalUsd;
+        if (totalPaidUsd >= totalUsd) {
+            // Fully paid or overpaid
+            if (totalPaidUsd > totalUsd) {
+                const overpayment = totalPaidUsd - totalUsd;
+                statusDisplay.style.background = '#fef3c7';
+                statusDisplay.style.color = '#92400e';
+                statusDisplay.innerHTML = '⚠️ Overpayment: $' + overpayment.toFixed(2) +
+                    ' will be added to customer credit';
+            } else {
+                statusDisplay.style.background = '#dcfce7';
+                statusDisplay.style.color = '#166534';
+                statusDisplay.innerHTML = '✅ Fully Paid';
+            }
+        } else if (totalPaidUsd > 0) {
+            // Partial payment
             statusDisplay.style.background = '#fef3c7';
             statusDisplay.style.color = '#92400e';
-            statusDisplay.innerHTML = '⚠️ Overpayment: $' + overpayment.toFixed(2) + ' will be added to customer credit';
+            statusDisplay.innerHTML = '⚠️ Partial Payment: $' + remainingUsd.toFixed(2) +
+                ' remaining (will be added to customer balance)';
         } else {
-            statusDisplay.style.background = '#dcfce7';
-            statusDisplay.style.color = '#166534';
-            statusDisplay.innerHTML = '✅ Fully Paid';
+            // No payment
+            statusDisplay.style.background = '#fee2e2';
+            statusDisplay.style.color = '#991b1b';
+            statusDisplay.innerHTML = '💳 No payment entered - Full amount $' + totalUsd.toFixed(2) +
+                ' will be added to customer balance';
         }
-    } else if (totalPaidUsd > 0) {
-        // Partial payment
-        statusDisplay.style.background = '#fef3c7';
-        statusDisplay.style.color = '#92400e';
-        statusDisplay.innerHTML = '⚠️ Partial Payment: $' + remainingUsd.toFixed(2) + ' remaining (will be added to customer balance)';
-    } else {
-        // No payment
-        statusDisplay.style.background = '#fee2e2';
-        statusDisplay.style.color = '#991b1b';
-        statusDisplay.innerHTML = '💳 No payment entered - Full amount $' + totalUsd.toFixed(2) + ' will be added to customer balance';
     }
-}
 
-function closeStatusModal() {
-    document.getElementById('statusModal').style.display = 'none';
-}
+    function closeStatusModal() {
+        document.getElementById('statusModal').style.display = 'none';
+    }
 
-function viewOrderDetails(orderId) {
-    const modal = document.getElementById('orderDetailsModal');
-    const content = document.getElementById('orderDetailsContent');
+    function viewOrderDetails(orderId) {
+        const modal = document.getElementById('orderDetailsModal');
+        const content = document.getElementById('orderDetailsContent');
 
-    modal.style.display = 'flex';
-    content.innerHTML = '<div style="text-align: center; padding: 40px; color: #6b7280;"><div style="font-size: 2rem; margin-bottom: 12px;">⏳</div>Loading order details...</div>';
+        modal.style.display = 'flex';
+        content.innerHTML =
+            '<div style="text-align: center; padding: 40px; color: #6b7280;"><div style="font-size: 2rem; margin-bottom: 12px;">⏳</div>Loading order details...</div>';
 
-    // Fetch order details via AJAX
-    fetch('ajax_order_details.php?order_id=' + orderId)
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                content.innerHTML = '<div style="text-align: center; padding: 40px; color: #dc2626;"><div style="font-size: 2rem; margin-bottom: 12px;">⚠️</div>' + data.error + '</div>';
-                return;
-            }
-
-            // Build order details HTML
-            let html = '';
-
-            // Order Header Info
-            html += '<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 32px; padding: 20px; background: #f9fafb; border-radius: 8px;">';
-            html += '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Order Number</div><div style="font-size: 1.25rem; font-weight: 700;">' + data.order_number + '</div></div>';
-            html += '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Order Type</div><div style="font-weight: 600;">' + (data.order_type === 'van_stock_sale' ? '🚚 Van Sale' : '🏢 Company') + '</div></div>';
-            html += '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Status</div><div style="font-weight: 600;">' + data.status_label + '</div></div>';
-            html += '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Created</div><div>' + data.created_at + '</div></div>';
-            html += '</div>';
-
-            // Customer Info
-            html += '<div style="margin-bottom: 32px;"><h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; color: #111827;">Customer Information</h3>';
-            html += '<div style="padding: 20px; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">';
-            html += '<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">';
-            html += '<div><div style="font-size: 0.8rem; color: #6b7280; margin-bottom: 4px;">Name</div><div style="font-weight: 600;">' + data.customer_name + '</div></div>';
-            html += '<div><div style="font-size: 0.8rem; color: #6b7280; margin-bottom: 4px;">Phone</div><div style="font-weight: 600;">' + (data.customer_phone || '—') + '</div></div>';
-            if (data.customer_location) {
-                html += '<div style="grid-column: 1 / -1;"><div style="font-size: 0.8rem; color: #6b7280; margin-bottom: 4px;">Location</div><div>' + data.customer_location + '</div></div>';
-            }
-            html += '</div></div></div>';
-
-            // Order Items
-            html += '<div style="margin-bottom: 32px;"><h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; color: #111827;">Order Items</h3>';
-            html += '<div style="border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;"><table style="width: 100%; border-collapse: collapse;">';
-            html += '<thead><tr style="background: #f9fafb; border-bottom: 1px solid #e5e7eb;"><th style="padding: 12px; text-align: left; font-weight: 600; font-size: 0.85rem; color: #6b7280;">SKU</th><th style="padding: 12px; text-align: left; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Product</th><th style="padding: 12px; text-align: center; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Qty</th><th style="padding: 12px; text-align: right; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Unit Price</th><th style="padding: 12px; text-align: right; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Total</th></tr></thead>';
-            html += '<tbody>';
-
-            data.items.forEach((item, index) => {
-                html += '<tr style="border-bottom: 1px solid #e5e7eb;' + (index % 2 === 0 ? ' background: white;' : ' background: #fafafa;') + '">';
-                html += '<td style="padding: 12px; font-family: monospace; font-size: 0.9rem;">' + item.sku + '</td>';
-                html += '<td style="padding: 12px; font-weight: 500;">' + item.product_name + '</td>';
-                html += '<td style="padding: 12px; text-align: center; font-weight: 600;">' + item.quantity + '</td>';
-                html += '<td style="padding: 12px; text-align: right;">$' + parseFloat(item.unit_price_usd).toFixed(2) + '</td>';
-                html += '<td style="padding: 12px; text-align: right; font-weight: 600;">$' + (item.quantity * item.unit_price_usd).toFixed(2) + '</td>';
-                html += '</tr>';
-            });
-
-            html += '</tbody></table></div></div>';
-
-            // OTP Verification Section (if order is ready)
-            if (data.otp_data) {
-                html += '<div style="margin-bottom: 32px;"><h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; color: #111827;">🔐 Stock Transfer Verification</h3>';
-                html += '<div style="padding: 20px; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px;">';
-
-                if (data.otp_data.both_verified) {
-                    html += '<div style="text-align: center; padding: 16px; background: #22c55e; color: #fff; font-weight: 700; border-radius: 4px; font-size: 1.1rem;">';
-                    html += '✅ STOCK SUCCESSFULLY TRANSFERRED TO YOUR VAN';
-                    html += '</div>';
-                } else {
-                    // Sales Rep OTP Display
-                    html += '<div style="background: white; padding: 16px; border-radius: 4px; margin-bottom: 16px; border: 2px solid #000;">';
-                    html += '<div style="font-size: 0.85rem; font-weight: 600; color: #92400e; margin-bottom: 8px;">YOUR OTP (Show to Warehouse):</div>';
-                    html += '<div style="font-size: 2.5rem; font-weight: 700; letter-spacing: 10px; color: #000; text-align: center; font-family: monospace;">';
-                    html += data.otp_data.sales_rep_otp;
-                    html += '</div></div>';
-
-                    // Warehouse OTP Input Form
-                    html += '<form method="POST" action="" style="background: white; padding: 16px; border-radius: 4px; border: 2px solid #000;">';
-                    html += '<?= csrf_field() ?>';
-                    html += '<input type="hidden" name="action" value="verify_otp_salesrep">';
-                    html += '<input type="hidden" name="order_id" value="' + data.id + '">';
-                    html += '<div style="margin-bottom: 12px;"><label style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 8px;">Enter Warehouse OTP:</label>';
-                    html += '<input type="text" name="warehouse_otp" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required ';
-                    html += 'style="width: 100%; padding: 16px; font-size: 2rem; text-align: center; letter-spacing: 10px; font-family: monospace; border: 2px solid #000; font-weight: 700;"';
-                    html += (data.otp_data.sales_rep_verified ? ' disabled' : '') + '></div>';
-
-                    if (!data.otp_data.sales_rep_verified) {
-                        html += '<button type="submit" style="width: 100%; padding: 14px; background: #000; color: #fff; border: none; cursor: pointer; font-weight: 700; font-size: 1rem; border-radius: 4px;">';
-                        html += 'VERIFY & RECEIVE STOCK';
-                        html += '</button>';
-                    } else {
-                        html += '<div style="padding: 12px; background: #22c55e; color: #fff; font-weight: 700; text-align: center; border-radius: 4px;">';
-                        html += '✓ Sales Rep Verified - Waiting for Warehouse';
-                        html += '</div>';
-                    }
-
-                    html += '</form>';
+        // Fetch order details via AJAX
+        fetch('ajax_order_details.php?order_id=' + orderId)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    content.innerHTML =
+                        '<div style="text-align: center; padding: 40px; color: #dc2626;"><div style="font-size: 2rem; margin-bottom: 12px;">⚠️</div>' +
+                        data.error + '</div>';
+                    return;
                 }
 
-                html += '</div></div>';
-            }
+                // Build order details HTML
+                let html = '';
 
-            // Order Totals
-            html += '<div style="background: #f9fafb; padding: 20px; border-radius: 8px; border: 2px solid #e5e7eb;">';
-            html += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;"><span style="font-size: 1.1rem; font-weight: 600;">Total USD:</span><span style="font-size: 1.5rem; font-weight: 700; color: #111827;">$' + parseFloat(data.total_usd).toFixed(2) + '</span></div>';
-            html += '<div style="display: flex; justify-content: space-between; align-items: center;"><span style="font-size: 1.1rem; font-weight: 600;">Total LBP:</span><span style="font-size: 1.5rem; font-weight: 700; color: #111827;">' + parseFloat(data.total_lbp).toLocaleString() + ' LBP</span></div>';
-            html += '</div>';
+                // Order Header Info
+                html +=
+                    '<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 32px; padding: 20px; background: #f9fafb; border-radius: 8px;">';
+                html +=
+                    '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Order Number</div><div style="font-size: 1.25rem; font-weight: 700;">' +
+                    data.order_number + '</div></div>';
+                html +=
+                    '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Order Type</div><div style="font-weight: 600;">' +
+                    (data.order_type === 'van_stock_sale' ? '🚚 Van Sale' : '🏢 Company') + '</div></div>';
+                html +=
+                    '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Status</div><div style="font-weight: 600;">' +
+                    data.status_label + '</div></div>';
+                html +=
+                    '<div><div style="font-size: 0.8rem; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Created</div><div>' +
+                    data.created_at + '</div></div>';
+                html += '</div>';
 
-            content.innerHTML = html;
-        })
-        .catch(error => {
-            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #dc2626;"><div style="font-size: 2rem; margin-bottom: 12px;">⚠️</div>Failed to load order details</div>';
-            console.error('Error:', error);
-        });
-}
+                // Customer Info
+                html +=
+                    '<div style="margin-bottom: 32px;"><h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; color: #111827;">Customer Information</h3>';
+                html +=
+                    '<div style="padding: 20px; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">';
+                html += '<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">';
+                html +=
+                    '<div><div style="font-size: 0.8rem; color: #6b7280; margin-bottom: 4px;">Name</div><div style="font-weight: 600;">' +
+                    data.customer_name + '</div></div>';
+                html +=
+                    '<div><div style="font-size: 0.8rem; color: #6b7280; margin-bottom: 4px;">Phone</div><div style="font-weight: 600;">' +
+                    (data.customer_phone || '—') + '</div></div>';
+                if (data.customer_location) {
+                    html +=
+                        '<div style="grid-column: 1 / -1;"><div style="font-size: 0.8rem; color: #6b7280; margin-bottom: 4px;">Location</div><div>' +
+                        data.customer_location + '</div></div>';
+                }
+                html += '</div></div></div>';
 
-function closeOrderDetailsModal() {
-    document.getElementById('orderDetailsModal').style.display = 'none';
-}
+                // Order Items
+                html +=
+                    '<div style="margin-bottom: 32px;"><h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; color: #111827;">Order Items</h3>';
+                html +=
+                    '<div style="border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;"><table style="width: 100%; border-collapse: collapse;">';
+                html +=
+                    '<thead><tr style="background: #f9fafb; border-bottom: 1px solid #e5e7eb;"><th style="padding: 12px; text-align: left; font-weight: 600; font-size: 0.85rem; color: #6b7280;">SKU</th><th style="padding: 12px; text-align: left; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Product</th><th style="padding: 12px; text-align: center; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Qty</th><th style="padding: 12px; text-align: right; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Unit Price</th><th style="padding: 12px; text-align: right; font-weight: 600; font-size: 0.85rem; color: #6b7280;">Total</th></tr></thead>';
+                html += '<tbody>';
 
-// Close modal on background click
-document.getElementById('statusModal').addEventListener('click', function(e) {
-    if (e.target === this) {
-        closeStatusModal();
+                data.items.forEach((item, index) => {
+                    html += '<tr style="border-bottom: 1px solid #e5e7eb;' + (index % 2 === 0 ?
+                        ' background: white;' : ' background: #fafafa;') + '">';
+                    html += '<td style="padding: 12px; font-family: monospace; font-size: 0.9rem;">' + item
+                        .sku + '</td>';
+                    html += '<td style="padding: 12px; font-weight: 500;">' + item.product_name + '</td>';
+                    html += '<td style="padding: 12px; text-align: center; font-weight: 600;">' + item
+                        .quantity + '</td>';
+                    html += '<td style="padding: 12px; text-align: right;">$' + parseFloat(item.unit_price_usd)
+                        .toFixed(2) + '</td>';
+                    html += '<td style="padding: 12px; text-align: right; font-weight: 600;">$' + (item
+                        .quantity * item.unit_price_usd).toFixed(2) + '</td>';
+                    html += '</tr>';
+                });
+
+                html += '</tbody></table></div></div>';
+
+                // OTP Verification Section (if order is ready)
+                if (data.otp_data) {
+                    html +=
+                        '<div style="margin-bottom: 32px;"><h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; color: #111827;">🔐 Stock Transfer Verification</h3>';
+                    html +=
+                        '<div style="padding: 20px; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px;">';
+
+                    if (data.otp_data.both_verified) {
+                        html +=
+                            '<div style="text-align: center; padding: 16px; background: #22c55e; color: #fff; font-weight: 700; border-radius: 4px; font-size: 1.1rem;">';
+                        html += '✅ STOCK SUCCESSFULLY TRANSFERRED TO YOUR VAN';
+                        html += '</div>';
+                    } else {
+                        // Sales Rep OTP Display
+                        html +=
+                            '<div style="background: white; padding: 16px; border-radius: 4px; margin-bottom: 16px; border: 2px solid #000;">';
+                        html +=
+                            '<div style="font-size: 0.85rem; font-weight: 600; color: #92400e; margin-bottom: 8px;">YOUR OTP (Show to Warehouse):</div>';
+                        html +=
+                            '<div style="font-size: 2.5rem; font-weight: 700; letter-spacing: 10px; color: #000; text-align: center; font-family: monospace;">';
+                        html += data.otp_data.sales_rep_otp;
+                        html += '</div></div>';
+
+                        // Warehouse OTP Input Form
+                        html +=
+                            '<form method="POST" action="" style="background: white; padding: 16px; border-radius: 4px; border: 2px solid #000;">';
+                        html += '<?= csrf_field() ?>';
+                        html += '<input type="hidden" name="action" value="verify_otp_salesrep">';
+                        html += '<input type="hidden" name="order_id" value="' + data.id + '">';
+                        html +=
+                            '<div style="margin-bottom: 12px;"><label style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 8px;">Enter Warehouse OTP:</label>';
+                        html +=
+                            '<input type="text" name="warehouse_otp" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required ';
+                        html +=
+                            'style="width: 100%; padding: 16px; font-size: 2rem; text-align: center; letter-spacing: 10px; font-family: monospace; border: 2px solid #000; font-weight: 700;"';
+                        html += (data.otp_data.sales_rep_verified ? ' disabled' : '') + '></div>';
+
+                        if (!data.otp_data.sales_rep_verified) {
+                            html +=
+                                '<button type="submit" style="width: 100%; padding: 14px; background: #000; color: #fff; border: none; cursor: pointer; font-weight: 700; font-size: 1rem; border-radius: 4px;">';
+                            html += 'VERIFY & RECEIVE STOCK';
+                            html += '</button>';
+                        } else {
+                            html +=
+                                '<div style="padding: 12px; background: #22c55e; color: #fff; font-weight: 700; text-align: center; border-radius: 4px;">';
+                            html += '✓ Sales Rep Verified - Waiting for Warehouse';
+                            html += '</div>';
+                        }
+
+                        html += '</form>';
+                    }
+
+                    html += '</div></div>';
+                }
+
+                // Order Totals
+                html +=
+                    '<div style="background: #f9fafb; padding: 20px; border-radius: 8px; border: 2px solid #e5e7eb;">';
+                html +=
+                    '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;"><span style="font-size: 1.1rem; font-weight: 600;">Total USD:</span><span style="font-size: 1.5rem; font-weight: 700; color: #111827;">$' +
+                    parseFloat(data.total_usd).toFixed(2) + '</span></div>';
+                html +=
+                    '<div style="display: flex; justify-content: space-between; align-items: center;"><span style="font-size: 1.1rem; font-weight: 600;">Total LBP:</span><span style="font-size: 1.5rem; font-weight: 700; color: #111827;">' +
+                    parseFloat(data.total_lbp).toLocaleString() + ' LBP</span></div>';
+                html += '</div>';
+
+                content.innerHTML = html;
+            })
+            .catch(error => {
+                content.innerHTML =
+                    '<div style="text-align: center; padding: 40px; color: #dc2626;"><div style="font-size: 2rem; margin-bottom: 12px;">⚠️</div>Failed to load order details</div>';
+                console.error('Error:', error);
+            });
     }
-});
 
-document.getElementById('orderDetailsModal').addEventListener('click', function(e) {
-    if (e.target === this) {
-        closeOrderDetailsModal();
+    function closeOrderDetailsModal() {
+        document.getElementById('orderDetailsModal').style.display = 'none';
     }
-});
+
+    // Close modal on background click
+    document.getElementById('statusModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeStatusModal();
+        }
+    });
+
+    document.getElementById('orderDetailsModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeOrderDetailsModal();
+        }
+    });
 </script>
 
 <?php
-sales_portal_render_layout_end();
+admin_render_layout_end();
 ?>

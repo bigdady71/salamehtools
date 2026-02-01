@@ -19,16 +19,25 @@ function warehouse_portal_bootstrap(): array
         session_start();
     }
 
+    // Calculate base path dynamically (works on both local and Hostinger)
+    $scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
+    $basePath = '';
+    $pos = strpos($scriptPath, '/pages/');
+    if ($pos !== false) {
+        $basePath = substr($scriptPath, 0, $pos);
+    }
+    $loginUrl = $basePath . '/pages/login.php';
+
     // Check if user is logged in and has warehouse role
     if (!isset($_SESSION['user']) || !isset($_SESSION['user']['role'])) {
-        header('Location: /salamehtools/pages/login.php');
+        header('Location: ' . $loginUrl);
         exit;
     }
 
     $userRole = $_SESSION['user']['role'];
     if ($userRole !== 'warehouse' && $userRole !== 'admin') {
         // Not a warehouse user - redirect to appropriate dashboard
-        header('Location: /salamehtools/pages/login.php');
+        header('Location: ' . $loginUrl);
         exit;
     }
 
@@ -56,7 +65,7 @@ function warehouse_portal_bootstrap(): array
     if (!$user) {
         // User not found or wrong role - logout
         session_destroy();
-        header('Location: /salamehtools/pages/login.php?error=unauthorized');
+        header('Location: ' . $loginUrl . '?error=unauthorized');
         exit;
     }
 

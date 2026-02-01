@@ -6,15 +6,18 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
+use ArPHP\I18N\Arabic;
 
 /**
  * Invoice PDF Generator
  * Generates PDF invoices with Arabic RTL support
+ * Uses ar-php for proper Arabic text shaping (connecting letters)
  */
 class InvoicePDF
 {
     private PDO $pdo;
     private string $storagePath;
+    private ?Arabic $arabic = null;
 
     public function __construct(PDO $pdo)
     {
@@ -24,6 +27,46 @@ class InvoicePDF
         // Ensure storage directory exists
         if (!is_dir($this->storagePath)) {
             mkdir($this->storagePath, 0755, true);
+        }
+
+        // Initialize Arabic text shaping library
+        try {
+            $this->arabic = new Arabic();
+        } catch (Exception $e) {
+            error_log("Failed to initialize Arabic library: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Shape Arabic text for proper rendering in PDF
+     * This connects Arabic letters properly (shaping)
+     * 
+     * @param string $text
+     * @return string
+     */
+    private function shapeArabic(string $text): string
+    {
+        if ($this->arabic === null) {
+            return $text;
+        }
+
+        // Check if text contains Arabic characters
+        if (!preg_match('/[\x{0600}-\x{06FF}]/u', $text)) {
+            return $text;
+        }
+
+        try {
+            // Use ar-php glyphs for proper Arabic shaping
+            // Note: newer versions of ar-php don't need setInputCharset/setOutputCharset
+            // as they work with UTF-8 by default
+
+            // Shape the Arabic text (connects letters properly)
+            $shaped = $this->arabic->utf8Glyphs($text);
+
+            return $shaped;
+        } catch (Exception $e) {
+            error_log("Arabic shaping failed: " . $e->getMessage());
+            return $text;
         }
     }
 
@@ -411,7 +454,7 @@ class InvoicePDF
 
         <!-- Invoice Number -->
         <div class="invoice-number">
-            فاتورة رقم: <span class="ltr">' . htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') . '</span>
+            ' . $this->shapeArabic('فاتورة رقم:') . ' <span class="ltr">' . htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') . '</span>
         </div>
 
         <div class="divider"></div>
@@ -419,25 +462,25 @@ class InvoicePDF
         <!-- Invoice Info -->
         <div class="invoice-info">
             <div class="info-row">
-                <span class="info-label">التاريخ:</span>
+                <span class="info-label">' . $this->shapeArabic('التاريخ:') . '</span>
                 <span class="info-value ltr">' . date('d/m/Y', strtotime($invoice['issued_at'])) . '</span>
                 <div class="clear"></div>
             </div>
             <div class="info-row">
-                <span class="info-label">مندوب المبيعات:</span>
-                <span class="info-value">' . htmlspecialchars($invoice['sales_rep_name'], ENT_QUOTES, 'UTF-8') . '</span>
+                <span class="info-label">' . $this->shapeArabic('مندوب المبيعات:') . '</span>
+                <span class="info-value">' . $this->shapeArabic(htmlspecialchars($invoice['sales_rep_name'], ENT_QUOTES, 'UTF-8')) . '</span>
                 <div class="clear"></div>
             </div>
             <div class="info-row">
-                <span class="info-label">العميل:</span>
-                <span class="info-value">' . htmlspecialchars($invoice['customer_name'], ENT_QUOTES, 'UTF-8') . '</span>
+                <span class="info-label">' . $this->shapeArabic('العميل:') . '</span>
+                <span class="info-value">' . $this->shapeArabic(htmlspecialchars($invoice['customer_name'], ENT_QUOTES, 'UTF-8')) . '</span>
                 <div class="clear"></div>
             </div>';
 
         if (!empty($invoice['customer_phone'])) {
             $html .= '
             <div class="info-row">
-                <span class="info-label">الهاتف:</span>
+                <span class="info-label">' . $this->shapeArabic('الهاتف:') . '</span>
                 <span class="info-value ltr">' . htmlspecialchars($invoice['customer_phone'], ENT_QUOTES, 'UTF-8') . '</span>
                 <div class="clear"></div>
             </div>';
@@ -446,8 +489,8 @@ class InvoicePDF
         if (!empty($invoice['customer_city'])) {
             $html .= '
             <div class="info-row">
-                <span class="info-label">المدينة:</span>
-                <span class="info-value">' . htmlspecialchars($invoice['customer_city'], ENT_QUOTES, 'UTF-8') . '</span>
+                <span class="info-label">' . $this->shapeArabic('المدينة:') . '</span>
+                <span class="info-value">' . $this->shapeArabic(htmlspecialchars($invoice['customer_city'], ENT_QUOTES, 'UTF-8')) . '</span>
                 <div class="clear"></div>
             </div>';
         }
@@ -461,10 +504,10 @@ class InvoicePDF
         <table class="items-table">
             <thead>
                 <tr>
-                    <th>الصنف</th>
-                    <th>الكمية</th>
-                    <th>السعر</th>
-                    <th>الإجمالي</th>
+                    <th>' . $this->shapeArabic('الصنف') . '</th>
+                    <th>' . $this->shapeArabic('الكمية') . '</th>
+                    <th>' . $this->shapeArabic('السعر') . '</th>
+                    <th>' . $this->shapeArabic('الإجمالي') . '</th>
                 </tr>
             </thead>
             <tbody>';
@@ -473,7 +516,7 @@ class InvoicePDF
             $html .= '
                 <tr>
                     <td class="item-name">
-                        ' . htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8') . '
+                        ' . $this->shapeArabic(htmlspecialchars($item['item_name'], ENT_QUOTES, 'UTF-8')) . '
                         <br><span class="item-sku ltr">SKU: ' . htmlspecialchars($item['sku'], ENT_QUOTES, 'UTF-8') . '</span>
                     </td>
                     <td>' . number_format((float)$item['quantity'], 2) . '</td>
@@ -494,12 +537,12 @@ class InvoicePDF
         if ($centsDiscount > 0) {
             $html .= '
             <div class="total-row small">
-                <span class="label">المجموع قبل الخصم:</span>
+                <span class="label">' . $this->shapeArabic('المجموع قبل الخصم:') . '</span>
                 <span class="value strikethrough">$' . number_format($originalTotal, 2) . '</span>
                 <div class="clear"></div>
             </div>
             <div class="total-row small">
-                <span class="label">خصم القروش:</span>
+                <span class="label">' . $this->shapeArabic('خصم القروش:') . '</span>
                 <span class="value">-$' . number_format($centsDiscount, 2) . '</span>
                 <div class="clear"></div>
             </div>';
@@ -507,13 +550,13 @@ class InvoicePDF
 
         $html .= '
             <div class="total-row final">
-                <span class="label">المجموع الكلي:</span>
+                <span class="label">' . $this->shapeArabic('المجموع الكلي:') . '</span>
                 <span class="value">$' . number_format((float)$invoiceTotal, 2) . ' USD</span>
                 <div class="clear"></div>
             </div>
             <div class="total-row small">
-                <span class="label">بالليرة اللبنانية:</span>
-                <span class="value">' . number_format((float)$invoice['total_lbp'], 0) . ' ل.ل.</span>
+                <span class="label">' . $this->shapeArabic('بالليرة اللبنانية:') . '</span>
+                <span class="value">' . number_format((float)$invoice['total_lbp'], 0) . ' ' . $this->shapeArabic('ل.ل.') . '</span>
                 <div class="clear"></div>
             </div>
         </div>
@@ -528,7 +571,7 @@ class InvoicePDF
         if ($paidUSD > 0.01) {
             $html .= '
             <div class="total-row small">
-                <span class="label">مدفوع بالدولار:</span>
+                <span class="label">' . $this->shapeArabic('مدفوع بالدولار:') . '</span>
                 <span class="value"><strong>$' . number_format($paidUSD, 2) . '</strong></span>
                 <div class="clear"></div>
             </div>';
@@ -537,8 +580,8 @@ class InvoicePDF
         if ($paidLBP > 1000) {
             $html .= '
             <div class="total-row small">
-                <span class="label">مدفوع بالليرة:</span>
-                <span class="value"><strong>' . number_format($paidLBP, 0) . ' ل.ل.</strong></span>
+                <span class="label">' . $this->shapeArabic('مدفوع بالليرة:') . '</span>
+                <span class="value"><strong>' . number_format($paidLBP, 0) . ' ' . $this->shapeArabic('ل.ل.') . '</strong></span>
                 <div class="clear"></div>
             </div>';
         }
@@ -546,7 +589,7 @@ class InvoicePDF
         if ($invoicePaid > 0.01) {
             $html .= '
             <div class="total-row boxed">
-                <span class="label">إجمالي المدفوع:</span>
+                <span class="label">' . $this->shapeArabic('إجمالي المدفوع:') . '</span>
                 <span class="value"><strong>$' . number_format($invoicePaid, 2) . '</strong></span>
                 <div class="clear"></div>
             </div>';
@@ -555,15 +598,15 @@ class InvoicePDF
         if (!$isFullyPaid) {
             $html .= '
             <div class="total-row boxed-strong">
-                <span class="label">المتبقي على هذه الفاتورة:</span>
+                <span class="label">' . $this->shapeArabic('المتبقي على هذه الفاتورة:') . '</span>
                 <span class="value"><strong>$' . number_format($invoiceRemaining, 2) . '</strong></span>
                 <div class="clear"></div>
             </div>';
         } else {
             $html .= '
             <div class="total-row boxed-strong">
-                <span class="label">حالة الفاتورة:</span>
-                <span class="value"><strong>✓ مدفوعة بالكامل</strong></span>
+                <span class="label">' . $this->shapeArabic('حالة الفاتورة:') . '</span>
+                <span class="value"><strong>✓ ' . $this->shapeArabic('مدفوعة بالكامل') . '</strong></span>
                 <div class="clear"></div>
             </div>';
         }
@@ -571,21 +614,21 @@ class InvoicePDF
         if ($customerCreditLBP > 0.01) {
             $html .= '
             <div class="total-row dashed">
-                <span class="label">رصيد العميل:</span>
+                <span class="label">' . $this->shapeArabic('رصيد العميل:') . '</span>
                 <span class="value"><strong>$' . number_format($customerCreditUSD, 2) . '</strong></span>
                 <div class="clear"></div>
             </div>';
         } elseif ($customerCreditLBP < -0.01) {
             $html .= '
             <div class="total-row dashed">
-                <span class="label">رصيد العميل:</span>
+                <span class="label">' . $this->shapeArabic('رصيد العميل:') . '</span>
                 <span class="value"><strong>$' . number_format(abs($customerCreditUSD), 2) . '</strong></span>
                 <div class="clear"></div>
             </div>';
         } elseif ($isFullyPaid) {
             $html .= '
             <div class="total-row boxed" style="text-align: center;">
-                <span style="font-weight: bold;">لا يوجد رصيد</span>
+                <span style="font-weight: bold;">' . $this->shapeArabic('لا يوجد رصيد') . '</span>
                 <div class="clear"></div>
             </div>';
         }
@@ -596,14 +639,14 @@ class InvoicePDF
         if (!empty($displayNotes)) {
             $html .= '
         <div class="notes">
-            <div class="notes-title">ملاحظات:</div>
-            <div>' . nl2br(htmlspecialchars($displayNotes, ENT_QUOTES, 'UTF-8')) . '</div>
+            <div class="notes-title">' . $this->shapeArabic('ملاحظات:') . '</div>
+            <div>' . $this->shapeArabic(nl2br(htmlspecialchars($displayNotes, ENT_QUOTES, 'UTF-8'))) . '</div>
         </div>';
         }
 
         $html .= '
         <div class="footer">
-            شكراً لتعاملكم معنا - SALAMEH TOOLS<br>
+            ' . $this->shapeArabic('شكراً لتعاملكم معنا') . ' - SALAMEH TOOLS<br>
             طبع بتاريخ: ' . date('d/m/Y H:i') . '<br>
             <span class="ltr">www.salameh-tools.com</span>
         </div>

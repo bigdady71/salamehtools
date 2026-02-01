@@ -147,7 +147,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'fulfill') {
 
                 $pdo->commit();
                 $flashes[] = ['type' => 'success', 'title' => 'Fulfilled', 'message' => "Stock transferred to {$request['rep_name']}'s van successfully."];
-
             } catch (Exception $e) {
                 $pdo->rollBack();
                 $flashes[] = ['type' => 'error', 'title' => 'Error', 'message' => $e->getMessage()];
@@ -185,6 +184,14 @@ $historyRequests = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $csrfToken = csrf_token();
 
+// Count requests by status for summary
+$submittedCount = 0;
+$approvedCount = 0;
+foreach ($pendingRequests as $req) {
+    if ($req['status'] === 'submitted') $submittedCount++;
+    if ($req['status'] === 'approved') $approvedCount++;
+}
+
 warehouse_portal_render_layout_start([
     'title' => 'Van Restock Requests',
     'heading' => '🚚 Van Restock Requests',
@@ -192,6 +199,41 @@ warehouse_portal_render_layout_start([
     'active' => 'van_restock',
     'user' => $user,
     'extra_head' => '<style>
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .summary-card {
+            background: var(--bg-panel);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            border: 2px solid var(--border);
+            transition: all 0.2s;
+        }
+        .summary-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+        }
+        .summary-card.pending { border-left: 4px solid #f59e0b; }
+        .summary-card.ready { border-left: 4px solid #3b82f6; }
+        .summary-card.done { border-left: 4px solid #059669; }
+        .summary-card .count {
+            font-size: 2.5rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 8px;
+        }
+        .summary-card.pending .count { color: #f59e0b; }
+        .summary-card.ready .count { color: #3b82f6; }
+        .summary-card.done .count { color: #059669; }
+        .summary-card .label {
+            font-size: 0.9rem;
+            color: var(--muted);
+            font-weight: 600;
+        }
         .requests-container { max-width: 1200px; margin: 0 auto; }
         .section-card {
             background: var(--bg-panel);
@@ -365,10 +407,26 @@ foreach ($flashes as $flash) {
 }
 ?>
 
+<!-- Summary Cards -->
+<div class="summary-cards">
+    <div class="summary-card pending">
+        <div class="count"><?= $submittedCount ?></div>
+        <div class="label">⏳ Awaiting Approval</div>
+    </div>
+    <div class="summary-card ready">
+        <div class="count"><?= $approvedCount ?></div>
+        <div class="label">✅ Ready to Fulfill</div>
+    </div>
+    <div class="summary-card done">
+        <div class="count"><?= count($historyRequests) ?></div>
+        <div class="label">📜 Recent History</div>
+    </div>
+</div>
+
 <div class="requests-container">
     <!-- Pending Requests -->
     <div class="section-card">
-        <h2 class="section-title">⏳ Pending Restock Requests</h2>
+        <h2 class="section-title">⏳ Pending Restock Requests (<?= count($pendingRequests) ?>)</h2>
 
         <?php if (empty($pendingRequests)): ?>
             <div class="empty-state">
@@ -393,7 +451,8 @@ foreach ($flashes as $flash) {
                             <div class="rep-avatar"><?= strtoupper(substr($request['rep_name'], 0, 1)) ?></div>
                             <div>
                                 <div class="rep-name"><?= htmlspecialchars($request['rep_name'], ENT_QUOTES, 'UTF-8') ?></div>
-                                <div class="rep-phone"><?= htmlspecialchars($request['rep_phone'] ?? '', ENT_QUOTES, 'UTF-8') ?></div>
+                                <div class="rep-phone"><?= htmlspecialchars($request['rep_phone'] ?? '', ENT_QUOTES, 'UTF-8') ?>
+                                </div>
                             </div>
                         </div>
                         <span class="request-status status-<?= $request['status'] ?>">
@@ -435,21 +494,26 @@ foreach ($flashes as $flash) {
 
                     <div class="request-meta">
                         Submitted: <?= date('M j, Y g:i A', strtotime($request['submitted_at'])) ?>
-                        | <?= (int)$request['item_count'] ?> products, <?= number_format((float)$request['total_quantity'], 1) ?> units
+                        | <?= (int)$request['item_count'] ?> products,
+                        <?= number_format((float)$request['total_quantity'], 1) ?> units
                     </div>
 
                     <div class="action-buttons">
                         <?php if ($request['status'] === 'submitted'): ?>
                             <form method="POST" style="display: inline;">
-                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                                <input type="hidden" name="csrf_token"
+                                    value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                                 <input type="hidden" name="action" value="approve">
                                 <input type="hidden" name="request_id" value="<?= $request['id'] ?>">
                                 <button type="submit" class="btn btn-success">✅ Approve</button>
                             </form>
-                            <button type="button" class="btn btn-danger" onclick="showRejectModal(<?= $request['id'] ?>)">❌ Reject</button>
+                            <button type="button" class="btn btn-danger" onclick="showRejectModal(<?= $request['id'] ?>)">❌
+                                Reject</button>
                         <?php elseif ($request['status'] === 'approved'): ?>
-                            <form method="POST" style="display: inline;" onsubmit="return confirm('Transfer stock to van? This action cannot be undone.');">
-                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                            <form method="POST" style="display: inline;"
+                                onsubmit="return confirm('Transfer stock to van? This action cannot be undone.');">
+                                <input type="hidden" name="csrf_token"
+                                    value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                                 <input type="hidden" name="action" value="fulfill">
                                 <input type="hidden" name="request_id" value="<?= $request['id'] ?>">
                                 <button type="submit" class="btn btn-primary">🚚 Fulfill & Transfer Stock</button>
@@ -463,24 +527,25 @@ foreach ($flashes as $flash) {
 
     <!-- History -->
     <?php if (!empty($historyRequests)): ?>
-    <div class="section-card">
-        <h2 class="section-title">📜 Recent History</h2>
-        <?php foreach ($historyRequests as $history): ?>
-            <div class="history-item">
-                <div>
-                    <strong><?= htmlspecialchars($history['rep_name'], ENT_QUOTES, 'UTF-8') ?></strong>
-                    <span style="color: var(--muted);">- <?= (int)$history['item_count'] ?> products, <?= number_format((float)$history['total_quantity'], 1) ?> units</span>
-                    <br>
-                    <small style="color: var(--muted);">
-                        <?= date('M j, Y g:i A', strtotime($history['fulfilled_at'] ?? $history['approved_at'])) ?>
-                    </small>
+        <div class="section-card">
+            <h2 class="section-title">📜 Recent History</h2>
+            <?php foreach ($historyRequests as $history): ?>
+                <div class="history-item">
+                    <div>
+                        <strong><?= htmlspecialchars($history['rep_name'], ENT_QUOTES, 'UTF-8') ?></strong>
+                        <span style="color: var(--muted);">- <?= (int)$history['item_count'] ?> products,
+                            <?= number_format((float)$history['total_quantity'], 1) ?> units</span>
+                        <br>
+                        <small style="color: var(--muted);">
+                            <?= date('M j, Y g:i A', strtotime($history['fulfilled_at'] ?? $history['approved_at'])) ?>
+                        </small>
+                    </div>
+                    <span class="history-status status-<?= $history['status'] ?>">
+                        <?= $history['status'] === 'fulfilled' ? '✅ Fulfilled' : '❌ Rejected' ?>
+                    </span>
                 </div>
-                <span class="history-status status-<?= $history['status'] ?>">
-                    <?= $history['status'] === 'fulfilled' ? '✅ Fulfilled' : '❌ Rejected' ?>
-                </span>
-            </div>
-        <?php endforeach; ?>
-    </div>
+            <?php endforeach; ?>
+        </div>
     <?php endif; ?>
 </div>
 
@@ -502,18 +567,18 @@ foreach ($flashes as $flash) {
 </div>
 
 <script>
-function showRejectModal(requestId) {
-    document.getElementById('rejectRequestId').value = requestId;
-    document.getElementById('rejectModal').classList.add('show');
-}
+    function showRejectModal(requestId) {
+        document.getElementById('rejectRequestId').value = requestId;
+        document.getElementById('rejectModal').classList.add('show');
+    }
 
-function hideRejectModal() {
-    document.getElementById('rejectModal').classList.remove('show');
-}
+    function hideRejectModal() {
+        document.getElementById('rejectModal').classList.remove('show');
+    }
 
-document.getElementById('rejectModal').addEventListener('click', function(e) {
-    if (e.target === this) hideRejectModal();
-});
+    document.getElementById('rejectModal').addEventListener('click', function(e) {
+        if (e.target === this) hideRejectModal();
+    });
 </script>
 
 <?php
