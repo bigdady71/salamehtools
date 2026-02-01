@@ -1,4 +1,3 @@
-
 <?php
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/auth.php';
@@ -8,22 +7,47 @@ $scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
 $base = '';
 $pos = strpos($scriptPath, '/pages/');
 if ($pos !== false) {
-    $base = substr($scriptPath, 0, $pos);
+  $base = substr($scriptPath, 0, $pos);
 } else {
-    $dir = rtrim(dirname($scriptPath), '/\\');
-    $base = ($dir === '/' || $dir === '\\') ? '' : $dir;
+  $dir = rtrim(dirname($scriptPath), '/\\');
+  $base = ($dir === '/' || $dir === '\\') ? '' : $dir;
+}
+
+// If user is already logged in, redirect to appropriate dashboard
+if (isset($_SESSION['user']) && !empty($_SESSION['user']['role'])) {
+  $role = $_SESSION['user']['role'];
+  switch ($role) {
+    case 'admin':
+    case 'super_admin':
+      header('Location: ' . $base . '/pages/admin/dashboard.php');
+      exit;
+    case 'accountant':
+      header('Location: ' . $base . '/pages/accounting/dashboard.php');
+      exit;
+    case 'sales_rep':
+      header('Location: ' . $base . '/pages/sales/dashboard.php');
+      exit;
+    case 'warehouse':
+      header('Location: ' . $base . '/pages/warehouse/dashboard.php');
+      exit;
+    case 'customer':
+      header('Location: ' . $base . '/pages/customer/dashboard.php');
+      exit;
+  }
 }
 
 // Debug: Show session info if requested
 if (isset($_GET['debug'])) {
-    echo "<pre>";
-    echo "Session ID: " . session_id() . "\n";
-    echo "Session Status: " . session_status() . " (2=active)\n";
-    echo "Session Save Path: " . (session_save_path() ?: '(default)') . "\n";
-    echo "Session Data: " . print_r($_SESSION, true) . "\n";
-    echo "Cookies: " . print_r($_COOKIE, true) . "\n";
-    echo "</pre>";
-    exit;
+  echo "<pre>";
+  echo "Session ID: " . session_id() . "\n";
+  echo "Session Name: " . session_name() . "\n";
+  echo "Session Status: " . session_status() . " (2=active)\n";
+  echo "Session Save Path: " . (session_save_path() ?: '(default)') . "\n";
+  echo "Session Data: " . print_r($_SESSION, true) . "\n";
+  echo "Cookies: " . print_r($_COOKIE, true) . "\n";
+  echo "Base Path: " . $base . "\n";
+  echo "</pre>";
+  exit;
 }
 
 $error = '';
@@ -110,6 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 ?>
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -125,6 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       background: #0c1022;
       font-family: sans-serif;
     }
+
     .ring {
       position: relative;
       width: 380px;
@@ -133,6 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       justify-content: center;
       align-items: center;
     }
+
     .ring i {
       position: absolute;
       inset: 0;
@@ -141,34 +168,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       animation: rotate 6s linear infinite;
       border-radius: 50%;
     }
+
     .ring i:nth-child(2) {
       animation-delay: -2s;
     }
+
     .ring i:nth-child(3) {
       animation-delay: -4s;
     }
+
     @keyframes rotate {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
     }
+
     .login {
       position: absolute;
       width: 320px;
       background: #1c1f2b;
       border-radius: 10px;
-      box-shadow: 0 0 25px rgba(0,0,0,0.3);
+      box-shadow: 0 0 25px rgba(0, 0, 0, 0.3);
       padding: 40px 30px;
       color: #fff;
     }
+
     .login h2 {
       text-align: center;
       margin-bottom: 20px;
     }
+
     .inputBx {
       position: relative;
       width: 100%;
       margin-bottom: 20px;
     }
+
     .inputBx input {
       width: 100%;
       padding: 10px 15px;
@@ -179,6 +218,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       color: #fff;
       font-size: 16px;
     }
+
     .inputBx input[type="submit"] {
       background: #00ff88;
       color: #000;
@@ -186,21 +226,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       cursor: pointer;
       transition: 0.3s;
     }
+
     .inputBx input[type="submit"]:hover {
       background: #0affb0;
     }
+
     .links {
       display: flex;
       justify-content: space-between;
       font-size: 14px;
     }
+
     .links a {
       color: #00ff88;
       text-decoration: none;
     }
+
     .links a:hover {
       text-decoration: underline;
     }
+
     .error-msg {
       color: #ff4b4b;
       text-align: center;
@@ -208,6 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   </style>
 </head>
+
 <body>
   <div class="ring">
     <i style="--clr:#00ff0a;"></i>
@@ -232,4 +278,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
   </div>
 </body>
+
 </html>

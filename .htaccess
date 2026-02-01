@@ -8,6 +8,11 @@ php_value max_file_uploads 3000
 
 RewriteEngine On
 RewriteBase /
+
+# Redirect /salamehtools/* to root /* (for Hostinger compatibility)
+RewriteCond %{HTTP_HOST} salameh-tools-wholesale\.com$ [NC]
+RewriteRule ^salamehtools/(.*)$ /$1 [R=301,L]
+
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^(.*)$ index.php?path=$1 [QSA,L]

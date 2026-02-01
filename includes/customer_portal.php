@@ -485,7 +485,7 @@ function customer_portal_render_layout_start(array $options = []): void
     echo '}';
     echo '});';
     echo '</script>';
-    echo '<script src="/js/customer-portal.js?v=5"></script>';
+    echo '<script src="', asset_url('/js/customer-portal.js'), '"></script>';
 
     // Hamburger Menu Button
     echo '<button class="hamburger-btn" id="hamburger-btn" aria-label="Toggle Menu">';
