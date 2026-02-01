@@ -310,22 +310,29 @@ customer_portal_render_layout_start([
 </script>
 
 <style>
+    /* Filters Section */
     .filters-card {
-        background: var(--bg-panel);
-        border-radius: 16px;
-        padding: 24px;
+        background: var(--bg-card);
+        border-radius: var(--radius);
+        padding: 20px;
         border: 1px solid var(--border);
         margin-bottom: 24px;
     }
 
     .filters-grid {
         display: grid;
-        grid-template-columns: 2fr 1fr 1fr auto;
+        grid-template-columns: 2fr 1fr auto auto;
         gap: 16px;
         align-items: end;
     }
 
     @media (max-width: 900px) {
+        .filters-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+    }
+
+    @media (max-width: 600px) {
         .filters-grid {
             grid-template-columns: 1fr;
         }
@@ -337,236 +344,343 @@ customer_portal_render_layout_start([
 
     .form-group label {
         display: block;
-        margin-bottom: 8px;
+        margin-bottom: 6px;
         font-weight: 600;
-        font-size: 0.92rem;
-        color: var(--text);
+        font-size: 0.85rem;
+        color: var(--text-muted);
     }
 
     .form-group input,
     .form-group select {
         width: 100%;
-        padding: 12px 16px;
+        padding: 10px 14px;
         border: 1px solid var(--border);
-        border-radius: 10px;
-        font-size: 1rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
         transition: all 0.2s;
+        background: white;
     }
 
     .form-group input:focus,
     .form-group select:focus {
         outline: none;
-        border-color: var(--accent);
-        box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.1);
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
     }
 
     .checkbox-group {
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 12px 0;
+        padding: 10px 0;
     }
 
     .checkbox-group input[type="checkbox"] {
-        width: 20px;
-        height: 20px;
+        width: 18px;
+        height: 18px;
         cursor: pointer;
+        accent-color: var(--primary);
     }
 
     .checkbox-group label {
         margin: 0;
         cursor: pointer;
+        font-size: 0.9rem;
     }
 
+    /* Products Grid - Improved responsive */
     .products-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        grid-template-columns: repeat(4, 1fr);
         gap: 20px;
     }
 
+    @media (max-width: 1400px) {
+        .products-grid {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+
+    @media (max-width: 1024px) {
+        .products-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+    }
+
+    @media (max-width: 600px) {
+        .products-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+    }
+
+    @media (max-width: 400px) {
+        .products-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Product Card - Compact & Modern */
     .product-card {
-        background: var(--bg-panel);
-        border-radius: 16px;
-        padding: 0;
+        background: var(--bg-card);
+        border-radius: var(--radius);
         border: 1px solid var(--border);
-        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
-        transition: all 0.3s;
+        overflow: hidden;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
+        transition: all 0.2s ease;
     }
 
     .product-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+        border-color: var(--primary);
+    }
+
+    .product-image-wrapper {
+        position: relative;
+        aspect-ratio: 1;
+        background: #F8FAFC;
+        overflow: hidden;
     }
 
     .product-image {
         width: 100%;
-        height: 220px;
-        object-fit: cover;
-        background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
-        border-bottom: 1px solid var(--border);
+        height: 100%;
+        object-fit: contain;
+        padding: 12px;
+        transition: transform 0.3s ease;
+    }
+
+    .product-card:hover .product-image {
+        transform: scale(1.05);
     }
 
     .product-image-placeholder {
         width: 100%;
-        height: 220px;
+        height: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
-        border-bottom: 1px solid var(--border);
-        font-size: 3rem;
-        color: #9ca3af;
+        background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+        font-size: 2.5rem;
+        color: #cbd5e1;
     }
 
     .product-content {
-        padding: 24px;
+        padding: 14px;
         display: flex;
         flex-direction: column;
         flex: 1;
+        gap: 8px;
     }
 
-    .product-header {
-        margin-bottom: 16px;
-    }
-
-    .product-header h3 {
-        margin: 0 0 4px;
-        font-size: 1.15rem;
+    .product-name {
+        font-size: 0.9rem;
+        font-weight: 600;
         color: var(--text);
+        line-height: 1.3;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        margin: 0;
     }
 
-    .product-header .sku {
-        font-size: 0.8rem;
-        color: var(--muted);
+    .product-sku {
+        font-size: 0.75rem;
+        color: var(--text-light);
     }
 
     .product-category {
         display: inline-block;
-        padding: 4px 10px;
-        background: var(--bg-panel-alt);
-        border-radius: 6px;
-        font-size: 0.75rem;
+        padding: 3px 8px;
+        background: var(--primary-light);
+        border-radius: 4px;
+        font-size: 0.7rem;
         font-weight: 600;
-        color: var(--accent);
-        margin-bottom: 12px;
-    }
-
-    .product-description {
-        font-size: 0.9rem;
-        color: var(--muted);
-        line-height: 1.5;
-        margin-bottom: 16px;
-        flex: 1;
+        color: var(--primary);
+        align-self: flex-start;
     }
 
     .product-price {
-        font-size: 1.8rem;
+        font-size: 1.25rem;
         font-weight: 800;
-        color: var(--accent);
-        margin-bottom: 12px;
+        color: var(--primary);
     }
 
     .product-stock {
-        font-size: 0.85rem;
-        margin-bottom: 16px;
+        font-size: 0.8rem;
+        font-weight: 500;
     }
 
     .stock-available {
-        color: #059669;
-        font-weight: 600;
+        color: var(--success);
     }
 
     .stock-low {
-        color: #d97706;
-        font-weight: 600;
+        color: var(--warning);
     }
 
     .stock-out {
-        color: #dc2626;
-        font-weight: 600;
+        color: var(--danger);
     }
 
+    /* Add to Cart Form */
     .add-to-cart-form {
         display: flex;
         gap: 8px;
+        margin-top: auto;
     }
 
     .qty-input {
-        width: 80px;
-        padding: 10px 12px;
+        width: 60px;
+        padding: 8px 10px;
         border: 1px solid var(--border);
-        border-radius: 8px;
-        font-size: 0.95rem;
-    }
-
-    .alert {
-        padding: 14px 18px;
-        border-radius: 10px;
-        margin-bottom: 24px;
-        font-size: 0.92rem;
-    }
-
-    .alert-error {
-        background: #fee2e2;
-        color: #991b1b;
-        border: 1px solid #fecaca;
-    }
-
-    .alert-success {
-        background: #d1fae5;
-        color: #065f46;
-        border: 1px solid #a7f3d0;
-    }
-
-    .empty-state {
+        border-radius: 6px;
+        font-size: 0.85rem;
         text-align: center;
-        padding: 64px 24px;
-        color: var(--muted);
     }
 
-    .empty-state h3 {
-        font-size: 1.4rem;
-        margin: 0 0 12px;
-        color: var(--text);
+    .qty-input:focus {
+        outline: none;
+        border-color: var(--primary);
     }
 
+    .add-btn {
+        flex: 1;
+        padding: 8px 12px;
+        background: var(--primary);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+    }
+
+    .add-btn:hover {
+        background: var(--primary-dark);
+    }
+
+    .add-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .min-qty-note {
+        font-size: 0.7rem;
+        color: var(--text-light);
+        margin-top: 4px;
+    }
+
+    /* Favorite Button */
     .favorite-btn {
         position: absolute;
-        top: 12px;
-        right: 12px;
-        width: 40px;
-        height: 40px;
+        top: 10px;
+        right: 10px;
+        width: 36px;
+        height: 36px;
         border: none;
         border-radius: 50%;
-        background: rgba(255, 255, 255, 0.95);
+        background: white;
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.2rem;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        font-size: 1rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
         transition: all 0.2s;
         z-index: 10;
     }
 
     .favorite-btn:hover {
-        transform: scale(1.15);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        transform: scale(1.1);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 
     .favorite-btn.is-favorite {
-        background: #fee2e2;
+        background: #FEE2E2;
     }
 
-    .favorite-btn .heart-icon {
-        transition: transform 0.2s;
+    /* Empty State */
+    .empty-state {
+        text-align: center;
+        padding: 48px 24px;
+        color: var(--text-muted);
     }
 
-    .favorite-btn:active .heart-icon {
-        transform: scale(0.8);
+    .empty-state h3 {
+        font-size: 1.2rem;
+        margin: 0 0 8px;
+        color: var(--text);
+    }
+
+    /* Pagination */
+    .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 6px;
+        margin-top: 32px;
+        flex-wrap: wrap;
+    }
+
+    .pagination .btn {
+        padding: 8px 14px;
+        font-size: 0.85rem;
+        min-width: 40px;
+    }
+
+    .pagination-info {
+        text-align: center;
+        margin-top: 12px;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+    }
+
+    /* Mobile optimizations */
+    @media (max-width: 600px) {
+        .product-content {
+            padding: 10px;
+        }
+
+        .product-name {
+            font-size: 0.8rem;
+        }
+
+        .product-price {
+            font-size: 1.1rem;
+        }
+
+        .product-stock {
+            font-size: 0.75rem;
+        }
+
+        .add-to-cart-form {
+            flex-direction: column;
+        }
+
+        .qty-input {
+            width: 100%;
+        }
+
+        .add-btn {
+            width: 100%;
+        }
+
+        .favorite-btn {
+            width: 32px;
+            height: 32px;
+            font-size: 0.9rem;
+        }
     }
 </style>
 
@@ -675,13 +789,11 @@ customer_portal_render_layout_start([
             ?>
             <?php $isFavorite = in_array($productId, $customerFavorites); ?>
             <div class="product-card">
-                <div style="position: relative;">
+                <div class="product-image-wrapper">
                     <?php if ($imageExists): ?>
                         <img src="<?= $imagePath ?>" alt="<?= $itemName ?>" class="product-image" loading="lazy">
                     <?php else: ?>
-                        <div class="product-image-placeholder">
-                            📦
-                        </div>
+                        <div class="product-image-placeholder">📦</div>
                     <?php endif; ?>
                     <button type="button" class="favorite-btn <?= $isFavorite ? 'is-favorite' : '' ?>"
                         onclick="toggleFavorite(<?= $productId ?>, this)"
@@ -690,16 +802,11 @@ customer_portal_render_layout_start([
                     </button>
                 </div>
                 <div class="product-content">
-                    <div class="product-header">
-                        <h3><?= $itemName ?></h3>
-                        <div class="sku">SKU: <?= $sku ?></div>
-                    </div>
+                    <h3 class="product-name"><?= $itemName ?></h3>
+                    <div class="product-sku">SKU: <?= $sku ?></div>
                     <div class="product-category"><?= $category ?></div>
-                    <div class="product-description"><?= $description ?></div>
                     <div class="product-price">$<?= number_format($price, 2) ?></div>
-                    <div class="product-stock <?= $stockClass ?>">
-                        <?= $stockText ?>
-                    </div>
+                    <div class="product-stock <?= $stockClass ?>"><?= $stockText ?></div>
                     <?php if ($canOrder): ?>
                         <form method="post"
                             action="products.php<?= $search || $category || $inStock ? '?' . http_build_query($_GET) : '' ?>"
@@ -708,18 +815,14 @@ customer_portal_render_layout_start([
                             <input type="hidden" name="product_id" value="<?= $productId ?>">
                             <input type="number" name="quantity" class="qty-input" value="<?= max(1, (int)ceil($minQty)) ?>"
                                 min="<?= max(1, (int)ceil($minQty)) ?>" step="1" required>
-                            <button type="submit" class="btn btn-primary add-to-cart-btn" style="flex: 1;">
-                                <span class="btn-text">Add to Cart</span>
-                                <span class="btn-loading" style="display: none;">Adding...</span>
+                            <button type="submit" class="add-btn add-to-cart-btn">
+                                <span class="btn-text">Add</span>
+                                <span class="btn-loading" style="display: none;">...</span>
                             </button>
                         </form>
-                        <div style="margin-top: 8px; font-size: 0.8rem; color: var(--muted);">
-                            Min. qty: <?= number_format($minQty, 2) ?> <?= $unit ?>
-                        </div>
+                        <div class="min-qty-note">Min: <?= number_format($minQty, 2) ?> <?= $unit ?></div>
                     <?php else: ?>
-                        <button class="btn" disabled style="width: 100%; opacity: 0.5; cursor: not-allowed;">
-                            Out of Stock
-                        </button>
+                        <button class="add-btn" disabled>Out of Stock</button>
                     <?php endif; ?>
                 </div>
 

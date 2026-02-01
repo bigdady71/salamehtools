@@ -2,7 +2,8 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../includes/bootstrap.php';
+// Use the same session name as auth.php
+session_name('SALAMEH_SESS');
 
 // Start session if not started
 if (session_status() === PHP_SESSION_NONE) {
@@ -12,17 +13,18 @@ if (session_status() === PHP_SESSION_NONE) {
 // Destroy session
 $_SESSION = [];
 
-if (ini_get("session.use_cookies")) {
-    $params = session_get_cookie_params();
-    setcookie(
-        session_name(),
-        '',
-        time() - 42000,
-        $params["path"],
-        $params["domain"],
-        $params["secure"],
-        $params["httponly"]
-    );
+// Clear custom session cookie
+setcookie('SALAMEH_SESS', '', [
+    'expires' => time() - 3600,
+    'path' => '/',
+    'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+    'httponly' => true,
+    'samesite' => 'Lax'
+]);
+
+// Also clear default PHP session cookie just in case
+if (isset($_COOKIE['PHPSESSID'])) {
+    setcookie('PHPSESSID', '', time() - 3600, '/');
 }
 
 session_destroy();
@@ -34,6 +36,11 @@ $pos = strpos($scriptPath, '/pages/');
 if ($pos !== false) {
     $basePath = substr($scriptPath, 0, $pos);
 }
+
+// Prevent caching of this page
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
 
 // Redirect to login
 header('Location: ' . $basePath . '/pages/login.php');

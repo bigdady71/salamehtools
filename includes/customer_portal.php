@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /**
  * Customer Portal Layout and Authentication Functions
- * Green-themed portal for customer-facing pages
+ * Modern, responsive design with collapsible sidebar
  */
 
 /**
@@ -30,7 +30,6 @@ function customer_portal_bootstrap(): array
 
     // Check if user is logged in and has customer role
     if (!isset($_SESSION['user']) || !isset($_SESSION['user']['role'])) {
-        // Redirect to main login
         header('Location: ' . $loginUrl);
         exit;
     }
@@ -39,28 +38,21 @@ function customer_portal_bootstrap(): array
 
     // Customer role can be 'customer', 'viewer', or empty string
     if ($userRole !== 'customer' && $userRole !== 'viewer' && $userRole !== '') {
-        // Not a customer - redirect to appropriate dashboard
         header('Location: ' . $loginUrl);
         exit;
     }
 
-    // Get user ID from session
     $userId = (int)$_SESSION['user']['id'];
-
-    // Get database connection
     $pdo = db();
 
-    // For customer role, the session user ID IS the customer ID
     if ($userRole === 'customer') {
         $customerId = $userId;
     } else {
-        // Legacy: Find customer by user_id (for viewer role)
         $customerLookup = $pdo->prepare("SELECT id FROM customers WHERE user_id = ? LIMIT 1");
         $customerLookup->execute([$userId]);
         $customerRow = $customerLookup->fetch(PDO::FETCH_ASSOC);
 
         if (!$customerRow) {
-            // No customer record found for this user
             session_destroy();
             header('Location: ' . $loginUrl . '?error=no_customer_record');
             exit;
@@ -68,7 +60,6 @@ function customer_portal_bootstrap(): array
         $customerId = (int)$customerRow['id'];
     }
 
-    // Fetch customer data from database
     $stmt = $pdo->prepare("
         SELECT
             c.id,
@@ -92,7 +83,6 @@ function customer_portal_bootstrap(): array
     $customer = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$customer) {
-        // Customer not found or disabled - logout
         session_destroy();
         header('Location: ' . $loginUrl . '?error=account_disabled');
         exit;
@@ -103,69 +93,47 @@ function customer_portal_bootstrap(): array
 
 /**
  * Navigation links available to customers.
- *
- * @return array<string, array{label:string,href:string,icon:string}>
  */
 function customer_portal_nav_links(): array
 {
     return [
-        'dashboard' => [
-            'label' => 'Dashboard',
-            'href' => 'dashboard.php',
-            'icon' => '📊',
-        ],
-        'products' => [
-            'label' => 'Browse Products',
-            'href' => 'products.php',
-            'icon' => '🛍️',
-        ],
-        'cart' => [
-            'label' => 'Shopping Cart',
-            'href' => 'cart.php',
-            'icon' => '🛒',
-        ],
-        'favorites' => [
-            'label' => 'My Favorites',
-            'href' => 'favorites.php',
-            'icon' => '❤️',
-        ],
-        'orders' => [
-            'label' => 'My Orders',
-            'href' => 'orders.php',
-            'icon' => '📦',
-        ],
-        'invoices' => [
-            'label' => 'Invoices',
-            'href' => 'invoices.php',
-            'icon' => '📄',
-        ],
-        'payments' => [
-            'label' => 'Payment History',
-            'href' => 'payments.php',
-            'icon' => '💳',
-        ],
-        'statements' => [
-            'label' => 'Account Statements',
-            'href' => 'statements.php',
-            'icon' => '📈',
-        ],
-        'profile' => [
-            'label' => 'My Profile',
-            'href' => 'profile.php',
-            'icon' => '👤',
-        ],
-        'contact' => [
-            'label' => 'Contact Sales Rep',
-            'href' => 'contact.php',
-            'icon' => '📞',
-        ],
+        'dashboard' => ['label' => 'Dashboard', 'href' => 'dashboard.php', 'icon' => 'home'],
+        'products' => ['label' => 'Products', 'href' => 'products.php', 'icon' => 'grid'],
+        'cart' => ['label' => 'Cart', 'href' => 'cart.php', 'icon' => 'cart'],
+        'favorites' => ['label' => 'Favorites', 'href' => 'favorites.php', 'icon' => 'heart'],
+        'orders' => ['label' => 'Orders', 'href' => 'orders.php', 'icon' => 'package'],
+        'invoices' => ['label' => 'Invoices', 'href' => 'invoices.php', 'icon' => 'file'],
+        'payments' => ['label' => 'Payments', 'href' => 'payments.php', 'icon' => 'credit'],
+        'profile' => ['label' => 'Profile', 'href' => 'profile.php', 'icon' => 'user'],
+        'contact' => ['label' => 'Contact', 'href' => 'contact.php', 'icon' => 'phone'],
     ];
 }
 
 /**
- * Renders the start of a customer portal page layout with a green-themed sidebar.
- *
- * @param array<string, mixed> $options
+ * Get SVG icon by name
+ */
+function customer_portal_icon(string $name): string
+{
+    $icons = [
+        'home' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+        'grid' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>',
+        'cart' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>',
+        'heart' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
+        'package' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
+        'file' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+        'credit' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>',
+        'user' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+        'phone' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>',
+        'logout' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
+        'menu' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
+        'close' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+        'chevron' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>',
+    ];
+    return $icons[$name] ?? '';
+}
+
+/**
+ * Renders the start of a customer portal page layout.
  */
 function customer_portal_render_layout_start(array $options = []): void
 {
@@ -184,369 +152,843 @@ function customer_portal_render_layout_start(array $options = []): void
     $escTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
     $escHeading = htmlspecialchars($heading, ENT_QUOTES, 'UTF-8');
     $escSubtitle = $subtitle !== null ? htmlspecialchars((string)$subtitle, ENT_QUOTES, 'UTF-8') : null;
-    $displayName = null;
-    $shopType = null;
 
+    $displayName = 'Customer';
+    $shopType = null;
     if (is_array($customer)) {
         $name = trim((string)($customer['name'] ?? ''));
         $displayName = $name !== '' ? $name : 'Customer';
-        $shopType = trim((string)($customer['shop_type'] ?? ''));
-        if ($shopType === '') {
-            $shopType = null;
-        }
+        $shopType = trim((string)($customer['shop_type'] ?? '')) ?: null;
     }
 
-    echo '<!doctype html><html lang="en"><head><meta charset="utf-8">';
     require_once __DIR__ . '/assets.php';
-    echo '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes">';
-    echo '<title>', $escTitle, ' | Salameh Tools B2B Wholesale Portal</title>';
 
-    // SEO Meta Tags
-    echo '<meta name="description" content="Salameh Tools B2B Wholesale Portal - Access exclusive wholesale prices, bulk ordering, and dedicated support for hardware businesses. Shop industrial tools, construction equipment, and professional supplies at competitive wholesale rates.">';
-    echo '<meta name="keywords" content="salameh tools wholesale, salameh tools b2b, salameh tools business, wholesale hardware lebanon, b2b tools supplier, bulk hardware orders, industrial tools wholesale, construction equipment wholesale, professional tools b2b, hardware distributor lebanon">';
-    echo '<meta name="author" content="Salameh Tools">';
-    echo '<meta name="robots" content="index, follow">';
-
-    // Open Graph / Social Media
-    echo '<meta property="og:title" content="Salameh Tools - B2B Wholesale Portal">';
-    echo '<meta property="og:description" content="Professional wholesale portal for businesses. Access exclusive B2B pricing, bulk orders, and dedicated support.">';
-    echo '<meta property="og:type" content="website">';
-    echo '<meta property="og:site_name" content="Salameh Tools">';
-
-    // Additional SEO
-    echo '<meta name="geo.region" content="LB">';
-    echo '<meta name="geo.placename" content="Lebanon">';
-    echo '<link rel="canonical" href="https://salamehtools.com/portal/">';
-
-    // JSON-LD Structured Data for SEO - Organization
-    echo '<script type="application/ld+json">';
-    echo '{';
-    echo '"@context": "https://schema.org",';
-    echo '"@type": "Organization",';
-    echo '"name": "Salameh Tools",';
-    echo '"description": "B2B Wholesale Hardware and Tools Supplier in Lebanon",';
-    echo '"url": "https://salamehtools.com",';
-    echo '"logo": "https://salamehtools.com/images/logo.png",';
-    echo '"contactPoint": {';
-    echo '"@type": "ContactPoint",';
-    echo '"telephone": "+961-XXX-XXXX",';
-    echo '"contactType": "Customer Service",';
-    echo '"areaServed": "LB",';
-    echo '"availableLanguage": ["en", "ar"]';
-    echo '},';
-    echo '"address": {';
-    echo '"@type": "PostalAddress",';
-    echo '"addressCountry": "LB",';
-    echo '"addressRegion": "Lebanon"';
-    echo '},';
-    echo '"sameAs": []';
-    echo '}';
-    echo '</script>';
-
-    // JSON-LD Structured Data - WebSite with SearchAction
-    echo '<script type="application/ld+json">';
-    echo '{';
-    echo '"@context": "https://schema.org",';
-    echo '"@type": "WebSite",';
-    echo '"name": "Salameh Tools B2B Portal",';
-    echo '"url": "https://salamehtools.com",';
-    echo '"potentialAction": {';
-    echo '"@type": "SearchAction",';
-    echo '"target": {';
-    echo '"@type": "EntryPoint",';
-    echo '"urlTemplate": "https://salamehtools.com/pages/customer/products.php?search={search_term_string}"';
-    echo '},';
-    echo '"query-input": "required name=search_term_string"';
-    echo '}';
-    echo '}';
-    echo '</script>';
-
+    echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">';
+    echo '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">';
+    echo '<title>', $escTitle, ' | Salameh Tools</title>';
+    echo '<meta name="theme-color" content="#DC2626">';
+    echo '<link rel="preconnect" href="https://fonts.googleapis.com">';
+    echo '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>';
+    echo '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">';
     echo $extraHead;
-    echo '<link rel="stylesheet" href="', asset_url('/css/app.css'), '">';
+
+    // Main CSS
     echo '<style>';
-    // MAKASSI Red/Black/White Theme
-    echo ':root{';
-    echo '--bg:#f5f5f5;'; // Light gray background
-    echo '--bg-panel:#ffffff;';
-    echo '--bg-panel-alt:#fef2f2;'; // Very light red tint
-    echo '--bg-hover:#fee2e2;'; // Light red hover
-    echo '--text:#1a1a1a;'; // Almost black for text
-    echo '--text-secondary:#4a4a4a;';
-    echo '--muted:#6b7280;';
-    echo '--accent:#DC2626;'; // MAKASSI Red (red-600)
-    echo '--accent-hover:#B91C1C;'; // Darker red (red-700)
-    echo '--accent-light:#FEE2E2;'; // Light red
-    echo '--accent-dark:#991B1B;'; // Very dark red (red-800)
-    echo '--black:#000000;';
-    echo '--border:#e5e7eb;'; // Neutral border
-    echo '--border-light:#f3f4f6;';
-    echo '--shadow-sm:0 1px 2px 0 rgba(0,0,0,0.05);';
-    echo '--shadow:0 4px 6px -1px rgba(0,0,0,0.1);';
-    echo '--shadow-lg:0 10px 15px -3px rgba(0,0,0,0.1);';
-    echo '--shadow-red:0 10px 25px -5px rgba(220,38,38,0.25);';
-    echo '--customer-gradient:linear-gradient(135deg, #DC2626 0%, #991B1B 100%);';
-    echo '--customer-gradient-alt:linear-gradient(135deg, #000000 0%, #1a1a1a 100%);';
-    echo '}';
+    echo '
+:root {
+    --primary: #DC2626;
+    --primary-dark: #B91C1C;
+    --primary-light: #FEE2E2;
+    --bg: #F8FAFC;
+    --bg-card: #FFFFFF;
+    --bg-sidebar: linear-gradient(180deg, #1F2937 0%, #111827 100%);
+    --text: #1E293B;
+    --text-muted: #64748B;
+    --text-light: #94A3B8;
+    --border: #E2E8F0;
+    --success: #10B981;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+    --sidebar-width: 260px;
+    --sidebar-collapsed: 72px;
+    --header-height: 64px;
+    --radius: 12px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+    --shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+    --transition: 0.2s ease;
+}
 
-    // Base styles
-    echo '*{box-sizing:border-box;}';
-    echo 'html{overflow-x:hidden;}'; // Prevent horizontal scroll
-    echo 'body{margin:0;font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
-    echo 'background:var(--bg);color:var(--text);display:flex;min-height:100vh;line-height:1.6;overflow-x:hidden;width:100%;max-width:100vw;}';
-    echo 'a{color:var(--accent);text-decoration:none;transition:color 0.2s;}';
-    echo 'a:hover{color:var(--accent-hover);text-decoration:none;}';
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
-    // Layout
-    echo '.layout{display:flex;flex:1;width:100%;max-width:100vw;overflow-x:hidden;}';
-    echo '.sidebar{width:270px;background:linear-gradient(180deg, #7f1d1d 0%, #991b1b 50%, #7f1d1d 100%);border-right:3px solid #dc2626;padding:0;display:flex;';
-    echo 'flex-direction:column;box-shadow:4px 0 20px rgba(127,29,29,0.4);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;';
-    echo 'overscroll-behavior:contain;z-index:100;}';
+html { 
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+}
 
-    // Brand
-    echo '.brand{font-size:1.75rem;font-weight:800;letter-spacing:0.02em;color:#ffffff;text-shadow:0 2px 8px rgba(0,0,0,0.3);padding:24px 24px 16px 24px;}';
-    echo '.brand small{display:block;font-size:0.7rem;font-weight:500;color:#fecaca;margin-top:6px;letter-spacing:0.15em;text-transform:uppercase;}';
+body {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
 
-    // Navigation
-    echo '.nav-links{display:flex;flex-direction:column;gap:4px;padding:0 16px;flex:1;}';
-    echo '.nav-links a{padding:12px 16px;border-radius:12px;font-size:0.925rem;color:rgba(255,255,255,0.85);';
-    echo 'transition:all 0.2s ease;font-weight:500;display:flex;align-items:center;gap:10px;text-decoration:none;border:1px solid transparent;}';
-    echo '.nav-links a:hover{background:rgba(220,38,38,0.3);color:#ffffff;transform:translateX(4px);border-color:rgba(254,202,202,0.3);text-decoration:none;}';
-    echo '.nav-links a.active{background:#dc2626;color:#ffffff;font-weight:600;box-shadow:0 4px 12px rgba(220,38,38,0.5);transform:translateX(2px);border-color:#dc2626;}';
+/* Sidebar */
+.sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    height: 100vh;
+    background: var(--bg-sidebar);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    transition: transform var(--transition), width var(--transition);
+    overflow: hidden;
+}
 
-    // Sidebar user section (at top)
-    echo '.sidebar-user{padding:16px 20px;border-bottom:1px solid rgba(254,202,202,0.2);margin-bottom:24px;}';
-    echo '.user-name{font-size:1.1rem;font-weight:700;color:#ffffff;margin-bottom:4px;}';
-    echo '.user-type{font-size:0.85rem;color:#fecaca;opacity:0.9;}';
+.sidebar-header {
+    padding: 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 72px;
+}
 
-    // Logout link (simple text at bottom)
-    echo '.logout-link{display:block;margin-top:auto;padding:14px 20px;text-align:center;';
-    echo 'color:rgba(255,255,255,0.7);font-size:0.9rem;font-weight:500;text-decoration:none;';
-    echo 'border-top:1px solid rgba(254,202,202,0.2);transition:all 0.2s ease;}';
-    echo '.logout-link:hover{color:#ffffff;background:rgba(239,68,68,0.2);text-decoration:none;}';
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+    color: white;
+}
 
-    // Main content
-    echo '.main{flex:1;padding:40px;display:flex;flex-direction:column;gap:28px;margin-left:270px;max-width:1600px;width:100%;overflow-x:hidden;}';
+.sidebar-logo {
+    width: 40px;
+    height: 40px;
+    background: var(--primary);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
 
-    // Page header
-    echo '.page-header{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:20px;margin-bottom:8px;}';
-    echo '.page-header h1{margin:0;font-size:2.25rem;font-weight:700;color:var(--text);letter-spacing:-0.02em;}';
-    echo '.page-header p{margin:6px 0 0;color:var(--muted);font-size:1rem;}';
+.sidebar-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+}
 
-    // Cards
-    echo '.card{background:var(--bg-panel);border-radius:20px;padding:32px;border:1px solid var(--border);';
-    echo 'box-shadow:var(--shadow);transition:box-shadow 0.2s;}';
-    echo '.card:hover{box-shadow:var(--shadow-lg);}';
-    echo '.card h2{margin:0 0 16px;font-size:1.5rem;font-weight:700;color:var(--text);}';
-    echo '.card h3{margin:0 0 12px;font-size:1.25rem;font-weight:600;color:var(--text);}';
-    echo '.card p{margin:0;color:var(--text-secondary);line-height:1.7;}';
-    echo '.card ul{margin:0;padding-left:24px;color:var(--text-secondary);line-height:1.7;}';
-    echo '.card ul li{margin-bottom:8px;}';
+.sidebar-title small {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: rgba(255,255,255,0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
 
-    // Buttons
-    echo '.actions{display:flex;gap:12px;flex-wrap:wrap;}';
-    echo '.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 20px;border-radius:12px;';
-    echo 'background:var(--bg-panel);border:2px solid var(--border);color:var(--text);font-weight:600;';
-    echo 'text-decoration:none;cursor:pointer;transition:all 0.2s ease;font-size:0.95rem;}';
-    echo '.btn:hover{background:var(--bg-hover);border-color:var(--accent);box-shadow:var(--shadow);transform:translateY(-1px);text-decoration:none;}';
-    echo '.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}';
-    echo '.btn-primary:hover{background:var(--accent-hover);box-shadow:var(--shadow-red);transform:translateY(-2px);}';
-    echo '.btn:disabled{opacity:0.5;cursor:not-allowed;transform:none;}';
+.sidebar-toggle {
+    display: none;
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 8px;
+    transition: var(--transition);
+}
 
-    // Mobile table horizontal scroll
-    echo '.table-responsive{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:16px;border-radius:12px;border:1px solid var(--border);}';
-    echo '.table-responsive table{margin-bottom:0;border:none;}';
-    echo '.table-responsive::-webkit-scrollbar{height:8px;}';
-    echo '.table-responsive::-webkit-scrollbar-track{background:#f1f5f9;border-radius:4px;}';
-    echo '.table-responsive::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:4px;}';
-    echo '.table-responsive::-webkit-scrollbar-thumb:hover{background:#64748b;}';
-    echo '@media(max-width:768px){';
-    echo '.table-responsive{margin-left:-12px;margin-right:-12px;border-radius:0;border-left:none;border-right:none;}';
-    echo '.table-responsive table{min-width:600px;}';
-    echo '.table-responsive td,.table-responsive th{white-space:nowrap;}';
-    echo '}';
+.sidebar-toggle:hover {
+    background: rgba(255,255,255,0.1);
+    color: white;
+}
 
-    // Responsive - Tablet
-    echo '@media (max-width:1024px){';
-    echo '.main{padding:32px;}';
-    echo '.sidebar{width:250px;}';
-    echo '}';
+.sidebar-toggle svg {
+    width: 20px;
+    height: 20px;
+}
 
-    // Hamburger Menu Button (hidden on desktop)
-    echo '.hamburger-btn{display:none;position:fixed;top:16px;left:16px;z-index:1001;background:var(--accent);';
-    echo 'color:white;border:none;width:48px;height:48px;border-radius:12px;cursor:pointer;';
-    echo 'box-shadow:0 4px 12px rgba(220,38,38,0.4);transition:all 0.3s ease;align-items:center;justify-content:center;}';
-    echo '.hamburger-btn:hover{background:var(--accent-hover);box-shadow:0 6px 16px rgba(220,38,38,0.6);transform:scale(1.05);}';
-    echo '.hamburger-btn:active{transform:scale(0.95);}';
-    echo '.hamburger-icon{display:flex;flex-direction:column;gap:4px;width:20px;}';
-    echo '.hamburger-icon span{display:block;width:100%;height:2.5px;background:white;border-radius:2px;transition:all 0.3s ease;}';
-    echo '.hamburger-btn.active .hamburger-icon span:nth-child(1){transform:rotate(45deg) translate(6px, 6px);}';
-    echo '.hamburger-btn.active .hamburger-icon span:nth-child(2){opacity:0;}';
-    echo '.hamburger-btn.active .hamburger-icon span:nth-child(3){transform:rotate(-45deg) translate(6px, -6px);}';
+/* User Info */
+.sidebar-user {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
 
-    // Mobile Overlay (backdrop)
-    echo '.sidebar-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);';
-    echo 'z-index:999;opacity:0;transition:opacity 0.3s ease;}';
-    echo '.sidebar-overlay.active{display:block;opacity:1;}';
+.user-avatar {
+    width: 44px;
+    height: 44px;
+    background: var(--primary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: white;
+    margin-bottom: 10px;
+}
 
-    // Responsive - Mobile (Tablet & Phone)
-    echo '@media (max-width:900px){';
-    // Show hamburger button
-    echo '.hamburger-btn{display:flex;}';
+.user-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: white;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 
-    // Transform sidebar into slide-out drawer
-    echo '.sidebar{position:fixed;top:0;left:-280px;bottom:0;width:280px;z-index:1000;';
-    echo 'transition:left 0.3s ease;overflow-y:auto;padding:0;';
-    echo 'box-shadow:0 0 0 rgba(0,0,0,0);border-right:none;}';
-    echo '.sidebar.active{left:0;box-shadow:8px 0 24px rgba(0,0,0,0.3);}';
+.user-type {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.6);
+    margin-top: 2px;
+}
 
-    // Main content shifts when sidebar opens
-    echo '.main{margin-left:0;padding:80px 20px 20px 20px;transition:transform 0.3s ease;}';
-    echo '.main.sidebar-open{transform:translateX(280px);}';
+/* Navigation */
+.sidebar-nav {
+    flex: 1;
+    padding: 16px 12px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
 
-    // Mobile sidebar adjustments
-    echo '.sidebar-user{padding:80px 20px 16px 20px;}'; // Extra top padding for hamburger
-    echo '.brand{font-size:1.5rem;padding:16px 24px;}';
-    echo '.brand small{display:block;font-size:0.65rem;}';
-    echo '.nav-links{flex-direction:column;gap:6px;padding:0 16px;}';
-    echo '.nav-links a{padding:14px 18px;font-size:0.95rem;justify-content:flex-start;}';
-    echo '.nav-links a .icon{display:inline;}';
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    color: rgba(255,255,255,0.7);
+    text-decoration: none;
+    border-radius: 10px;
+    margin-bottom: 4px;
+    transition: var(--transition);
+    font-size: 0.9rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
 
-    // Page adjustments
-    echo '.page-header h1{font-size:1.75rem;}';
-    echo '.actions{flex-direction:column;width:100%;}';
-    echo '.actions .btn{width:100%;justify-content:center;}';
-    echo '}';
+.nav-item:hover {
+    background: rgba(255,255,255,0.08);
+    color: white;
+}
 
-    // Responsive - Small Mobile
-    echo '@media (max-width:640px){';
-    echo '.main{padding:70px 16px 16px 16px;}';
-    echo '.page-header{flex-direction:column;gap:12px;align-items:flex-start;}';
-    echo '.page-header h1{font-size:1.5rem;line-height:1.2;}';
-    echo '.page-header p{font-size:0.9rem;}';
-    echo '.card{padding:20px;border-radius:12px;}';
-    echo '.card h2{font-size:1.25rem;}';
-    echo '.card h3{font-size:1.1rem;}';
-    echo '.btn{font-size:0.9rem;padding:10px 18px;}';
-    echo 'table{font-size:0.85rem;}';
-    echo 'table th, table td{padding:10px 8px;}';
-    echo '}';
+.nav-item.active {
+    background: var(--primary);
+    color: white;
+    font-weight: 600;
+}
 
-    // Responsive - Extra Small Mobile
-    echo '@media (max-width:480px){';
-    echo '.hamburger-btn{width:44px;height:44px;top:12px;left:12px;}';
-    echo '.sidebar{width:260px;left:-270px;padding:0;}';
-    echo '.sidebar.active{left:0;}';
-    echo '.sidebar-user{padding:70px 20px 16px 20px;}'; // Extra top padding for smaller hamburger
-    echo '.main.sidebar-open{transform:translateX(260px);}';
-    echo '.main{padding:64px 12px 12px 12px;}';
-    echo '.page-header h1{font-size:1.3rem;}';
-    echo '.card{padding:16px;}';
-    echo '.btn{padding:9px 16px;font-size:0.85rem;}';
-    echo 'table{font-size:0.8rem;}';
-    echo 'table th, table td{padding:8px 6px;}';
-    echo '}';
-    echo '</style>';
-    echo '</head><body class="theme-light">';
+.nav-item svg {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
 
-    // Add inline script to ensure hamburger menu works immediately
-    echo '<script>';
-    echo 'console.log("Page loaded, checking for hamburger elements...");';
-    echo 'window.addEventListener("load", function() {';
-    echo 'console.log("Window loaded");';
-    echo 'const btn = document.getElementById("hamburger-btn");';
-    echo 'const sidebar = document.getElementById("sidebar");';
-    echo 'const overlay = document.getElementById("sidebar-overlay");';
-    echo 'console.log("Elements found:", {btn: !!btn, sidebar: !!sidebar, overlay: !!overlay});';
-    echo 'if(btn && sidebar && overlay) {';
-    echo 'btn.onclick = function(e) {';
-    echo 'e.preventDefault();';
-    echo 'console.log("Button clicked!");';
-    echo 'const isOpen = sidebar.classList.contains("active");';
-    echo 'if(!isOpen) {';
-    echo 'sidebar.classList.add("active");';
-    echo 'overlay.classList.add("active");';
-    echo 'btn.classList.add("active");';
-    echo 'document.body.style.overflow = "hidden";';
-    echo 'console.log("Menu opened");';
-    echo '} else {';
-    echo 'sidebar.classList.remove("active");';
-    echo 'overlay.classList.remove("active");';
-    echo 'btn.classList.remove("active");';
-    echo 'document.body.style.overflow = "";';
-    echo 'console.log("Menu closed");';
-    echo '}';
-    echo '};';
-    echo 'overlay.onclick = function() {';
-    echo 'sidebar.classList.remove("active");';
-    echo 'overlay.classList.remove("active");';
-    echo 'btn.classList.remove("active");';
-    echo 'document.body.style.overflow = "";';
-    echo '};';
-    echo '}';
-    echo '});';
-    echo '</script>';
-    echo '<script src="', asset_url('/js/customer-portal.js'), '"></script>';
+.nav-item span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 
-    // Hamburger Menu Button
-    echo '<button class="hamburger-btn" id="hamburger-btn" aria-label="Toggle Menu">';
-    echo '<div class="hamburger-icon">';
-    echo '<span></span><span></span><span></span>';
-    echo '</div>';
-    echo '</button>';
+/* Sidebar Footer */
+.sidebar-footer {
+    padding: 16px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+}
 
-    // Sidebar Overlay (backdrop)
-    echo '<div class="sidebar-overlay" id="sidebar-overlay"></div>';
+.logout-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px;
+    background: rgba(239,68,68,0.15);
+    color: #FCA5A5;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    transition: var(--transition);
+}
 
-    echo '<div class="layout"><aside class="sidebar" id="sidebar">';
+.logout-btn:hover {
+    background: rgba(239,68,68,0.25);
+    color: #FEE2E2;
+}
 
-    // Customer name at top
-    echo '<div class="sidebar-user">';
-    if ($displayName !== null && $displayName !== '') {
-        echo '<div class="user-name">', htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8'), '</div>';
-    } else {
-        echo '<div class="user-name">Customer</div>';
+.logout-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Main Content */
+.main-wrapper {
+    margin-left: var(--sidebar-width);
+    min-height: 100vh;
+    transition: margin-left var(--transition);
+}
+
+/* Mobile Header */
+.mobile-header {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--header-height);
+    background: white;
+    border-bottom: 1px solid var(--border);
+    z-index: 999;
+    padding: 0 16px;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.mobile-menu-btn:hover {
+    background: var(--primary-light);
+    border-color: var(--primary);
+}
+
+.mobile-menu-btn svg {
+    width: 22px;
+    height: 22px;
+    color: var(--text);
+}
+
+.mobile-brand {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.mobile-cart-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: var(--primary);
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: var(--transition);
+}
+
+.mobile-cart-btn:hover {
+    background: var(--primary-dark);
+}
+
+.mobile-cart-btn svg {
+    width: 22px;
+    height: 22px;
+    color: white;
+}
+
+/* Overlay */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 999;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.sidebar-overlay.active {
+    display: block;
+    opacity: 1;
+}
+
+/* Main Content Area */
+.main-content {
+    padding: 32px;
+    max-width: 1400px;
+}
+
+/* Page Header */
+.page-header {
+    margin-bottom: 28px;
+}
+
+.page-header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.page-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+
+.page-subtitle {
+    font-size: 0.95rem;
+    color: var(--text-muted);
+}
+
+/* Action Buttons */
+.header-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 18px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: white;
+    color: var(--text);
+    cursor: pointer;
+    text-decoration: none;
+    transition: var(--transition);
+    white-space: nowrap;
+}
+
+.btn:hover {
+    background: var(--bg);
+    border-color: var(--text-light);
+}
+
+.btn-primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--primary-dark);
+    border-color: var(--primary-dark);
+}
+
+/* Cards */
+.card {
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    padding: 24px;
+    box-shadow: var(--shadow-sm);
+}
+
+.card h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+}
+
+/* Tables */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+th, td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+th {
+    background: var(--bg);
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+tr:hover td {
+    background: var(--bg);
+}
+
+/* Alerts */
+.alert {
+    padding: 14px 18px;
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.alert-success {
+    background: #D1FAE5;
+    color: #065F46;
+    border: 1px solid #A7F3D0;
+}
+
+.alert-error {
+    background: #FEE2E2;
+    color: #991B1B;
+    border: 1px solid #FECACA;
+}
+
+/* Responsive - Tablet */
+@media (max-width: 1024px) {
+    .main-content {
+        padding: 24px;
     }
+    
+    .page-title {
+        font-size: 1.5rem;
+    }
+}
+
+/* Responsive - Mobile */
+@media (max-width: 768px) {
+    .sidebar {
+        transform: translateX(-100%);
+        width: 280px;
+    }
+    
+    .sidebar.open {
+        transform: translateX(0);
+    }
+    
+    .main-wrapper {
+        margin-left: 0;
+    }
+    
+    .mobile-header {
+        display: flex;
+    }
+    
+    .main-content {
+        padding: 16px;
+        padding-top: calc(var(--header-height) + 16px);
+    }
+    
+    .page-header-top {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .header-actions {
+        width: 100%;
+    }
+    
+    .header-actions .btn {
+        flex: 1;
+        justify-content: center;
+    }
+    
+    .page-title {
+        font-size: 1.35rem;
+    }
+    
+    .card {
+        padding: 16px;
+        border-radius: 10px;
+    }
+    
+    .btn {
+        padding: 12px 16px;
+    }
+    
+    th, td {
+        padding: 10px 12px;
+        font-size: 0.85rem;
+    }
+}
+
+/* Responsive - Small Mobile */
+@media (max-width: 480px) {
+    .main-content {
+        padding: 12px;
+        padding-top: calc(var(--header-height) + 12px);
+    }
+    
+    .page-title {
+        font-size: 1.2rem;
+    }
+    
+    .page-subtitle {
+        font-size: 0.85rem;
+    }
+    
+    .header-actions {
+        flex-direction: column;
+    }
+    
+    .header-actions .btn {
+        width: 100%;
+    }
+    
+    .card {
+        padding: 14px;
+    }
+    
+    .btn {
+        font-size: 0.85rem;
+        padding: 10px 14px;
+    }
+}
+
+/* Desktop sidebar toggle */
+@media (min-width: 769px) {
+    .sidebar-toggle {
+        display: flex;
+    }
+    
+    .sidebar.collapsed {
+        width: var(--sidebar-collapsed);
+    }
+    
+    .sidebar.collapsed .sidebar-title,
+    .sidebar.collapsed .user-name,
+    .sidebar.collapsed .user-type,
+    .sidebar.collapsed .nav-item span,
+    .sidebar.collapsed .logout-btn span {
+        display: none;
+    }
+    
+    .sidebar.collapsed .sidebar-header {
+        justify-content: center;
+        padding: 20px 12px;
+    }
+    
+    .sidebar.collapsed .sidebar-brand {
+        justify-content: center;
+    }
+    
+    .sidebar.collapsed .sidebar-user {
+        display: flex;
+        justify-content: center;
+        padding: 16px 12px;
+    }
+    
+    .sidebar.collapsed .user-avatar {
+        margin-bottom: 0;
+    }
+    
+    .sidebar.collapsed .nav-item {
+        justify-content: center;
+        padding: 12px;
+    }
+    
+    .sidebar.collapsed .logout-btn {
+        padding: 12px;
+    }
+    
+    .sidebar.collapsed + .main-wrapper {
+        margin-left: var(--sidebar-collapsed);
+    }
+    
+    .sidebar-toggle svg {
+        transition: transform var(--transition);
+    }
+    
+    .sidebar.collapsed .sidebar-toggle svg {
+        transform: rotate(180deg);
+    }
+}
+
+/* Utility classes */
+.text-muted { color: var(--text-muted); }
+.text-success { color: var(--success); }
+.text-warning { color: var(--warning); }
+.text-danger { color: var(--danger); }
+.font-bold { font-weight: 700; }
+.mt-4 { margin-top: 16px; }
+.mb-4 { margin-bottom: 16px; }
+';
+    echo '</style>';
+    echo '</head><body>';
+
+    // Sidebar Overlay (for mobile)
+    echo '<div class="sidebar-overlay" id="sidebarOverlay"></div>';
+
+    // Sidebar
+    echo '<aside class="sidebar" id="sidebar">';
+
+    // Sidebar Header
+    echo '<div class="sidebar-header">';
+    echo '<a href="dashboard.php" class="sidebar-brand">';
+    echo '<div class="sidebar-logo">ST</div>';
+    echo '<div class="sidebar-title">Salameh Tools<small>Customer Portal</small></div>';
+    echo '</a>';
+    echo '<button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar">';
+    echo customer_portal_icon('chevron');
+    echo '</button>';
+    echo '</div>';
+
+    // User Info
+    echo '<div class="sidebar-user">';
+    $initials = mb_strtoupper(mb_substr($displayName, 0, 2));
+    echo '<div class="user-avatar">', htmlspecialchars($initials, ENT_QUOTES, 'UTF-8'), '</div>';
+    echo '<div class="user-name">', htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8'), '</div>';
     if ($shopType) {
         echo '<div class="user-type">', htmlspecialchars($shopType, ENT_QUOTES, 'UTF-8'), '</div>';
     }
     echo '</div>';
 
-    echo '<div class="brand">Salameh Tools<small>CUSTOMER PORTAL</small></div><nav class="nav-links">';
-
+    // Navigation
+    echo '<nav class="sidebar-nav">';
     foreach ($navItems as $slug => $item) {
-        $label = htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8');
+        $isActive = $slug === $active ? ' active' : '';
         $href = htmlspecialchars($item['href'], ENT_QUOTES, 'UTF-8');
-        $icon = $item['icon'] ?? '';
-        $classes = 'nav-link' . ($slug === $active ? ' active' : '');
-        echo '<a class="', $classes, '" href="', $href, '"><span class="icon">', $icon, '</span> ', $label, '</a>';
+        $label = htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8');
+        $icon = customer_portal_icon($item['icon'] ?? 'grid');
+        echo '<a href="', $href, '" class="nav-item', $isActive, '">';
+        echo $icon;
+        echo '<span>', $label, '</span>';
+        echo '</a>';
     }
-
     echo '</nav>';
 
-    // Simple logout link at bottom
-    echo '<a href="logout.php" class="logout-link" onclick="return confirm(\'Are you sure you want to logout?\');">Logout</a>';
-
-    echo '</aside><main class="main" id="main-content">';
-    echo '<header class="page-header"><div><h1>', $escHeading, '</h1>';
-
-    if ($escSubtitle !== null) {
-        echo '<p>', $escSubtitle, '</p>';
-    }
-
+    // Sidebar Footer
+    echo '<div class="sidebar-footer">';
+    echo '<a href="logout.php" class="logout-btn" onclick="return confirm(\'Are you sure you want to logout?\')">';
+    echo customer_portal_icon('logout');
+    echo '<span>Logout</span>';
+    echo '</a>';
     echo '</div>';
 
+    echo '</aside>';
+
+    // Mobile Header
+    echo '<header class="mobile-header">';
+    echo '<button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Open menu">';
+    echo customer_portal_icon('menu');
+    echo '</button>';
+    echo '<span class="mobile-brand">Salameh Tools</span>';
+    echo '<a href="cart.php" class="mobile-cart-btn" aria-label="View cart">';
+    echo customer_portal_icon('cart');
+    echo '</a>';
+    echo '</header>';
+
+    // Main Wrapper
+    echo '<div class="main-wrapper" id="mainWrapper">';
+    echo '<main class="main-content">';
+
+    // Page Header
+    echo '<header class="page-header">';
+    echo '<div class="page-header-top">';
+    echo '<div>';
+    echo '<h1 class="page-title">', $escHeading, '</h1>';
+    if ($escSubtitle !== null) {
+        echo '<p class="page-subtitle">', $escSubtitle, '</p>';
+    }
+    echo '</div>';
+
+    // Action buttons
     if (!empty($options['actions']) && is_array($options['actions'])) {
-        echo '<div class="actions">';
+        echo '<div class="header-actions">';
         foreach ($options['actions'] as $action) {
             $label = htmlspecialchars((string)($action['label'] ?? ''), ENT_QUOTES, 'UTF-8');
             $href = htmlspecialchars((string)($action['href'] ?? '#'), ENT_QUOTES, 'UTF-8');
-            $class = 'btn' . (!empty($action['variant']) ? ' btn-' . htmlspecialchars((string)$action['variant'], ENT_QUOTES, 'UTF-8') : '');
-            echo '<a class="', $class, '" href="', $href, '">', $label, '</a>';
+            $variant = !empty($action['variant']) ? ' btn-' . htmlspecialchars((string)$action['variant'], ENT_QUOTES, 'UTF-8') : '';
+            echo '<a class="btn', $variant, '" href="', $href, '">', $label, '</a>';
         }
         echo '</div>';
     }
 
+    echo '</div>';
     echo '</header>';
+
+    // JavaScript for sidebar toggle
+    echo '<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const sidebar = document.getElementById("sidebar");
+    const overlay = document.getElementById("sidebarOverlay");
+    const mobileMenuBtn = document.getElementById("mobileMenuBtn");
+    const sidebarToggle = document.getElementById("sidebarToggle");
+    const mainWrapper = document.getElementById("mainWrapper");
+    
+    // Check for saved sidebar state (desktop only)
+    const savedState = localStorage.getItem("sidebarCollapsed");
+    if (savedState === "true" && window.innerWidth > 768) {
+        sidebar.classList.add("collapsed");
+    }
+    
+    // Mobile menu toggle
+    function openMobileMenu() {
+        sidebar.classList.add("open");
+        overlay.classList.add("active");
+        document.body.style.overflow = "hidden";
+    }
+    
+    function closeMobileMenu() {
+        sidebar.classList.remove("open");
+        overlay.classList.remove("active");
+        document.body.style.overflow = "";
+    }
+    
+    if (mobileMenuBtn) {
+        mobileMenuBtn.addEventListener("click", function() {
+            if (sidebar.classList.contains("open")) {
+                closeMobileMenu();
+            } else {
+                openMobileMenu();
+            }
+        });
+    }
+    
+    if (overlay) {
+        overlay.addEventListener("click", closeMobileMenu);
+    }
+    
+    // Desktop sidebar toggle
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener("click", function() {
+            sidebar.classList.toggle("collapsed");
+            localStorage.setItem("sidebarCollapsed", sidebar.classList.contains("collapsed"));
+        });
+    }
+    
+    // Close mobile menu on nav click
+    const navItems = document.querySelectorAll(".nav-item");
+    navItems.forEach(function(item) {
+        item.addEventListener("click", function() {
+            if (window.innerWidth <= 768) {
+                closeMobileMenu();
+            }
+        });
+    });
+    
+    // Handle resize
+    let resizeTimer;
+    window.addEventListener("resize", function() {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function() {
+            if (window.innerWidth > 768) {
+                closeMobileMenu();
+            }
+        }, 100);
+    });
+});
+</script>';
 }
 
 /**
@@ -563,33 +1005,87 @@ function customer_portal_render_layout_end(): void
     echo '</div>';
     echo '</div>';
 
-    echo '<style>';
-    echo '.global-spinner{position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;justify-content:center;}';
-    echo '.spinner-backdrop{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);}';
-    echo '.spinner-content{position:relative;display:flex;flex-direction:column;align-items:center;gap:16px;padding:32px;background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);}';
-    echo '.spinner-ring{width:48px;height:48px;border:4px solid #e5e7eb;border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;}';
-    echo '@keyframes spin{to{transform:rotate(360deg);}}';
-    echo '.spinner-text{margin:0;color:#374151;font-weight:600;font-size:0.95rem;}';
-    echo '.btn-loading{position:relative;pointer-events:none;opacity:0.7;}';
-    echo '.btn-loading::after{content:"";position:absolute;width:16px;height:16px;top:50%;left:50%;margin:-8px 0 0 -8px;border:2px solid transparent;border-top-color:currentColor;border-radius:50%;animation:spin 0.6s linear infinite;}';
-    echo '</style>';
+    echo '<style>
+.global-spinner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.spinner-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.4);
+    backdrop-filter: blur(4px);
+}
+.spinner-content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 32px;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.spinner-ring {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #e5e7eb;
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner-text {
+    margin: 0;
+    color: #374151;
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+.btn-loading {
+    position: relative;
+    pointer-events: none;
+    opacity: 0.7;
+}
+.btn-loading::after {
+    content: "";
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    top: 50%;
+    left: 50%;
+    margin: -8px 0 0 -8px;
+    border: 2px solid transparent;
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+</style>';
 
-    echo '<script>';
-    // Global spinner functions
-    echo 'function showSpinner(text){';
-    echo '  var spinner = document.getElementById("globalSpinner");';
-    echo '  if(text){spinner.querySelector(".spinner-text").textContent = text;}';
-    echo '  spinner.style.display = "flex";';
-    echo '}';
-    echo 'function hideSpinner(){';
-    echo '  document.getElementById("globalSpinner").style.display = "none";';
-    echo '}';
-    // Button loading state helpers
-    echo 'function setButtonLoading(btn, loading){';
-    echo '  if(loading){btn.classList.add("btn-loading");btn.disabled=true;}';
-    echo '  else{btn.classList.remove("btn-loading");btn.disabled=false;}';
-    echo '}';
-    echo '</script>';
+    echo '<script>
+function showSpinner(text) {
+    var spinner = document.getElementById("globalSpinner");
+    if (text) spinner.querySelector(".spinner-text").textContent = text;
+    spinner.style.display = "flex";
+}
+function hideSpinner() {
+    document.getElementById("globalSpinner").style.display = "none";
+}
+function setButtonLoading(btn, loading) {
+    if (loading) { btn.classList.add("btn-loading"); btn.disabled = true; }
+    else { btn.classList.remove("btn-loading"); btn.disabled = false; }
+}
+</script>';
 
     echo '</main></div></body></html>';
 }
