@@ -1,17 +1,19 @@
 <?php
-$path = $_GET['path'] ?? 'public/home';
+/**
+ * Main entry point - redirects to login page
+ * All routing is handled via direct file access or .htaccess rules
+ */
 
-// Sanitize path - prevent directory traversal attacks
-$path = str_replace(['..', "\0"], '', $path);
-$path = preg_replace('#/+#', '/', $path);
-$path = trim($path, '/');
+// Calculate base path dynamically (works on both local XAMPP and Hostinger)
+$scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
+$basePath = '';
 
-$file = __DIR__ . '/pages/' . $path . '.php';
-
-if (!is_file($file)) {
-    http_response_code(404);
-    echo 'Not found';
-    exit;
+// Check if we're in a subdirectory (like /salamehtools on localhost)
+if (strpos($scriptPath, '/index.php') !== false) {
+    $basePath = str_replace('/index.php', '', $scriptPath);
 }
 
-require $file;
+// Redirect to login page
+$loginUrl = $basePath . '/pages/login.php';
+header('Location: ' . $loginUrl);
+exit;

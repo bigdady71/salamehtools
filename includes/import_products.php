@@ -14,16 +14,29 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
  * @param PDO $pdo Database connection (should be within a transaction if needed)
  * @param string $path Absolute path to Excel file
  * @param int|null $run_id Optional import_runs.id for tracking
- * @return array ['ok' => bool, 'inserted' => int, 'updated' => int, 'skipped' => int, 'total' => int, 'errors' => array, 'warnings' => array, 'message' => string]
+ * @param array $options Optional filter options:
+ *   - skip_zero_qty: bool - Skip products with quantity = 0
+ *   - skip_zero_retail_price: bool - Skip products with retail price = 0
+ *   - skip_zero_wholesale_price: bool - Skip products with wholesale price = 0
+ *   - skip_same_prices: bool - Skip products where retail price = wholesale price
+ * @return array ['ok' => bool, 'inserted' => int, 'updated' => int, 'skipped' => int, 'filtered' => int, 'total' => int, 'errors' => array, 'warnings' => array, 'message' => string]
  */
 if (!function_exists('import_products_from_path')) {
-    function import_products_from_path(PDO $pdo, string $path, ?int $run_id = null): array
+    function import_products_from_path(PDO $pdo, string $path, ?int $run_id = null, array $options = []): array
     {
+    // Default options
+    $options = array_merge([
+        'skip_zero_qty' => false,
+        'skip_zero_retail_price' => false,
+        'skip_zero_wholesale_price' => false,
+        'skip_same_prices' => false,
+    ], $options);
     $result = [
         'ok' => false,
         'inserted' => 0,
         'updated' => 0,
         'skipped' => 0,
+        'filtered' => 0, // Count of products filtered out by options
         'total' => 0,
         'errors' => [],
         'warnings' => [],
@@ -168,6 +181,25 @@ if (!function_exists('import_products_from_path')) {
                 // Use first available wholesale price, fallback to sale price if needed
                 $wholesale = $ws1 > 0 ? $ws1 : ($ws2 > 0 ? $ws2 : $sale);
 
+                // Apply import filters
+                $filterReason = null;
+                
+                if ($options['skip_zero_qty'] && $qoh <= 0) {
+                    $filterReason = 'quantity = 0';
+                } elseif ($options['skip_zero_retail_price'] && $sale <= 0) {
+                    $filterReason = 'retail price = 0';
+                } elseif ($options['skip_zero_wholesale_price'] && $wholesale <= 0) {
+                    $filterReason = 'wholesale price = 0';
+                } elseif ($options['skip_same_prices'] && $sale > 0 && abs($sale - $wholesale) < 0.001) {
+                    $filterReason = 'retail price = wholesale price';
+                }
+
+                if ($filterReason !== null) {
+                    $result['filtered']++;
+                    $skipped++;
+                    continue;
+                }
+
                 $stmt->execute([
                     ':sku' => $sku,
                     ':code_clean' => preg_replace('/[^A-Za-z0-9\-_.]/u', '', $sku),
@@ -222,12 +254,19 @@ if (!function_exists('import_products_from_path')) {
         $result['updated'] = $updated;
         $result['skipped'] = $skipped;
         $result['total'] = $inserted + $updated + $skipped;
-        $result['message'] = sprintf(
-            'Import successful: %d inserted, %d updated, %d skipped',
-            $inserted,
-            $updated,
-            $skipped
-        );
+        
+        // Build message with filter info
+        $msgParts = [
+            sprintf('%d inserted', $inserted),
+            sprintf('%d updated', $updated),
+        ];
+        if ($result['filtered'] > 0) {
+            $msgParts[] = sprintf('%d filtered out', $result['filtered']);
+        }
+        if ($skipped - $result['filtered'] > 0) {
+            $msgParts[] = sprintf('%d skipped (errors)', $skipped - $result['filtered']);
+        }
+        $result['message'] = 'Import successful: ' . implode(', ', $msgParts);
 
         // Send notifications to all sales reps for new products
         if (!empty($newProducts)) {

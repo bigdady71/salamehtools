@@ -118,10 +118,14 @@ $offset = ($page - 1) * $perPage;
 
 // Get product filter settings from database
 $filterSettings = [];
-$filterStmt = $pdo->query("SELECT k, v FROM settings WHERE k LIKE 'product_filter.%'");
-while ($row = $filterStmt->fetch(PDO::FETCH_ASSOC)) {
-    $key = str_replace('product_filter.', '', $row['k']);
-    $filterSettings[$key] = $row['v'];
+try {
+    $filterStmt = $pdo->query("SELECT k, v FROM settings WHERE k LIKE 'product_filter.%'");
+    while ($row = $filterStmt->fetch(PDO::FETCH_ASSOC)) {
+        $key = str_replace('product_filter.', '', $row['k']);
+        $filterSettings[$key] = $row['v'];
+    }
+} catch (PDOException $e) {
+    // Settings table might not exist yet - use defaults
 }
 
 // Build query with filter settings applied
@@ -133,19 +137,25 @@ $params = [];
 if (!empty($filterSettings['hide_zero_stock']) && $filterSettings['hide_zero_stock'] === '1') {
     $where[] = 'p.quantity_on_hand > 0';
 }
-if (!empty($filterSettings['hide_zero_price']) && $filterSettings['hide_zero_price'] === '1') {
+if (!empty($filterSettings['hide_zero_retail_price']) && $filterSettings['hide_zero_retail_price'] === '1') {
+    $where[] = 'p.sale_price_usd > 0';
+}
+if (!empty($filterSettings['hide_zero_wholesale_price']) && $filterSettings['hide_zero_wholesale_price'] === '1') {
     $where[] = 'p.wholesale_price_usd > 0';
 }
+if (!empty($filterSettings['hide_same_prices']) && $filterSettings['hide_same_prices'] === '1') {
+    $where[] = 'ABS(p.sale_price_usd - p.wholesale_price_usd) > 0.001';
+}
 if (!empty($filterSettings['hide_zero_stock_and_price']) && $filterSettings['hide_zero_stock_and_price'] === '1') {
-    $where[] = 'NOT (p.quantity_on_hand = 0 AND p.wholesale_price_usd = 0)';
+    $where[] = 'NOT (p.quantity_on_hand <= 0 AND p.wholesale_price_usd <= 0)';
 }
 $minQtyThreshold = (int)($filterSettings['min_quantity_threshold'] ?? 0);
 if ($minQtyThreshold > 0) {
     $where[] = 'p.quantity_on_hand >= ' . $minQtyThreshold;
 }
 
-// Default: always require positive wholesale price for customer portal
-if (empty($filterSettings['hide_zero_price']) || $filterSettings['hide_zero_price'] !== '1') {
+// Default: always require positive wholesale price for customer portal (unless already filtered)
+if (empty($filterSettings['hide_zero_wholesale_price']) || $filterSettings['hide_zero_wholesale_price'] !== '1') {
     $where[] = 'p.wholesale_price_usd > 0';
 }
 

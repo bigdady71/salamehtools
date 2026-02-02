@@ -98,6 +98,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 throw new Exception('Please upload a file or select an existing file to import.');
             }
 
+            // Get import filter options
+            $importOptions = [
+                'skip_zero_qty' => isset($_POST['skip_zero_qty']),
+                'skip_zero_retail_price' => isset($_POST['skip_zero_retail_price']),
+                'skip_zero_wholesale_price' => isset($_POST['skip_zero_wholesale_price']),
+                'skip_same_prices' => isset($_POST['skip_same_prices']),
+            ];
+
             // Create import run record
             $pdo->beginTransaction();
 
@@ -112,8 +120,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             ]);
             $runId = (int)$pdo->lastInsertId();
 
-            // Run the import
-            $importResult = import_products_from_path($pdo, $importPath, $runId);
+            // Run the import with filter options
+            $importResult = import_products_from_path($pdo, $importPath, $runId, $importOptions);
 
             // Update import run record
             $updateRunStmt = $pdo->prepare("
@@ -366,13 +374,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             // Save product filter settings
             set_setting($pdo, 'product_filter.hide_zero_stock', isset($_POST['hide_zero_stock']) ? '1' : '0');
-            set_setting($pdo, 'product_filter.hide_zero_price', isset($_POST['hide_zero_price']) ? '1' : '0');
+            set_setting($pdo, 'product_filter.hide_zero_retail_price', isset($_POST['hide_zero_retail_price']) ? '1' : '0');
+            set_setting($pdo, 'product_filter.hide_zero_wholesale_price', isset($_POST['hide_zero_wholesale_price']) ? '1' : '0');
+            set_setting($pdo, 'product_filter.hide_same_prices', isset($_POST['hide_same_prices']) ? '1' : '0');
             set_setting($pdo, 'product_filter.hide_zero_stock_and_price', isset($_POST['hide_zero_stock_and_price']) ? '1' : '0');
             set_setting($pdo, 'product_filter.min_quantity_threshold', (string)max(0, (int)($_POST['min_quantity_threshold'] ?? 0)));
 
             flash('success', '', [
                 'title' => 'Product Filter Settings Saved',
-                'lines' => ['Product visibility filters have been updated successfully.'],
+                'lines' => ['Product visibility filters have been updated successfully.', 'These filters will affect product visibility for customers and sales representatives.'],
                 'dismissible' => true
             ]);
         } catch (Exception $e) {
@@ -968,6 +978,45 @@ $flashes = consume_flashes();
                 </div>
             </div>
 
+            <!-- Import Filter Options -->
+            <div class="form-row" style="background: rgba(21, 128, 61, 0.1); border: 1px solid #86efac; border-radius: 10px; padding: 16px; margin-bottom: 20px;">
+                <label class="form-label" style="color: #15803d; margin-bottom: 12px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 6px;">
+                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                    </svg>
+                    Import Filters (Optional)
+                </label>
+                <div style="display: grid; gap: 10px;">
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" name="skip_zero_qty" id="skip_zero_qty" class="checkbox-input" value="1">
+                        <label for="skip_zero_qty" class="checkbox-label" style="color: #166534;">
+                            Skip products with Quantity = 0
+                        </label>
+                    </div>
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" name="skip_zero_retail_price" id="skip_zero_retail_price" class="checkbox-input" value="1">
+                        <label for="skip_zero_retail_price" class="checkbox-label" style="color: #166534;">
+                            Skip products with Retail Price = 0
+                        </label>
+                    </div>
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" name="skip_zero_wholesale_price" id="skip_zero_wholesale_price" class="checkbox-input" value="1">
+                        <label for="skip_zero_wholesale_price" class="checkbox-label" style="color: #166534;">
+                            Skip products with Wholesale Price = 0
+                        </label>
+                    </div>
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" name="skip_same_prices" id="skip_same_prices" class="checkbox-input" value="1">
+                        <label for="skip_same_prices" class="checkbox-label" style="color: #166534;">
+                            Skip products where Retail Price = Wholesale Price
+                        </label>
+                    </div>
+                </div>
+                <p class="form-help" style="color: #166534; margin-top: 10px;">
+                    Check these options to filter out unwanted products during import. Skipped products will not be added or updated.
+                </p>
+            </div>
+
             <?php if (!empty($availableFiles)): ?>
                 <div id="manual-existing-tab" class="tab-content">
                     <div class="form-row">
@@ -1247,7 +1296,7 @@ $flashes = consume_flashes();
             Product Visibility Filters
         </h2>
         <p class="section-subtitle" style="color: #78350f;">
-            Control which products are shown to customers and in product listings
+            Control which products are shown to customers and sales representatives in product listings
         </p>
 
         <form method="post" action="">
@@ -1261,21 +1310,41 @@ $flashes = consume_flashes();
                         <?= get_setting($pdo, 'product_filter.hide_zero_stock', '0') === '1' ? 'checked' : '' ?>
                         style="width: 20px; height: 20px;">
                     <div>
-                        <div style="font-weight: 600; color: #1f2937;">Hide products with zero stock</div>
-                        <div style="font-size: 0.85rem; color: #6b7280;">Products with quantity_on_hand = 0 will be
-                            hidden</div>
+                        <div style="font-weight: 600; color: #1f2937;">Hide products with zero stock (qty = 0)</div>
+                        <div style="font-size: 0.85rem; color: #6b7280;">Products with quantity_on_hand = 0 will be hidden from users and sales reps</div>
                     </div>
                 </label>
 
                 <label
                     style="display: flex; align-items: center; gap: 12px; padding: 16px; background: rgba(255,255,255,0.7); border-radius: 12px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;">
-                    <input type="checkbox" name="hide_zero_price" value="1"
-                        <?= get_setting($pdo, 'product_filter.hide_zero_price', '0') === '1' ? 'checked' : '' ?>
+                    <input type="checkbox" name="hide_zero_retail_price" value="1"
+                        <?= get_setting($pdo, 'product_filter.hide_zero_retail_price', '0') === '1' ? 'checked' : '' ?>
                         style="width: 20px; height: 20px;">
                     <div>
-                        <div style="font-weight: 600; color: #1f2937;">Hide products with zero price</div>
-                        <div style="font-size: 0.85rem; color: #6b7280;">Products with wholesale_price_usd = 0 will be
-                            hidden</div>
+                        <div style="font-weight: 600; color: #1f2937;">Hide products with zero retail price</div>
+                        <div style="font-size: 0.85rem; color: #6b7280;">Products with sale_price_usd = 0 will be hidden</div>
+                    </div>
+                </label>
+
+                <label
+                    style="display: flex; align-items: center; gap: 12px; padding: 16px; background: rgba(255,255,255,0.7); border-radius: 12px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;">
+                    <input type="checkbox" name="hide_zero_wholesale_price" value="1"
+                        <?= get_setting($pdo, 'product_filter.hide_zero_wholesale_price', '0') === '1' ? 'checked' : '' ?>
+                        style="width: 20px; height: 20px;">
+                    <div>
+                        <div style="font-weight: 600; color: #1f2937;">Hide products with zero wholesale price</div>
+                        <div style="font-size: 0.85rem; color: #6b7280;">Products with wholesale_price_usd = 0 will be hidden</div>
+                    </div>
+                </label>
+
+                <label
+                    style="display: flex; align-items: center; gap: 12px; padding: 16px; background: rgba(255,255,255,0.7); border-radius: 12px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;">
+                    <input type="checkbox" name="hide_same_prices" value="1"
+                        <?= get_setting($pdo, 'product_filter.hide_same_prices', '0') === '1' ? 'checked' : '' ?>
+                        style="width: 20px; height: 20px;">
+                    <div>
+                        <div style="font-weight: 600; color: #1f2937;">Hide products where retail price = wholesale price</div>
+                        <div style="font-size: 0.85rem; color: #6b7280;">Products with sale_price_usd = wholesale_price_usd will be hidden</div>
                     </div>
                 </label>
 
@@ -1285,15 +1354,14 @@ $flashes = consume_flashes();
                         <?= get_setting($pdo, 'product_filter.hide_zero_stock_and_price', '0') === '1' ? 'checked' : '' ?>
                         style="width: 20px; height: 20px;">
                     <div>
-                        <div style="font-weight: 600; color: #1f2937;">Hide products with BOTH zero stock AND zero price
-                        </div>
+                        <div style="font-weight: 600; color: #1f2937;">Hide products with BOTH zero stock AND zero price</div>
                         <div style="font-size: 0.85rem; color: #6b7280;">Only hides if both conditions are true</div>
                     </div>
                 </label>
 
                 <div style="padding: 16px; background: rgba(255,255,255,0.7); border-radius: 12px;">
                     <label style="display: block; font-weight: 600; color: #1f2937; margin-bottom: 8px;">
-                        Minimum quantity threshold
+                        Minimum quantity threshold (hide products below this stock level)
                     </label>
                     <input type="number" name="min_quantity_threshold"
                         value="<?= htmlspecialchars(get_setting($pdo, 'product_filter.min_quantity_threshold', '0'), ENT_QUOTES, 'UTF-8') ?>"
