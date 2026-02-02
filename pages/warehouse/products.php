@@ -60,14 +60,57 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     exportToCSV($exportData, $filename);
 }
 
+// Include product filters helper
+require_once __DIR__ . '/../../includes/product_filters.php';
+
 // Handle search and filters
 $search = trim($_GET['search'] ?? '');
 $stockStatus = $_GET['stock_status'] ?? 'all';
 $category = trim($_GET['category'] ?? '');
 
+// Check if filters should apply to warehouse users
+$applyFilters = should_apply_product_filters($pdo, 'warehouse');
+
+// Get product filter settings if applicable
+$filterSettings = [];
+if ($applyFilters) {
+    try {
+        $filterStmt = $pdo->query("SELECT k, v FROM settings WHERE k LIKE 'product_filter.%'");
+        while ($row = $filterStmt->fetch(PDO::FETCH_ASSOC)) {
+            $key = str_replace('product_filter.', '', $row['k']);
+            $filterSettings[$key] = $row['v'];
+        }
+    } catch (PDOException $e) {
+        // Settings table might not exist yet
+    }
+}
+
 // Build WHERE clause
 $where = ['p.is_active = 1'];
 $params = [];
+
+// Apply admin-configured product filters if applicable
+if ($applyFilters) {
+    if (!empty($filterSettings['hide_zero_stock']) && $filterSettings['hide_zero_stock'] === '1') {
+        $where[] = 'p.quantity_on_hand > 0';
+    }
+    if (!empty($filterSettings['hide_zero_retail_price']) && $filterSettings['hide_zero_retail_price'] === '1') {
+        $where[] = 'p.sale_price_usd > 0';
+    }
+    if (!empty($filterSettings['hide_zero_wholesale_price']) && $filterSettings['hide_zero_wholesale_price'] === '1') {
+        $where[] = 'p.wholesale_price_usd > 0';
+    }
+    if (!empty($filterSettings['hide_same_prices']) && $filterSettings['hide_same_prices'] === '1') {
+        $where[] = 'ABS(p.sale_price_usd - p.wholesale_price_usd) > 0.001';
+    }
+    if (!empty($filterSettings['hide_zero_stock_and_price']) && $filterSettings['hide_zero_stock_and_price'] === '1') {
+        $where[] = 'NOT (p.quantity_on_hand <= 0 AND p.wholesale_price_usd <= 0)';
+    }
+    $minQtyThreshold = (int)($filterSettings['min_quantity_threshold'] ?? 0);
+    if ($minQtyThreshold > 0) {
+        $where[] = 'p.quantity_on_hand >= ' . $minQtyThreshold;
+    }
+}
 
 if ($search !== '') {
     $where[] = "(p.sku LIKE :search OR p.item_name LIKE :search OR p.barcode LIKE :search)";
@@ -136,17 +179,19 @@ warehouse_portal_render_layout_start([
 
 <!-- Filters -->
 <div class="card" style="margin-bottom:24px;">
-    <form method="GET" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;align-items:end;">
+    <form method="GET"
+        style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;align-items:end;">
         <div>
             <label style="display:block;font-weight:500;margin-bottom:8px;font-size:0.9rem;">Search</label>
             <input type="text" name="search" value="<?= htmlspecialchars($search, ENT_QUOTES, 'UTF-8') ?>"
-                   placeholder="SKU, name, or barcode..."
-                   style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;">
+                placeholder="SKU, name, or barcode..."
+                style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;">
         </div>
 
         <div>
             <label style="display:block;font-weight:500;margin-bottom:8px;font-size:0.9rem;">Stock Status</label>
-            <select name="stock_status" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;">
+            <select name="stock_status"
+                style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;">
                 <option value="all" <?= $stockStatus === 'all' ? 'selected' : '' ?>>All Products</option>
                 <option value="in_stock" <?= $stockStatus === 'in_stock' ? 'selected' : '' ?>>In Stock</option>
                 <option value="low" <?= $stockStatus === 'low' ? 'selected' : '' ?>>Low Stock</option>
@@ -160,7 +205,7 @@ warehouse_portal_render_layout_start([
                 <option value="">All Categories</option>
                 <?php foreach ($categories as $cat): ?>
                     <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>"
-                            <?= $category === $cat ? 'selected' : '' ?>>
+                        <?= $category === $cat ? 'selected' : '' ?>>
                         <?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>
                     </option>
                 <?php endforeach; ?>
@@ -174,13 +219,13 @@ warehouse_portal_render_layout_start([
     </form>
 
     <!-- Export Button -->
-    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+    <div
+        style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
         <div style="color:var(--muted);font-size:0.9rem;">
             Showing <?= count($products) ?> product(s)
         </div>
         <a href="?export=csv<?= $search ? '&search=' . urlencode($search) : '' ?><?= $stockStatus !== 'all' ? '&stock_status=' . urlencode($stockStatus) : '' ?><?= $category ? '&category=' . urlencode($category) : '' ?>"
-           class="btn btn-secondary"
-           style="background:#059669;color:white;border-color:#059669;">
+            class="btn btn-secondary" style="background:#059669;color:white;border-color:#059669;">
             📥 Export to CSV
         </a>
     </div>
@@ -263,14 +308,16 @@ warehouse_portal_render_layout_start([
                     $statusColor = '#059669';
                 }
                 ?>
-                <div style="background:white;border:2px solid <?= $borderColor ?>;border-radius:8px;padding:12px;display:flex;gap:12px;align-items:center;">
+                <div
+                    style="background:white;border:2px solid <?= $borderColor ?>;border-radius:8px;padding:12px;display:flex;gap:12px;align-items:center;">
                     <!-- Product Image -->
                     <?php if (!empty($product['image_url'])): ?>
                         <img src="<?= htmlspecialchars($product['image_url'], ENT_QUOTES, 'UTF-8') ?>"
-                             alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
-                             style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;">
+                            alt="<?= htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8') ?>"
+                            style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;">
                     <?php else: ?>
-                        <div style="width:60px;height:60px;background:#f3f4f6;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:1.5rem;">
+                        <div
+                            style="width:60px;height:60px;background:#f3f4f6;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:1.5rem;">
                             📦
                         </div>
                     <?php endif; ?>
@@ -314,11 +361,11 @@ warehouse_portal_render_layout_start([
                     <!-- Actions -->
                     <div style="display:flex;flex-direction:column;gap:6px;">
                         <a href="upload_product_image.php?product_id=<?= $product['id'] ?>"
-                           style="padding:6px 12px;background:#10b981;color:white;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:500;text-align:center;white-space:nowrap;">
+                            style="padding:6px 12px;background:#10b981;color:white;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:500;text-align:center;white-space:nowrap;">
                             📸 <?= !empty($product['image_url']) ? 'Change' : 'Add' ?> Image
                         </a>
                         <a href="adjustments.php?product_id=<?= $product['id'] ?>"
-                           style="padding:6px 12px;background:#3b82f6;color:white;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:500;text-align:center;">
+                            style="padding:6px 12px;background:#3b82f6;color:white;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:500;text-align:center;">
                             Adjust Stock
                         </a>
                     </div>

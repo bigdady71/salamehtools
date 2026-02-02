@@ -379,10 +379,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             set_setting($pdo, 'product_filter.hide_same_prices', isset($_POST['hide_same_prices']) ? '1' : '0');
             set_setting($pdo, 'product_filter.hide_zero_stock_and_price', isset($_POST['hide_zero_stock_and_price']) ? '1' : '0');
             set_setting($pdo, 'product_filter.min_quantity_threshold', (string)max(0, (int)($_POST['min_quantity_threshold'] ?? 0)));
+            
+            // Save which roles the filters apply to
+            $filterRoles = $_POST['filter_roles'] ?? [];
+            // Ensure it's an array of valid roles
+            $validRoles = ['customer', 'sales_rep', 'warehouse', 'accountant'];
+            $filterRoles = array_intersect($filterRoles, $validRoles);
+            set_setting($pdo, 'product_filter.apply_to_roles', json_encode(array_values($filterRoles)));
+
+            // Build message showing which roles are affected
+            $roleNames = [
+                'customer' => 'Customers',
+                'sales_rep' => 'Sales Reps',
+                'warehouse' => 'Warehouse',
+                'accountant' => 'Accountants'
+            ];
+            $affectedRoles = array_map(fn($r) => $roleNames[$r] ?? $r, $filterRoles);
+            $rolesMsg = !empty($affectedRoles) ? 'Filters apply to: ' . implode(', ', $affectedRoles) : 'No roles selected - filters are disabled';
 
             flash('success', '', [
                 'title' => 'Product Filter Settings Saved',
-                'lines' => ['Product visibility filters have been updated successfully.', 'These filters will affect product visibility for customers and sales representatives.'],
+                'lines' => ['Product visibility filters have been updated successfully.', $rolesMsg],
                 'dismissible' => true
             ]);
         } catch (Exception $e) {
@@ -1287,6 +1304,12 @@ $flashes = consume_flashes();
     </script>
 
     <!-- Product Filter Settings Section -->
+    <?php
+    // Get current role settings for filters
+    $filterRolesJson = get_setting($pdo, 'product_filter.apply_to_roles', '');
+    $filterRoles = $filterRolesJson ? json_decode($filterRolesJson, true) : ['customer', 'sales_rep']; // Default to customer and sales_rep
+    if (!is_array($filterRoles)) $filterRoles = ['customer', 'sales_rep'];
+    ?>
     <div class="settings-section"
         style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 2px solid #fbbf24;">
         <h2 class="section-title" style="color: #92400e; display: flex; align-items: center; gap: 10px;">
@@ -1296,12 +1319,46 @@ $flashes = consume_flashes();
             Product Visibility Filters
         </h2>
         <p class="section-subtitle" style="color: #78350f;">
-            Control which products are shown to customers and sales representatives in product listings
+            Control which products are shown to different user roles in product listings
         </p>
 
         <form method="post" action="">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="save_product_filters">
+
+            <!-- Apply To Roles Section -->
+            <div style="padding: 20px; background: rgba(255,255,255,0.9); border-radius: 12px; margin-bottom: 20px; border: 2px solid #f59e0b;">
+                <label style="display: block; font-weight: 700; color: #92400e; margin-bottom: 12px; font-size: 1rem;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 6px;">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    Apply filters to these user roles:
+                </label>
+                <div style="display: flex; flex-wrap: wrap; gap: 16px;">
+                    <label style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: <?= in_array('customer', $filterRoles) ? '#dcfce7' : '#f3f4f6' ?>; border-radius: 8px; cursor: pointer; border: 2px solid <?= in_array('customer', $filterRoles) ? '#22c55e' : 'transparent' ?>; transition: all 0.2s;">
+                        <input type="checkbox" name="filter_roles[]" value="customer" <?= in_array('customer', $filterRoles) ? 'checked' : '' ?> style="width: 18px; height: 18px; accent-color: #22c55e;">
+                        <span style="font-weight: 600; color: #1f2937;">👤 Customers</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: <?= in_array('sales_rep', $filterRoles) ? '#dbeafe' : '#f3f4f6' ?>; border-radius: 8px; cursor: pointer; border: 2px solid <?= in_array('sales_rep', $filterRoles) ? '#3b82f6' : 'transparent' ?>; transition: all 0.2s;">
+                        <input type="checkbox" name="filter_roles[]" value="sales_rep" <?= in_array('sales_rep', $filterRoles) ? 'checked' : '' ?> style="width: 18px; height: 18px; accent-color: #3b82f6;">
+                        <span style="font-weight: 600; color: #1f2937;">🚚 Sales Reps</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: <?= in_array('warehouse', $filterRoles) ? '#fef3c7' : '#f3f4f6' ?>; border-radius: 8px; cursor: pointer; border: 2px solid <?= in_array('warehouse', $filterRoles) ? '#f59e0b' : 'transparent' ?>; transition: all 0.2s;">
+                        <input type="checkbox" name="filter_roles[]" value="warehouse" <?= in_array('warehouse', $filterRoles) ? 'checked' : '' ?> style="width: 18px; height: 18px; accent-color: #f59e0b;">
+                        <span style="font-weight: 600; color: #1f2937;">🏭 Warehouse</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: <?= in_array('accountant', $filterRoles) ? '#ede9fe' : '#f3f4f6' ?>; border-radius: 8px; cursor: pointer; border: 2px solid <?= in_array('accountant', $filterRoles) ? '#8b5cf6' : 'transparent' ?>; transition: all 0.2s;">
+                        <input type="checkbox" name="filter_roles[]" value="accountant" <?= in_array('accountant', $filterRoles) ? 'checked' : '' ?> style="width: 18px; height: 18px; accent-color: #8b5cf6;">
+                        <span style="font-weight: 600; color: #1f2937;">📊 Accountants</span>
+                    </label>
+                </div>
+                <div style="font-size: 0.85rem; color: #78350f; margin-top: 10px;">
+                    ℹ️ Admins always see all products. Select which roles should have filters applied.
+                </div>
+            </div>
 
             <div style="display: grid; gap: 16px;">
                 <label
@@ -1311,7 +1368,7 @@ $flashes = consume_flashes();
                         style="width: 20px; height: 20px;">
                     <div>
                         <div style="font-weight: 600; color: #1f2937;">Hide products with zero stock (qty = 0)</div>
-                        <div style="font-size: 0.85rem; color: #6b7280;">Products with quantity_on_hand = 0 will be hidden from users and sales reps</div>
+                        <div style="font-size: 0.85rem; color: #6b7280;">Products with quantity_on_hand = 0 will be hidden</div>
                     </div>
                 </label>
 
@@ -1385,6 +1442,29 @@ $flashes = consume_flashes();
             </button>
         </form>
     </div>
+    
+    <script>
+        // Update visual state for filter role checkboxes
+        document.querySelectorAll('input[name="filter_roles[]"]').forEach(cb => {
+            cb.addEventListener('change', function() {
+                const label = this.closest('label');
+                const colors = {
+                    'customer': { bg: '#dcfce7', border: '#22c55e' },
+                    'sales_rep': { bg: '#dbeafe', border: '#3b82f6' },
+                    'warehouse': { bg: '#fef3c7', border: '#f59e0b' },
+                    'accountant': { bg: '#ede9fe', border: '#8b5cf6' }
+                };
+                const role = this.value;
+                if (this.checked) {
+                    label.style.background = colors[role]?.bg || '#dcfce7';
+                    label.style.borderColor = colors[role]?.border || '#22c55e';
+                } else {
+                    label.style.background = '#f3f4f6';
+                    label.style.borderColor = 'transparent';
+                }
+            });
+        });
+    </script>
 
     <form method="post" action="" enctype="multipart/form-data">
         <?= csrf_field() ?>

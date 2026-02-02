@@ -10,22 +10,74 @@
 declare(strict_types=1);
 
 /**
+ * Check if filters should be applied to a specific user role
+ * 
+ * @param PDO $pdo Database connection
+ * @param string $role User role to check (customer, sales_rep, warehouse, accountant, admin)
+ * @return bool True if filters should be applied to this role
+ */
+function should_apply_product_filters(PDO $pdo, string $role): bool
+{
+    // Admins always see all products
+    if ($role === 'admin' || $role === 'super_admin') {
+        return false;
+    }
+
+    // Get the roles that filters apply to
+    $rolesJson = get_product_filter_setting($pdo, 'apply_to_roles', '');
+    if (empty($rolesJson)) {
+        // Default: apply to customer and sales_rep
+        return in_array($role, ['customer', 'sales_rep']);
+    }
+
+    $roles = json_decode($rolesJson, true);
+    if (!is_array($roles)) {
+        return in_array($role, ['customer', 'sales_rep']);
+    }
+
+    return in_array($role, $roles);
+}
+
+/**
+ * Get the list of roles that filters apply to
+ * 
+ * @param PDO $pdo Database connection
+ * @return array List of role names
+ */
+function get_filter_applied_roles(PDO $pdo): array
+{
+    $rolesJson = get_product_filter_setting($pdo, 'apply_to_roles', '');
+    if (empty($rolesJson)) {
+        return ['customer', 'sales_rep']; // Default
+    }
+
+    $roles = json_decode($rolesJson, true);
+    return is_array($roles) ? $roles : ['customer', 'sales_rep'];
+}
+
+/**
  * Get product visibility filter SQL conditions
  * 
  * @param PDO $pdo Database connection
  * @param string $tableAlias Table alias for products table (default: 'p')
+ * @param string|null $userRole Optional user role - if provided, checks if filters apply to this role
  * @return string SQL WHERE conditions to filter products (without leading AND/OR)
  */
-function get_product_filter_conditions(PDO $pdo, string $tableAlias = 'p'): string
+function get_product_filter_conditions(PDO $pdo, string $tableAlias = 'p', ?string $userRole = null): string
 {
+    // If user role is provided, check if filters should apply
+    if ($userRole !== null && !should_apply_product_filters($pdo, $userRole)) {
+        return '1=1'; // No filters for this role
+    }
+
     $conditions = [];
 
     // Get settings from database
-    $hideZeroStock = get_product_filter_setting($pdo, 'hide_zero_stock');
-    $hideZeroRetailPrice = get_product_filter_setting($pdo, 'hide_zero_retail_price');
-    $hideZeroWholesalePrice = get_product_filter_setting($pdo, 'hide_zero_wholesale_price');
-    $hideSamePrices = get_product_filter_setting($pdo, 'hide_same_prices');
-    $hideZeroStockAndPrice = get_product_filter_setting($pdo, 'hide_zero_stock_and_price');
+    $hideZeroStock = get_product_filter_setting($pdo, 'hide_zero_stock') === '1';
+    $hideZeroRetailPrice = get_product_filter_setting($pdo, 'hide_zero_retail_price') === '1';
+    $hideZeroWholesalePrice = get_product_filter_setting($pdo, 'hide_zero_wholesale_price') === '1';
+    $hideSamePrices = get_product_filter_setting($pdo, 'hide_same_prices') === '1';
+    $hideZeroStockAndPrice = get_product_filter_setting($pdo, 'hide_zero_stock_and_price') === '1';
     $minQuantityThreshold = (int)get_product_filter_setting($pdo, 'min_quantity_threshold', '0');
 
     // Build conditions
@@ -95,10 +147,16 @@ function get_product_filter_setting(PDO $pdo, string $key, string $default = '0'
  * Check if product filters are enabled (at least one filter is active)
  * 
  * @param PDO $pdo Database connection
- * @return bool True if any filter is enabled
+ * @param string|null $userRole Optional user role to check
+ * @return bool True if any filter is enabled and applies to the role
  */
-function has_active_product_filters(PDO $pdo): bool
+function has_active_product_filters(PDO $pdo, ?string $userRole = null): bool
 {
+    // If role provided, check if filters apply
+    if ($userRole !== null && !should_apply_product_filters($pdo, $userRole)) {
+        return false;
+    }
+
     return get_product_filter_setting($pdo, 'hide_zero_stock') === '1'
         || get_product_filter_setting($pdo, 'hide_zero_retail_price') === '1'
         || get_product_filter_setting($pdo, 'hide_zero_wholesale_price') === '1'
@@ -140,6 +198,19 @@ function get_active_filter_descriptions(PDO $pdo): array
     $minQty = (int)get_product_filter_setting($pdo, 'min_quantity_threshold', '0');
     if ($minQty > 0) {
         $descriptions[] = "Hiding products with stock below {$minQty}";
+    }
+
+    // Add which roles are affected
+    $roles = get_filter_applied_roles($pdo);
+    if (!empty($roles)) {
+        $roleNames = [
+            'customer' => 'Customers',
+            'sales_rep' => 'Sales Reps',
+            'warehouse' => 'Warehouse',
+            'accountant' => 'Accountants'
+        ];
+        $roleLabels = array_map(fn($r) => $roleNames[$r] ?? $r, $roles);
+        $descriptions[] = 'Applied to: ' . implode(', ', $roleLabels);
     }
 
     return $descriptions;

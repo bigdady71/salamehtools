@@ -116,6 +116,9 @@ $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 40;
 $offset = ($page - 1) * $perPage;
 
+// Include product filters helper
+require_once __DIR__ . '/../../includes/product_filters.php';
+
 // Get product filter settings from database
 $filterSettings = [];
 try {
@@ -128,34 +131,39 @@ try {
     // Settings table might not exist yet - use defaults
 }
 
+// Check if filters should apply to customers
+$applyFilters = should_apply_product_filters($pdo, 'customer');
+
 // Build query with filter settings applied
 // PRICE RULE: Show only wholesale price (or wholesale + retail if both shown)
 $where = ['p.is_active = 1', 'p.deleted_at IS NULL'];
 $params = [];
 
-// Apply filter settings
-if (!empty($filterSettings['hide_zero_stock']) && $filterSettings['hide_zero_stock'] === '1') {
-    $where[] = 'p.quantity_on_hand > 0';
-}
-if (!empty($filterSettings['hide_zero_retail_price']) && $filterSettings['hide_zero_retail_price'] === '1') {
-    $where[] = 'p.sale_price_usd > 0';
-}
-if (!empty($filterSettings['hide_zero_wholesale_price']) && $filterSettings['hide_zero_wholesale_price'] === '1') {
-    $where[] = 'p.wholesale_price_usd > 0';
-}
-if (!empty($filterSettings['hide_same_prices']) && $filterSettings['hide_same_prices'] === '1') {
-    $where[] = 'ABS(p.sale_price_usd - p.wholesale_price_usd) > 0.001';
-}
-if (!empty($filterSettings['hide_zero_stock_and_price']) && $filterSettings['hide_zero_stock_and_price'] === '1') {
-    $where[] = 'NOT (p.quantity_on_hand <= 0 AND p.wholesale_price_usd <= 0)';
-}
-$minQtyThreshold = (int)($filterSettings['min_quantity_threshold'] ?? 0);
-if ($minQtyThreshold > 0) {
-    $where[] = 'p.quantity_on_hand >= ' . $minQtyThreshold;
+// Apply filter settings only if they apply to customers
+if ($applyFilters) {
+    if (!empty($filterSettings['hide_zero_stock']) && $filterSettings['hide_zero_stock'] === '1') {
+        $where[] = 'p.quantity_on_hand > 0';
+    }
+    if (!empty($filterSettings['hide_zero_retail_price']) && $filterSettings['hide_zero_retail_price'] === '1') {
+        $where[] = 'p.sale_price_usd > 0';
+    }
+    if (!empty($filterSettings['hide_zero_wholesale_price']) && $filterSettings['hide_zero_wholesale_price'] === '1') {
+        $where[] = 'p.wholesale_price_usd > 0';
+    }
+    if (!empty($filterSettings['hide_same_prices']) && $filterSettings['hide_same_prices'] === '1') {
+        $where[] = 'ABS(p.sale_price_usd - p.wholesale_price_usd) > 0.001';
+    }
+    if (!empty($filterSettings['hide_zero_stock_and_price']) && $filterSettings['hide_zero_stock_and_price'] === '1') {
+        $where[] = 'NOT (p.quantity_on_hand <= 0 AND p.wholesale_price_usd <= 0)';
+    }
+    $minQtyThreshold = (int)($filterSettings['min_quantity_threshold'] ?? 0);
+    if ($minQtyThreshold > 0) {
+        $where[] = 'p.quantity_on_hand >= ' . $minQtyThreshold;
+    }
 }
 
 // Default: always require positive wholesale price for customer portal (unless already filtered)
-if (empty($filterSettings['hide_zero_wholesale_price']) || $filterSettings['hide_zero_wholesale_price'] !== '1') {
+if (!$applyFilters || empty($filterSettings['hide_zero_wholesale_price']) || $filterSettings['hide_zero_wholesale_price'] !== '1') {
     $where[] = 'p.wholesale_price_usd > 0';
 }
 

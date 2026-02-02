@@ -26,6 +26,9 @@ $search = trim($_GET['search'] ?? '');
 $category = $_GET['category'] ?? '';
 $stockFilter = $_GET['stock'] ?? '';
 
+// Include product filters helper
+require_once __DIR__ . '/../../includes/product_filters.php';
+
 // Get product filter settings from database
 $filterSettings = [];
 try {
@@ -38,29 +41,34 @@ try {
     // Settings table might not exist yet - use defaults
 }
 
+// Check if filters should apply to sales reps
+$applyFilters = should_apply_product_filters($pdo, 'sales_rep');
+
 // Build WHERE conditions
 $where = ['p.is_active = 1']; // Only show active products to sales reps
 $params = [];
 
-// Apply admin-configured product filters
-if (!empty($filterSettings['hide_zero_stock']) && $filterSettings['hide_zero_stock'] === '1') {
-    $where[] = 'p.quantity_on_hand > 0';
-}
-if (!empty($filterSettings['hide_zero_retail_price']) && $filterSettings['hide_zero_retail_price'] === '1') {
-    $where[] = 'p.sale_price_usd > 0';
-}
-if (!empty($filterSettings['hide_zero_wholesale_price']) && $filterSettings['hide_zero_wholesale_price'] === '1') {
-    $where[] = 'p.wholesale_price_usd > 0';
-}
-if (!empty($filterSettings['hide_same_prices']) && $filterSettings['hide_same_prices'] === '1') {
-    $where[] = 'ABS(p.sale_price_usd - p.wholesale_price_usd) > 0.001';
-}
-if (!empty($filterSettings['hide_zero_stock_and_price']) && $filterSettings['hide_zero_stock_and_price'] === '1') {
-    $where[] = 'NOT (p.quantity_on_hand <= 0 AND p.wholesale_price_usd <= 0)';
-}
-$minQtyThreshold = (int)($filterSettings['min_quantity_threshold'] ?? 0);
-if ($minQtyThreshold > 0) {
-    $where[] = 'p.quantity_on_hand >= ' . $minQtyThreshold;
+// Apply admin-configured product filters only if they apply to sales reps
+if ($applyFilters) {
+    if (!empty($filterSettings['hide_zero_stock']) && $filterSettings['hide_zero_stock'] === '1') {
+        $where[] = 'p.quantity_on_hand > 0';
+    }
+    if (!empty($filterSettings['hide_zero_retail_price']) && $filterSettings['hide_zero_retail_price'] === '1') {
+        $where[] = 'p.sale_price_usd > 0';
+    }
+    if (!empty($filterSettings['hide_zero_wholesale_price']) && $filterSettings['hide_zero_wholesale_price'] === '1') {
+        $where[] = 'p.wholesale_price_usd > 0';
+    }
+    if (!empty($filterSettings['hide_same_prices']) && $filterSettings['hide_same_prices'] === '1') {
+        $where[] = 'ABS(p.sale_price_usd - p.wholesale_price_usd) > 0.001';
+    }
+    if (!empty($filterSettings['hide_zero_stock_and_price']) && $filterSettings['hide_zero_stock_and_price'] === '1') {
+        $where[] = 'NOT (p.quantity_on_hand <= 0 AND p.wholesale_price_usd <= 0)';
+    }
+    $minQtyThreshold = (int)($filterSettings['min_quantity_threshold'] ?? 0);
+    if ($minQtyThreshold > 0) {
+        $where[] = 'p.quantity_on_hand >= ' . $minQtyThreshold;
+    }
 }
 
 if ($search !== '') {
