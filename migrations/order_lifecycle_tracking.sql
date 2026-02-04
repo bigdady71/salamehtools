@@ -211,7 +211,41 @@ CREATE TABLE IF NOT EXISTS order_handovers (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================================
--- 5. ADD NEW STATUS VALUES TO ORDERS (if needed)
+-- 5. ORDER TRANSFER OTPs (Two-Factor Verification for Handovers)
+-- ============================================================================
+-- Tracks OTP codes for warehouse-to-sales-rep handover verification
+
+CREATE TABLE IF NOT EXISTS order_transfer_otps (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    order_id BIGINT UNSIGNED NOT NULL UNIQUE,
+    
+    -- OTP codes
+    warehouse_otp VARCHAR(6) NOT NULL,
+    sales_rep_otp VARCHAR(6) NOT NULL,
+    
+    -- Verification timestamps
+    warehouse_verified_at TIMESTAMP NULL DEFAULT NULL,
+    warehouse_verified_by BIGINT UNSIGNED NULL,
+    sales_rep_verified_at TIMESTAMP NULL DEFAULT NULL,
+    sales_rep_verified_by BIGINT UNSIGNED NULL,
+    
+    -- Expiration
+    expires_at DATETIME NOT NULL,
+    
+    -- Timestamps
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_order_id (order_id),
+    INDEX idx_expires_at (expires_at),
+    
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (warehouse_verified_by) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (sales_rep_verified_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================================
+-- 6. ADD NEW STATUS VALUES TO ORDERS (if needed)
 -- ============================================================================
 -- Modify the orders table to support new statuses
 

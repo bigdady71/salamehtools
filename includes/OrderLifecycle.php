@@ -1,4 +1,5 @@
 <?php
+
 /**
  * OrderLifecycle - Manages order state transitions and inventory movements
  *
@@ -12,7 +13,8 @@
  *   - All movements are atomic and logged
  */
 
-class OrderLifecycle {
+class OrderLifecycle
+{
     private PDO $pdo;
     private ?int $userId = null;
     private ?string $userRole = null;
@@ -45,14 +47,16 @@ class OrderLifecycle {
     const ACTION_NOTES_UPDATED = 'notes_updated';
     const ACTION_STATUS_CHANGED = 'status_changed';
 
-    public function __construct(PDO $pdo) {
+    public function __construct(PDO $pdo)
+    {
         $this->pdo = $pdo;
     }
 
     /**
      * Set the current user context
      */
-    public function setUser(int $userId, string $role): self {
+    public function setUser(int $userId, string $role): self
+    {
         $this->userId = $userId;
         $this->userRole = $role;
         return $this;
@@ -61,7 +65,8 @@ class OrderLifecycle {
     /**
      * Get valid transitions for a given status
      */
-    public function getValidTransitions(string $fromStatus): array {
+    public function getValidTransitions(string $fromStatus): array
+    {
         $stmt = $this->pdo->prepare("
             SELECT to_status, allowed_roles, requires_reason, description
             FROM order_status_transitions
@@ -74,7 +79,8 @@ class OrderLifecycle {
     /**
      * Check if a transition is valid
      */
-    public function isTransitionValid(string $fromStatus, string $toStatus, string $role): bool {
+    public function isTransitionValid(string $fromStatus, string $toStatus, string $role): bool
+    {
         $stmt = $this->pdo->prepare("
             SELECT id FROM order_status_transitions
             WHERE from_status = :from_status
@@ -92,7 +98,8 @@ class OrderLifecycle {
     /**
      * Check if transition requires a reason
      */
-    public function transitionRequiresReason(string $fromStatus, string $toStatus): bool {
+    public function transitionRequiresReason(string $fromStatus, string $toStatus): bool
+    {
         $stmt = $this->pdo->prepare("
             SELECT requires_reason FROM order_status_transitions
             WHERE from_status = :from_status AND to_status = :to_status
@@ -144,7 +151,8 @@ class OrderLifecycle {
     /**
      * Get order with lock for update (prevents concurrent modifications)
      */
-    public function getOrderForUpdate(int $orderId): ?array {
+    public function getOrderForUpdate(int $orderId): ?array
+    {
         $stmt = $this->pdo->prepare("
             SELECT o.*, u.name as sales_rep_name
             FROM orders o
@@ -159,7 +167,8 @@ class OrderLifecycle {
     /**
      * Get order items
      */
-    public function getOrderItems(int $orderId): array {
+    public function getOrderItems(int $orderId): array
+    {
         $stmt = $this->pdo->prepare("
             SELECT oi.*, p.item_name as product_name, p.quantity_on_hand as warehouse_stock
             FROM order_items oi
@@ -173,7 +182,8 @@ class OrderLifecycle {
     /**
      * Check stock availability for an order
      */
-    public function checkStockAvailability(int $orderId): array {
+    public function checkStockAvailability(int $orderId): array
+    {
         $items = $this->getOrderItems($orderId);
         $result = [
             'all_available' => true,
@@ -201,7 +211,8 @@ class OrderLifecycle {
     /**
      * Put order on hold
      */
-    public function putOnHold(int $orderId, string $reason): array {
+    public function putOnHold(int $orderId, string $reason): array
+    {
         $this->pdo->beginTransaction();
 
         try {
@@ -234,7 +245,6 @@ class OrderLifecycle {
             $this->pdo->commit();
 
             return ['success' => true, 'message' => 'Order put on hold'];
-
         } catch (Exception $e) {
             $this->pdo->rollBack();
             return ['success' => false, 'message' => $e->getMessage()];
@@ -244,7 +254,8 @@ class OrderLifecycle {
     /**
      * Resume order from hold
      */
-    public function resumeOrder(int $orderId): array {
+    public function resumeOrder(int $orderId): array
+    {
         $this->pdo->beginTransaction();
 
         try {
@@ -276,7 +287,6 @@ class OrderLifecycle {
             $this->pdo->commit();
 
             return ['success' => true, 'message' => 'Order resumed'];
-
         } catch (Exception $e) {
             $this->pdo->rollBack();
             return ['success' => false, 'message' => $e->getMessage()];
@@ -286,7 +296,8 @@ class OrderLifecycle {
     /**
      * Cancel order
      */
-    public function cancelOrder(int $orderId, string $reason): array {
+    public function cancelOrder(int $orderId, string $reason): array
+    {
         $this->pdo->beginTransaction();
 
         try {
@@ -324,7 +335,6 @@ class OrderLifecycle {
             $this->pdo->commit();
 
             return ['success' => true, 'message' => 'Order cancelled'];
-
         } catch (Exception $e) {
             $this->pdo->rollBack();
             return ['success' => false, 'message' => $e->getMessage()];
@@ -334,7 +344,8 @@ class OrderLifecycle {
     /**
      * Mark order as ready for handover (NO STOCK DEDUCTION)
      */
-    public function markAsReady(int $orderId, ?string $notes = null): array {
+    public function markAsReady(int $orderId, ?string $notes = null): array
+    {
         $this->pdo->beginTransaction();
 
         try {
@@ -378,7 +389,6 @@ class OrderLifecycle {
             $this->pdo->commit();
 
             return ['success' => true, 'message' => 'Order marked as ready for handover'];
-
         } catch (Exception $e) {
             $this->pdo->rollBack();
             return ['success' => false, 'message' => $e->getMessage()];
@@ -388,7 +398,8 @@ class OrderLifecycle {
     /**
      * Sales rep accepts order - THIS IS WHERE STOCK IS DEDUCTED
      */
-    public function acceptBySalesRep(int $orderId, int $salesRepId): array {
+    public function acceptBySalesRep(int $orderId, int $salesRepId): array
+    {
         $this->pdo->beginTransaction();
 
         try {
@@ -435,7 +446,6 @@ class OrderLifecycle {
             $this->pdo->commit();
 
             return ['success' => true, 'message' => 'Order accepted and stock transferred'];
-
         } catch (Exception $e) {
             $this->pdo->rollBack();
             return ['success' => false, 'message' => $e->getMessage()];
@@ -445,7 +455,8 @@ class OrderLifecycle {
     /**
      * Transfer stock from warehouse to sales rep
      */
-    private function transferStockToSalesRep(int $orderId, int $salesRepId): array {
+    private function transferStockToSalesRep(int $orderId, int $salesRepId): array
+    {
         $items = $this->getOrderItems($orderId);
         $movementIds = [];
 
@@ -489,15 +500,15 @@ class OrderLifecycle {
                 $insertStmt->execute(['rep_id' => $salesRepId, 'product_id' => $productId, 'qty' => $quantity]);
             }
 
-            // Log warehouse movement
+            // Log warehouse movement (using correct column names: kind, qty, reason, ref)
             $warehouseMovementStmt = $this->pdo->prepare("
-                INSERT INTO warehouse_movements (product_id, delta_qty, movement_type, reason, note, created_by, created_at)
-                VALUES (:product_id, :delta_qty, 'order_fulfillment', 'Order fulfillment', :note, :user_id, NOW())
+                INSERT INTO warehouse_movements (product_id, kind, qty, reason, ref, created_by, created_at)
+                VALUES (:product_id, 'out', :qty, 'Order fulfillment', :ref, :user_id, NOW())
             ");
             $warehouseMovementStmt->execute([
                 'product_id' => $productId,
-                'delta_qty' => -$quantity,
-                'note' => "Order #{$orderId} - Transferred to sales rep",
+                'qty' => $quantity,
+                'ref' => "Order #{$orderId} - Transferred to sales rep",
                 'user_id' => $this->userId
             ]);
 
@@ -548,7 +559,8 @@ class OrderLifecycle {
     /**
      * Reverse stock movement (for cancelled orders after handover)
      */
-    private function reverseStockMovement(int $orderId): void {
+    private function reverseStockMovement(int $orderId): void
+    {
         $items = $this->getOrderItems($orderId);
 
         // Get sales rep ID from order
@@ -578,15 +590,15 @@ class OrderLifecycle {
             ");
             $stmt->execute(['qty' => $quantity, 'rep_id' => $salesRepId, 'product_id' => $productId]);
 
-            // Log warehouse movement
+            // Log warehouse movement (using correct column names: kind, qty, reason, ref)
             $warehouseMovementStmt = $this->pdo->prepare("
-                INSERT INTO warehouse_movements (product_id, delta_qty, movement_type, reason, note, created_by, created_at)
-                VALUES (:product_id, :delta_qty, 'order_cancellation', 'Order cancelled', :note, :user_id, NOW())
+                INSERT INTO warehouse_movements (product_id, kind, qty, reason, ref, created_by, created_at)
+                VALUES (:product_id, 'in', :qty, 'Order cancelled', :ref, :user_id, NOW())
             ");
             $warehouseMovementStmt->execute([
                 'product_id' => $productId,
-                'delta_qty' => $quantity,
-                'note' => "Order #{$orderId} - Cancelled, stock returned",
+                'qty' => $quantity,
+                'ref' => "Order #{$orderId} - Cancelled, stock returned",
                 'user_id' => $this->userId
             ]);
 
@@ -633,7 +645,8 @@ class OrderLifecycle {
     /**
      * Create handover record
      */
-    private function createHandoverRecord(int $orderId, int $salesRepId, array $movementIds): void {
+    private function createHandoverRecord(int $orderId, int $salesRepId, array $movementIds): void
+    {
         $stmt = $this->pdo->prepare("
             INSERT INTO order_handovers
             (order_id, prepared_by, sales_rep_id, stock_transferred_at, stock_movement_ids, status, expires_at)
@@ -657,7 +670,8 @@ class OrderLifecycle {
     /**
      * Complete order
      */
-    public function completeOrder(int $orderId): array {
+    public function completeOrder(int $orderId): array
+    {
         $this->pdo->beginTransaction();
 
         try {
@@ -696,7 +710,6 @@ class OrderLifecycle {
             $this->pdo->commit();
 
             return ['success' => true, 'message' => 'Order completed'];
-
         } catch (Exception $e) {
             $this->pdo->rollBack();
             return ['success' => false, 'message' => $e->getMessage()];
@@ -706,7 +719,8 @@ class OrderLifecycle {
     /**
      * Get warehouse stock for a product
      */
-    private function getWarehouseStock(int $productId): float {
+    private function getWarehouseStock(int $productId): float
+    {
         $stmt = $this->pdo->prepare("SELECT quantity_on_hand FROM products WHERE id = :id");
         $stmt->execute(['id' => $productId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -716,7 +730,8 @@ class OrderLifecycle {
     /**
      * Get sales rep van stock for a product
      */
-    private function getSalesRepStock(int $salesRepId, int $productId): float {
+    private function getSalesRepStock(int $salesRepId, int $productId): float
+    {
         $stmt = $this->pdo->prepare("
             SELECT qty_on_hand FROM s_stock
             WHERE salesperson_id = :rep_id AND product_id = :product_id
@@ -729,7 +744,8 @@ class OrderLifecycle {
     /**
      * Get order action history
      */
-    public function getOrderHistory(int $orderId): array {
+    public function getOrderHistory(int $orderId): array
+    {
         $stmt = $this->pdo->prepare("
             SELECT
                 oal.*,
@@ -746,7 +762,8 @@ class OrderLifecycle {
     /**
      * Get inventory movements for an order
      */
-    public function getOrderMovements(int $orderId): array {
+    public function getOrderMovements(int $orderId): array
+    {
         $stmt = $this->pdo->prepare("
             SELECT
                 im.*,
@@ -765,7 +782,8 @@ class OrderLifecycle {
     /**
      * Get orders ready for a sales rep to accept
      */
-    public function getOrdersReadyForSalesRep(int $salesRepId): array {
+    public function getOrdersReadyForSalesRep(int $salesRepId): array
+    {
         $stmt = $this->pdo->prepare("
             SELECT o.*,
                    (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count,
