@@ -1024,9 +1024,9 @@ class InvoicePDF
             $params[':date_to'] = $filters['date_to'];
         }
 
-        // Sales rep filter
+        // Sales rep filter (use order's sales rep; invoices may not have sales_rep_id populated)
         if (!empty($filters['sales_rep_id'])) {
-            $where[] = "i.sales_rep_id = :sales_rep_id";
+            $where[] = "o.sales_rep_id = :sales_rep_id";
             $params[':sales_rep_id'] = $filters['sales_rep_id'];
         }
 
@@ -1091,7 +1091,7 @@ class InvoicePDF
             FROM invoices i
             JOIN orders o ON i.order_id = o.id
             JOIN customers c ON o.customer_id = c.id
-            JOIN users u ON i.sales_rep_id = u.id
+            JOIN users u ON o.sales_rep_id = u.id
             LEFT JOIN (
                 SELECT invoice_id, SUM(amount_usd) AS paid_usd
                 FROM payments

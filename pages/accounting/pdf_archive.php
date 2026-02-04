@@ -48,7 +48,8 @@ $salesRepId = trim($_GET['sales_rep'] ?? '');
 $dateFrom = trim($_GET['date_from'] ?? '');
 $dateTo = trim($_GET['date_to'] ?? '');
 $status = trim($_GET['status'] ?? '');
-$hasPdf = isset($_GET['has_pdf']) ? ($_GET['has_pdf'] === '1') : null;
+// Only apply PDF filter when user explicitly chose "with PDF" (1) or "without PDF" (0); "All" (empty) = no filter
+$hasPdf = isset($_GET['has_pdf']) && $_GET['has_pdf'] !== '' ? ($_GET['has_pdf'] === '1') : null;
 
 // Pagination
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -83,317 +84,318 @@ include __DIR__ . '/../../includes/header.php';
 ?>
 
 <style>
-    .archive-container {
-        max-width: 1400px;
-        margin: 0 auto;
-        padding: 20px;
-    }
+.archive-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
 
-    .page-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 20px;
-        flex-wrap: wrap;
-        gap: 15px;
-    }
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 15px;
+}
 
-    .page-title {
-        font-size: 24px;
-        font-weight: 700;
-        color: #1f2937;
-    }
+.page-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1f2937;
+}
 
-    .header-actions {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-    }
+.header-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
 
-    .btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 10px 16px;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: 14px;
-        cursor: pointer;
-        text-decoration: none;
-        border: none;
-        transition: all 0.2s;
-    }
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    text-decoration: none;
+    border: none;
+    transition: all 0.2s;
+}
 
-    .btn-primary {
-        background: #3b82f6;
-        color: white;
-    }
+.btn-primary {
+    background: #3b82f6;
+    color: white;
+}
 
-    .btn-primary:hover {
-        background: #2563eb;
-    }
+.btn-primary:hover {
+    background: #2563eb;
+}
 
-    .btn-success {
-        background: #10b981;
-        color: white;
-    }
+.btn-success {
+    background: #10b981;
+    color: white;
+}
 
-    .btn-success:hover {
-        background: #059669;
-    }
+.btn-success:hover {
+    background: #059669;
+}
 
-    .btn-warning {
-        background: #f59e0b;
-        color: white;
-    }
+.btn-warning {
+    background: #f59e0b;
+    color: white;
+}
 
-    .btn-warning:hover {
-        background: #d97706;
-    }
+.btn-warning:hover {
+    background: #d97706;
+}
 
-    .btn-secondary {
-        background: #6b7280;
-        color: white;
-    }
+.btn-secondary {
+    background: #6b7280;
+    color: white;
+}
 
-    .btn-secondary:hover {
-        background: #4b5563;
-    }
+.btn-secondary:hover {
+    background: #4b5563;
+}
 
-    .btn-sm {
-        padding: 6px 12px;
-        font-size: 13px;
-    }
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 13px;
+}
 
-    .filters-card {
-        background: white;
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+.filters-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+    align-items: end;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.filter-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #4b5563;
+}
+
+.filter-input {
+    padding: 10px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 14px;
+    width: 100%;
+}
+
+.filter-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.stats-bar {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.stat-card {
+    background: white;
+    border-radius: 10px;
+    padding: 15px 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    min-width: 150px;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.stat-label {
+    font-size: 13px;
+    color: #6b7280;
+    margin-top: 2px;
+}
+
+.invoices-table {
+    width: 100%;
+    background: white;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.invoices-table th {
+    background: #f3f4f6;
+    padding: 12px 15px;
+    text-align: right;
+    font-weight: 600;
+    font-size: 13px;
+    color: #374151;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.invoices-table td {
+    padding: 12px 15px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 14px;
+}
+
+.invoices-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.invoice-number {
+    font-weight: 600;
+    color: #3b82f6;
+}
+
+.customer-name {
+    font-weight: 500;
+}
+
+.customer-phone {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.badge-success {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.badge-warning {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.badge-info {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.badge-gray {
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.pdf-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pdf-exists {
+    color: #059669;
+}
+
+.pdf-missing {
+    color: #dc2626;
+}
+
+.actions-cell {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    gap: 5px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+.pagination a,
+.pagination span {
+    padding: 8px 14px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.pagination a {
+    background: white;
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+
+.pagination a:hover {
+    background: #f3f4f6;
+}
+
+.pagination .active {
+    background: #3b82f6;
+    color: white;
+    border: 1px solid #3b82f6;
+}
+
+.pagination .disabled {
+    background: #f3f4f6;
+    color: #9ca3af;
+    border: 1px solid #e5e7eb;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    background: white;
+    border-radius: 12px;
+}
+
+.empty-icon {
+    font-size: 48px;
+    margin-bottom: 15px;
+}
+
+.empty-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 8px;
+}
+
+.empty-text {
+    color: #6b7280;
+}
+
+@media (max-width: 768px) {
+    .invoices-table {
+        display: block;
+        overflow-x: auto;
     }
 
     .filters-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 15px;
-        align-items: end;
+        grid-template-columns: 1fr;
     }
-
-    .filter-group {
-        display: flex;
-        flex-direction: column;
-        gap: 5px;
-    }
-
-    .filter-label {
-        font-size: 13px;
-        font-weight: 600;
-        color: #4b5563;
-    }
-
-    .filter-input {
-        padding: 10px 12px;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: 14px;
-        width: 100%;
-    }
-
-    .filter-input:focus {
-        outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-
-    .stats-bar {
-        display: flex;
-        gap: 20px;
-        margin-bottom: 20px;
-        flex-wrap: wrap;
-    }
-
-    .stat-card {
-        background: white;
-        border-radius: 10px;
-        padding: 15px 20px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        min-width: 150px;
-    }
-
-    .stat-value {
-        font-size: 24px;
-        font-weight: 700;
-        color: #1f2937;
-    }
-
-    .stat-label {
-        font-size: 13px;
-        color: #6b7280;
-        margin-top: 2px;
-    }
-
-    .invoices-table {
-        width: 100%;
-        background: white;
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-
-    .invoices-table th {
-        background: #f3f4f6;
-        padding: 12px 15px;
-        text-align: right;
-        font-weight: 600;
-        font-size: 13px;
-        color: #374151;
-        border-bottom: 1px solid #e5e7eb;
-    }
-
-    .invoices-table td {
-        padding: 12px 15px;
-        border-bottom: 1px solid #f3f4f6;
-        font-size: 14px;
-    }
-
-    .invoices-table tbody tr:hover {
-        background: #f9fafb;
-    }
-
-    .invoice-number {
-        font-weight: 600;
-        color: #3b82f6;
-    }
-
-    .customer-name {
-        font-weight: 500;
-    }
-
-    .customer-phone {
-        font-size: 12px;
-        color: #6b7280;
-    }
-
-    .badge {
-        display: inline-block;
-        padding: 4px 10px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-
-    .badge-success {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .badge-warning {
-        background: #fef3c7;
-        color: #92400e;
-    }
-
-    .badge-info {
-        background: #dbeafe;
-        color: #1e40af;
-    }
-
-    .badge-gray {
-        background: #f3f4f6;
-        color: #374151;
-    }
-
-    .pdf-status {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .pdf-exists {
-        color: #059669;
-    }
-
-    .pdf-missing {
-        color: #dc2626;
-    }
-
-    .actions-cell {
-        display: flex;
-        gap: 6px;
-        flex-wrap: wrap;
-    }
-
-    .pagination {
-        display: flex;
-        justify-content: center;
-        gap: 5px;
-        margin-top: 20px;
-        flex-wrap: wrap;
-    }
-
-    .pagination a, .pagination span {
-        padding: 8px 14px;
-        border-radius: 6px;
-        text-decoration: none;
-        font-weight: 500;
-        font-size: 14px;
-    }
-
-    .pagination a {
-        background: white;
-        color: #374151;
-        border: 1px solid #d1d5db;
-    }
-
-    .pagination a:hover {
-        background: #f3f4f6;
-    }
-
-    .pagination .active {
-        background: #3b82f6;
-        color: white;
-        border: 1px solid #3b82f6;
-    }
-
-    .pagination .disabled {
-        background: #f3f4f6;
-        color: #9ca3af;
-        border: 1px solid #e5e7eb;
-    }
-
-    .empty-state {
-        text-align: center;
-        padding: 60px 20px;
-        background: white;
-        border-radius: 12px;
-    }
-
-    .empty-icon {
-        font-size: 48px;
-        margin-bottom: 15px;
-    }
-
-    .empty-title {
-        font-size: 18px;
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: 8px;
-    }
-
-    .empty-text {
-        color: #6b7280;
-    }
-
-    @media (max-width: 768px) {
-        .invoices-table {
-            display: block;
-            overflow-x: auto;
-        }
-
-        .filters-grid {
-            grid-template-columns: 1fr;
-        }
-    }
+}
 </style>
 
 <div class="archive-container">
@@ -402,7 +404,8 @@ include __DIR__ . '/../../includes/header.php';
         <h1 class="page-title">📁 أرشيف فواتير PDF</h1>
         <div class="header-actions">
             <?php if ($noPdfCount > 0): ?>
-            <form method="POST" style="display:inline;" onsubmit="return confirm('Generate PDFs for <?= $noPdfCount ?> invoices without PDF?');">
+            <form method="POST" style="display:inline;"
+                onsubmit="return confirm('Generate PDFs for <?= $noPdfCount ?> invoices without PDF?');">
                 <input type="hidden" name="action" value="batch_generate">
                 <button type="submit" class="btn btn-warning">
                     ⚡ توليد <?= number_format($noPdfCount) ?> PDF مفقود
@@ -436,7 +439,8 @@ include __DIR__ . '/../../includes/header.php';
         <form method="GET" class="filters-grid">
             <div class="filter-group">
                 <label class="filter-label">بحث</label>
-                <input type="text" name="search" class="filter-input" placeholder="رقم الفاتورة أو اسم العميل..." value="<?= htmlspecialchars($search) ?>">
+                <input type="text" name="search" class="filter-input" placeholder="رقم الفاتورة أو اسم العميل..."
+                    value="<?= htmlspecialchars($search) ?>">
             </div>
             <div class="filter-group">
                 <label class="filter-label">مندوب المبيعات</label>
@@ -536,7 +540,8 @@ include __DIR__ . '/../../includes/header.php';
                         <?php if ($hasPdfFile): ?>
                         <span class="pdf-exists">✓ موجود</span>
                         <?php if ($invoice['pdf_generated_at']): ?>
-                        <small style="color: #6b7280;"><?= date('d/m H:i', strtotime($invoice['pdf_generated_at'])) ?></small>
+                        <small
+                            style="color: #6b7280;"><?= date('d/m H:i', strtotime($invoice['pdf_generated_at'])) ?></small>
                         <?php endif; ?>
                         <?php else: ?>
                         <span class="pdf-missing">✗ غير موجود</span>
@@ -545,10 +550,12 @@ include __DIR__ . '/../../includes/header.php';
                 </td>
                 <td>
                     <div class="actions-cell">
-                        <a href="invoice_pdf.php?invoice_id=<?= $invoice['id'] ?>&action=view" target="_blank" class="btn btn-primary btn-sm">
+                        <a href="invoice_pdf.php?invoice_id=<?= $invoice['id'] ?>&action=view" target="_blank"
+                            class="btn btn-primary btn-sm">
                             👁️ عرض
                         </a>
-                        <a href="invoice_pdf.php?invoice_id=<?= $invoice['id'] ?>&action=download" class="btn btn-success btn-sm">
+                        <a href="invoice_pdf.php?invoice_id=<?= $invoice['id'] ?>&action=download"
+                            class="btn btn-success btn-sm">
                             ⬇️ تحميل
                         </a>
                         <form method="POST" style="display:inline;">
@@ -598,9 +605,9 @@ include __DIR__ . '/../../includes/header.php';
         for ($p = $startPage; $p <= $endPage; $p++):
             if ($p == $page): ?>
         <span class="active"><?= $p ?></span>
-            <?php else: ?>
+        <?php else: ?>
         <a href="<?= $baseUrl . $p ?>"><?= $p ?></a>
-            <?php endif;
+        <?php endif;
         endfor;
 
         if ($endPage < $totalPages):
