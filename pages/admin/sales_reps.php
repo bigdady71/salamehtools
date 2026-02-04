@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Sales Representatives Management Page
  *
@@ -94,6 +95,7 @@ $sortDir = strtoupper($sortOrder) === 'ASC' ? 'ASC' : 'DESC';
 
 // ========================================
 // FETCH SALES REPS WITH PERFORMANCE METRICS
+// Use subqueries for order/revenue to avoid duplicate counting when joining customers.
 // ========================================
 $sql = "
     SELECT
@@ -103,17 +105,21 @@ $sql = "
         u.phone,
         u.is_active,
         u.created_at,
-        COUNT(DISTINCT c.id) as customer_count,
-        COUNT(DISTINCT o.id) as order_count,
-        COALESCE(SUM(i.total_usd), 0) as total_revenue_usd,
-        COALESCE(SUM(i.total_lbp), 0) as total_revenue_lbp,
-        MAX(o.created_at) as last_order_date
+        (SELECT COUNT(*) FROM customers c WHERE c.assigned_sales_rep_id = u.id) AS customer_count,
+        (SELECT COUNT(DISTINCT o.id) FROM orders o
+         INNER JOIN invoices i ON i.order_id = o.id AND i.status IN ('issued', 'paid')
+         WHERE o.sales_rep_id = u.id) AS order_count,
+        (SELECT COALESCE(SUM(i.total_usd), 0) FROM orders o
+         INNER JOIN invoices i ON i.order_id = o.id AND i.status IN ('issued', 'paid')
+         WHERE o.sales_rep_id = u.id) AS total_revenue_usd,
+        (SELECT COALESCE(SUM(i.total_lbp), 0) FROM orders o
+         INNER JOIN invoices i ON i.order_id = o.id AND i.status IN ('issued', 'paid')
+         WHERE o.sales_rep_id = u.id) AS total_revenue_lbp,
+        (SELECT MAX(o.created_at) FROM orders o
+         INNER JOIN invoices i ON i.order_id = o.id AND i.status IN ('issued', 'paid')
+         WHERE o.sales_rep_id = u.id) AS last_order_date
     FROM users u
-    LEFT JOIN customers c ON c.assigned_sales_rep_id = u.id
-    LEFT JOIN orders o ON o.sales_rep_id = u.id
-    LEFT JOIN invoices i ON i.order_id = o.id AND i.status IN ('issued', 'paid')
     {$whereClause}
-    GROUP BY u.id
     ORDER BY {$sortColumn} {$sortDir}
 ";
 
@@ -122,21 +128,21 @@ $stmt->execute($params);
 $salesReps = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // ========================================
-// CALCULATE OVERALL STATISTICS
+// CALCULATE OVERALL STATISTICS (no duplicate counting)
 // ========================================
 $overallStats = $pdo->query("
     SELECT
-        COUNT(DISTINCT u.id) as total_sales_reps,
-        SUM(CASE WHEN u.is_active = 1 THEN 1 ELSE 0 END) as active_reps,
-        SUM(CASE WHEN u.is_active = 0 THEN 1 ELSE 0 END) as inactive_reps,
-        COUNT(DISTINCT c.id) as total_customers_assigned,
-        COUNT(DISTINCT o.id) as total_orders,
-        COALESCE(SUM(i.total_usd), 0) as total_revenue_usd
-    FROM users u
-    LEFT JOIN customers c ON c.assigned_sales_rep_id = u.id
-    LEFT JOIN orders o ON o.sales_rep_id = u.id
-    LEFT JOIN invoices i ON i.order_id = o.id AND i.status IN ('issued', 'paid')
-    WHERE u.role = 'sales_rep'
+        (SELECT COUNT(*) FROM users u2 WHERE u2.role = 'sales_rep') AS total_sales_reps,
+        (SELECT COUNT(*) FROM users u2 WHERE u2.role = 'sales_rep' AND u2.is_active = 1) AS active_reps,
+        (SELECT COUNT(*) FROM users u2 WHERE u2.role = 'sales_rep' AND u2.is_active = 0) AS inactive_reps,
+        (SELECT COUNT(*) FROM customers c WHERE c.assigned_sales_rep_id IN (SELECT id FROM users WHERE role = 'sales_rep')) AS total_customers_assigned,
+        (SELECT COUNT(DISTINCT o.id) FROM orders o
+         INNER JOIN invoices i ON i.order_id = o.id AND i.status IN ('issued', 'paid')
+         INNER JOIN users u2 ON u2.id = o.sales_rep_id AND u2.role = 'sales_rep') AS total_orders,
+        (SELECT COALESCE(SUM(i.total_usd), 0) FROM invoices i
+         INNER JOIN orders o ON o.id = i.order_id
+         INNER JOIN users u2 ON u2.id = o.sales_rep_id AND u2.role = 'sales_rep'
+         WHERE i.status IN ('issued', 'paid')) AS total_revenue_usd
 ")->fetch(PDO::FETCH_ASSOC);
 
 // Calculate average performance per active rep
@@ -198,8 +204,8 @@ admin_render_flashes($flashes);
         <div>
             <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">Search</label>
             <input type="text" name="search" value="<?= htmlspecialchars($search) ?>"
-                   placeholder="Name, email, or phone..."
-                   style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px;">
+                placeholder="Name, email, or phone..."
+                style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px;">
         </div>
 
         <div>
@@ -229,15 +235,15 @@ admin_render_flashes($flashes);
     <div>
         Sort by:
         <a href="?search=<?= urlencode($search) ?>&status=<?= $filterStatus ?>&sort=total_revenue&order=desc"
-           style="<?= $sortBy === 'total_revenue' ? 'font-weight: 700; color: #1f6feb;' : 'color: #6b7280;' ?>">
+            style="<?= $sortBy === 'total_revenue' ? 'font-weight: 700; color: #1f6feb;' : 'color: #6b7280;' ?>">
             Revenue
         </a> |
         <a href="?search=<?= urlencode($search) ?>&status=<?= $filterStatus ?>&sort=order_count&order=desc"
-           style="<?= $sortBy === 'order_count' ? 'font-weight: 700; color: #1f6feb;' : 'color: #6b7280;' ?>">
+            style="<?= $sortBy === 'order_count' ? 'font-weight: 700; color: #1f6feb;' : 'color: #6b7280;' ?>">
             Orders
         </a> |
         <a href="?search=<?= urlencode($search) ?>&status=<?= $filterStatus ?>&sort=customer_count&order=desc"
-           style="<?= $sortBy === 'customer_count' ? 'font-weight: 700; color: #1f6feb;' : 'color: #6b7280;' ?>">
+            style="<?= $sortBy === 'customer_count' ? 'font-weight: 700; color: #1f6feb;' : 'color: #6b7280;' ?>">
             Customers
         </a>
     </div>
@@ -260,88 +266,88 @@ admin_render_flashes($flashes);
             </thead>
             <tbody>
                 <?php if (empty($salesReps)): ?>
-                <tr>
-                    <td colspan="7" style="padding: 40px; text-align: center; color: #9ca3af;">
-                        No sales representatives found.
-                    </td>
-                </tr>
+                    <tr>
+                        <td colspan="7" style="padding: 40px; text-align: center; color: #9ca3af;">
+                            No sales representatives found.
+                        </td>
+                    </tr>
                 <?php else: ?>
-                <?php foreach ($salesReps as $rep): ?>
-                <tr style="border-bottom: 1px solid #f3f4f6;">
-                    <td style="padding: 12px;">
-                        <div style="font-weight: 600; color: #111827;"><?= htmlspecialchars($rep['name']) ?></div>
-                        <div style="font-size: 0.85rem; color: #6b7280;">
-                            <?= $rep['email'] ? htmlspecialchars($rep['email']) : 'No email' ?>
-                        </div>
-                        <?php if ($rep['phone']): ?>
-                        <div style="font-size: 0.85rem; color: #6b7280;">
-                            <?= htmlspecialchars($rep['phone']) ?>
-                        </div>
-                        <?php endif; ?>
-                    </td>
-                    <td style="padding: 12px; text-align: center;">
-                        <div style="font-weight: 600; font-size: 1.2rem; color: #1f6feb;">
-                            <?= number_format($rep['customer_count']) ?>
-                        </div>
-                        <a href="customers.php?sales_rep=<?= $rep['id'] ?>"
-                           style="font-size: 0.85rem; color: #6b7280;">
-                            View customers
-                        </a>
-                    </td>
-                    <td style="padding: 12px; text-align: center;">
-                        <div style="font-weight: 600; font-size: 1.2rem; color: #8b5cf6;">
-                            <?= number_format($rep['order_count']) ?>
-                        </div>
-                        <a href="orders.php?sales_rep=<?= $rep['id'] ?>"
-                           style="font-size: 0.85rem; color: #6b7280;">
-                            View orders
-                        </a>
-                    </td>
-                    <td style="padding: 12px; text-align: right;">
-                        <div style="font-weight: 700; font-size: 1.1rem; color: #10b981;">
-                            $<?= number_format($rep['total_revenue_usd'], 2) ?>
-                        </div>
-                        <?php if ($rep['order_count'] > 0): ?>
-                        <div style="font-size: 0.85rem; color: #6b7280;">
-                            Avg: $<?= number_format($rep['total_revenue_usd'] / $rep['order_count'], 2) ?>
-                        </div>
-                        <?php endif; ?>
-                    </td>
-                    <td style="padding: 12px; color: #374151;">
-                        <?php if ($rep['last_order_date']): ?>
-                            <?= date('M d, Y', strtotime($rep['last_order_date'])) ?>
-                            <div style="font-size: 0.85rem; color: #6b7280;">
-                                <?= date('H:i', strtotime($rep['last_order_date'])) ?>
-                            </div>
-                        <?php else: ?>
-                            <span style="color: #9ca3af;">No orders yet</span>
-                        <?php endif; ?>
-                    </td>
-                    <td style="padding: 12px; text-align: center;">
-                        <?php if ($rep['is_active']): ?>
-                        <span style="display: inline-block; padding: 4px 12px; background: #d1fae5; color: #065f46; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">
-                            Active
-                        </span>
-                        <?php else: ?>
-                        <span style="display: inline-block; padding: 4px 12px; background: #fee2e2; color: #991b1b; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">
-                            Inactive
-                        </span>
-                        <?php endif; ?>
-                    </td>
-                    <td style="padding: 12px; text-align: center;">
-                        <form method="POST" style="display: inline;">
-                            <input type="hidden" name="action" value="toggle_status">
-                            <input type="hidden" name="sales_rep_id" value="<?= $rep['id'] ?>">
-                            <button type="submit"
-                                    class="btn"
-                                    style="padding: 6px 12px; font-size: 0.85rem; background: <?= $rep['is_active'] ? '#fef3c7' : '#d1fae5' ?>;"
-                                    onclick="return confirm('Are you sure you want to <?= $rep['is_active'] ? 'deactivate' : 'activate' ?> this sales rep?')">
-                                <?= $rep['is_active'] ? 'Deactivate' : 'Activate' ?>
-                            </button>
-                        </form>
-                    </td>
-                </tr>
-                <?php endforeach; ?>
+                    <?php foreach ($salesReps as $rep): ?>
+                        <tr style="border-bottom: 1px solid #f3f4f6;">
+                            <td style="padding: 12px;">
+                                <div style="font-weight: 600; color: #111827;"><?= htmlspecialchars($rep['name']) ?></div>
+                                <div style="font-size: 0.85rem; color: #6b7280;">
+                                    <?= $rep['email'] ? htmlspecialchars($rep['email']) : 'No email' ?>
+                                </div>
+                                <?php if ($rep['phone']): ?>
+                                    <div style="font-size: 0.85rem; color: #6b7280;">
+                                        <?= htmlspecialchars($rep['phone']) ?>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding: 12px; text-align: center;">
+                                <div style="font-weight: 600; font-size: 1.2rem; color: #1f6feb;">
+                                    <?= number_format($rep['customer_count']) ?>
+                                </div>
+                                <a href="customers.php?sales_rep=<?= $rep['id'] ?>"
+                                    style="font-size: 0.85rem; color: #6b7280;">
+                                    View customers
+                                </a>
+                            </td>
+                            <td style="padding: 12px; text-align: center;">
+                                <div style="font-weight: 600; font-size: 1.2rem; color: #8b5cf6;">
+                                    <?= number_format($rep['order_count']) ?>
+                                </div>
+                                <a href="orders.php?sales_rep=<?= $rep['id'] ?>"
+                                    style="font-size: 0.85rem; color: #6b7280;">
+                                    View orders
+                                </a>
+                            </td>
+                            <td style="padding: 12px; text-align: right;">
+                                <div style="font-weight: 700; font-size: 1.1rem; color: #10b981;">
+                                    $<?= number_format($rep['total_revenue_usd'], 2) ?>
+                                </div>
+                                <?php if ($rep['order_count'] > 0): ?>
+                                    <div style="font-size: 0.85rem; color: #6b7280;">
+                                        Avg: $<?= number_format($rep['total_revenue_usd'] / $rep['order_count'], 2) ?>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding: 12px; color: #374151;">
+                                <?php if ($rep['last_order_date']): ?>
+                                    <?= date('M d, Y', strtotime($rep['last_order_date'])) ?>
+                                    <div style="font-size: 0.85rem; color: #6b7280;">
+                                        <?= date('H:i', strtotime($rep['last_order_date'])) ?>
+                                    </div>
+                                <?php else: ?>
+                                    <span style="color: #9ca3af;">No orders yet</span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding: 12px; text-align: center;">
+                                <?php if ($rep['is_active']): ?>
+                                    <span style="display: inline-block; padding: 4px 12px; background: #d1fae5; color: #065f46; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">
+                                        Active
+                                    </span>
+                                <?php else: ?>
+                                    <span style="display: inline-block; padding: 4px 12px; background: #fee2e2; color: #991b1b; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">
+                                        Inactive
+                                    </span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding: 12px; text-align: center;">
+                                <form method="POST" style="display: inline;">
+                                    <input type="hidden" name="action" value="toggle_status">
+                                    <input type="hidden" name="sales_rep_id" value="<?= $rep['id'] ?>">
+                                    <button type="submit"
+                                        class="btn"
+                                        style="padding: 6px 12px; font-size: 0.85rem; background: <?= $rep['is_active'] ? '#fef3c7' : '#d1fae5' ?>;"
+                                        onclick="return confirm('Are you sure you want to <?= $rep['is_active'] ? 'deactivate' : 'activate' ?> this sales rep?')">
+                                        <?= $rep['is_active'] ? 'Deactivate' : 'Activate' ?>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
                 <?php endif; ?>
             </tbody>
         </table>
@@ -350,43 +356,43 @@ admin_render_flashes($flashes);
 
 <!-- Performance Insights -->
 <?php if (!empty($salesReps)): ?>
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 30px;">
-    <!-- Top Performer -->
-    <?php
-    $topPerformer = array_reduce($salesReps, function($carry, $item) {
-        return ($item['total_revenue_usd'] > ($carry['total_revenue_usd'] ?? 0)) ? $item : $carry;
-    }, []);
-    ?>
-    <div class="card" style="padding: 20px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
-        <div style="font-size: 0.9rem; margin-bottom: 8px; opacity: 0.9;">Top Performer</div>
-        <div style="font-size: 1.5rem; font-weight: 700; margin-bottom: 4px;"><?= htmlspecialchars($topPerformer['name'] ?? 'N/A') ?></div>
-        <div style="font-size: 1.2rem; opacity: 0.9;">$<?= number_format($topPerformer['total_revenue_usd'] ?? 0, 0) ?> revenue</div>
-    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 30px;">
+        <!-- Top Performer -->
+        <?php
+        $topPerformer = array_reduce($salesReps, function ($carry, $item) {
+            return ($item['total_revenue_usd'] > ($carry['total_revenue_usd'] ?? 0)) ? $item : $carry;
+        }, []);
+        ?>
+        <div class="card" style="padding: 20px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
+            <div style="font-size: 0.9rem; margin-bottom: 8px; opacity: 0.9;">Top Performer</div>
+            <div style="font-size: 1.5rem; font-weight: 700; margin-bottom: 4px;"><?= htmlspecialchars($topPerformer['name'] ?? 'N/A') ?></div>
+            <div style="font-size: 1.2rem; opacity: 0.9;">$<?= number_format($topPerformer['total_revenue_usd'] ?? 0, 0) ?> revenue</div>
+        </div>
 
-    <!-- Most Customers -->
-    <?php
-    $mostCustomers = array_reduce($salesReps, function($carry, $item) {
-        return ($item['customer_count'] > ($carry['customer_count'] ?? 0)) ? $item : $carry;
-    }, []);
-    ?>
-    <div class="card" style="padding: 20px; background: linear-gradient(135deg, #1f6feb 0%, #0c4ab3 100%); color: white;">
-        <div style="font-size: 0.9rem; margin-bottom: 8px; opacity: 0.9;">Most Customers</div>
-        <div style="font-size: 1.5rem; font-weight: 700; margin-bottom: 4px;"><?= htmlspecialchars($mostCustomers['name'] ?? 'N/A') ?></div>
-        <div style="font-size: 1.2rem; opacity: 0.9;"><?= number_format($mostCustomers['customer_count'] ?? 0) ?> customers</div>
-    </div>
+        <!-- Most Customers -->
+        <?php
+        $mostCustomers = array_reduce($salesReps, function ($carry, $item) {
+            return ($item['customer_count'] > ($carry['customer_count'] ?? 0)) ? $item : $carry;
+        }, []);
+        ?>
+        <div class="card" style="padding: 20px; background: linear-gradient(135deg, #1f6feb 0%, #0c4ab3 100%); color: white;">
+            <div style="font-size: 0.9rem; margin-bottom: 8px; opacity: 0.9;">Most Customers</div>
+            <div style="font-size: 1.5rem; font-weight: 700; margin-bottom: 4px;"><?= htmlspecialchars($mostCustomers['name'] ?? 'N/A') ?></div>
+            <div style="font-size: 1.2rem; opacity: 0.9;"><?= number_format($mostCustomers['customer_count'] ?? 0) ?> customers</div>
+        </div>
 
-    <!-- Most Orders -->
-    <?php
-    $mostOrders = array_reduce($salesReps, function($carry, $item) {
-        return ($item['order_count'] > ($carry['order_count'] ?? 0)) ? $item : $carry;
-    }, []);
-    ?>
-    <div class="card" style="padding: 20px; background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); color: white;">
-        <div style="font-size: 0.9rem; margin-bottom: 8px; opacity: 0.9;">Most Orders</div>
-        <div style="font-size: 1.5rem; font-weight: 700; margin-bottom: 4px;"><?= htmlspecialchars($mostOrders['name'] ?? 'N/A') ?></div>
-        <div style="font-size: 1.2rem; opacity: 0.9;"><?= number_format($mostOrders['order_count'] ?? 0) ?> orders</div>
+        <!-- Most Orders -->
+        <?php
+        $mostOrders = array_reduce($salesReps, function ($carry, $item) {
+            return ($item['order_count'] > ($carry['order_count'] ?? 0)) ? $item : $carry;
+        }, []);
+        ?>
+        <div class="card" style="padding: 20px; background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); color: white;">
+            <div style="font-size: 0.9rem; margin-bottom: 8px; opacity: 0.9;">Most Orders</div>
+            <div style="font-size: 1.5rem; font-weight: 700; margin-bottom: 4px;"><?= htmlspecialchars($mostOrders['name'] ?? 'N/A') ?></div>
+            <div style="font-size: 1.2rem; opacity: 0.9;"><?= number_format($mostOrders['order_count'] ?? 0) ?> orders</div>
+        </div>
     </div>
-</div>
 <?php endif; ?>
 
 <!-- Help Text -->

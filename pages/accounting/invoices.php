@@ -185,8 +185,9 @@ accounting_render_flashes(consume_flashes());
 </div>
 
 <div class="card">
+    <p class="mb-1 text-muted" style="font-size: 0.9rem; font-weight: 600;">Search & filter</p>
     <form method="GET" class="filters">
-        <input type="text" name="search" placeholder="Search invoice # or customer..." value="<?= htmlspecialchars($search) ?>" class="filter-input" style="width: 200px;">
+        <input type="text" name="search" placeholder="Invoice # or customer name..." value="<?= htmlspecialchars($search) ?>" class="filter-input" style="min-width: 220px;">
 
         <select name="status" class="filter-input">
             <option value="">All Status</option>
@@ -224,18 +225,19 @@ accounting_render_flashes(consume_flashes());
                 <th class="text-right">Paid</th>
                 <th class="text-right">Outstanding</th>
                 <th>Status</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
             <?php if (empty($invoices)): ?>
                 <tr>
-                    <td colspan="8" class="text-center text-muted">No invoices found</td>
+                    <td colspan="9" class="text-center text-muted">No invoices found</td>
                 </tr>
             <?php else: ?>
                 <?php foreach ($invoices as $invoice): ?>
                     <?php
                     $outstanding = (float)$invoice['outstanding_usd'];
-                    $statusBadge = match($invoice['status']) {
+                    $statusBadge = match ($invoice['status']) {
                         'draft' => 'badge-neutral',
                         'pending' => 'badge-warning',
                         'issued' => 'badge-info',
@@ -272,6 +274,9 @@ accounting_render_flashes(consume_flashes());
                         <td>
                             <span class="badge <?= $statusBadge ?>"><?= ucfirst($invoice['status']) ?></span>
                         </td>
+                        <td>
+                            <button type="button" class="btn btn-sm invoice-info-btn" data-invoice-id="<?= (int)$invoice['id'] ?>" title="View invoice summary">Info</button>
+                        </td>
                     </tr>
                 <?php endforeach; ?>
             <?php endif; ?>
@@ -294,6 +299,91 @@ accounting_render_flashes(consume_flashes());
         </div>
     <?php endif; ?>
 </div>
+
+<!-- Invoice Info Modal -->
+<div id="invoice-info-modal" class="accounting-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="invoice-info-title">
+    <div class="accounting-modal-box">
+        <div class="accounting-modal-header">
+            <h3 id="invoice-info-title">Invoice summary</h3>
+            <button type="button" id="invoice-info-modal-close" class="accounting-modal-close" title="Close" aria-label="Close">&times;</button>
+        </div>
+        <div id="invoice-info-content" class="accounting-modal-body"></div>
+    </div>
+</div>
+
+<script>
+    (function() {
+        var modal = document.getElementById('invoice-info-modal');
+        var content = document.getElementById('invoice-info-content');
+        var closeBtn = document.getElementById('invoice-info-modal-close');
+
+        function showModal() {
+            modal.classList.add('is-open');
+        }
+
+        function hideModal() {
+            modal.classList.remove('is-open');
+        }
+
+        closeBtn.addEventListener('click', hideModal);
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) hideModal();
+        });
+
+        document.querySelectorAll('.invoice-info-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var id = this.getAttribute('data-invoice-id');
+                if (!id) return;
+                content.innerHTML = '<p style="color: #6b7280;">Loading…</p>';
+                showModal();
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', 'invoice_info.php?invoice_id=' + encodeURIComponent(id));
+                xhr.onload = function() {
+                    if (xhr.status !== 200) {
+                        content.innerHTML = '<p style="color: #dc2626;">Failed to load invoice.</p>';
+                        return;
+                    }
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        if (data.error) {
+                            content.innerHTML = '<p style="color: #dc2626;">' + (data.error || 'Error') + '</p>';
+                            return;
+                        }
+                        var html = '<table style="width:100%; border-collapse: collapse; font-size: 0.9rem;">';
+                        html += '<tr><td style="padding:6px 8px 6px 0; color:#6b7280;">Invoice #</td><td style="padding:6px 0;"><strong>' + (data.invoice_number || '') + '</strong></td></tr>';
+                        html += '<tr><td style="padding:6px 8px 6px 0; color:#6b7280;">Date</td><td style="padding:6px 0;">' + (data.created_at ? new Date(data.created_at).toLocaleDateString() : '') + '</td></tr>';
+                        html += '<tr><td style="padding:6px 8px 6px 0; color:#6b7280;">Customer</td><td style="padding:6px 0;">' + (data.customer_name || '') + (data.customer_phone ? ' &middot; ' + data.customer_phone : '') + '</td></tr>';
+                        html += '<tr><td style="padding:6px 8px 6px 0; color:#6b7280;">Sales Rep</td><td style="padding:6px 0;">' + (data.sales_rep_name || 'N/A') + '</td></tr>';
+                        html += '<tr><td style="padding:6px 8px 6px 0; color:#6b7280;">Status</td><td style="padding:6px 0;">' + (data.status || '') + '</td></tr>';
+                        html += '</table>';
+                        if (data.items && data.items.length) {
+                            html += '<div style="margin-top:16px; border-top:1px solid #e5e7eb; padding-top:12px;"><strong style="color:#374151;">Line items</strong></div>';
+                            html += '<table style="width:100%; border-collapse: collapse; margin-top:8px; font-size: 0.85rem;">';
+                            html += '<thead><tr style="border-bottom:1px solid #e5e7eb;"><th style="text-align:left; padding:6px 4px;">Item</th><th style="text-align:center; padding:6px 4px;">Qty</th><th style="text-align:right; padding:6px 4px;">Price</th><th style="text-align:right; padding:6px 4px;">Total</th></tr></thead><tbody>';
+                            for (var i = 0; i < data.items.length; i++) {
+                                var it = data.items[i];
+                                html += '<tr style="border-bottom:1px solid #f3f4f6;"><td style="padding:6px 4px;">' + (it.item_name || '') + (it.sku ? ' <small style="color:#6b7280;">' + it.sku + '</small>' : '') + '</td><td style="text-align:center; padding:6px 4px;">' + (it.quantity || '') + '</td><td style="text-align:right; padding:6px 4px;">$' + parseFloat(it.unit_price_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px 4px;">$' + parseFloat(it.subtotal_usd || 0).toFixed(2) + '</td></tr>';
+                            }
+                            html += '</tbody></table>';
+                        }
+                        html += '<div style="margin-top:16px; padding-top:12px; border-top:2px solid #e5e7eb;">';
+                        html += '<table style="width:100%; font-size: 0.9rem;"><tr><td style="padding:4px 0; color:#6b7280;">Total (USD)</td><td style="text-align:right; font-weight:600;">$' + parseFloat(data.total_usd || 0).toFixed(2) + '</td></tr>';
+                        if (parseFloat(data.total_lbp) > 0) html += '<tr><td style="padding:4px 0; color:#6b7280;">Total (LBP)</td><td style="text-align:right; white-space:nowrap;">' + Number(data.total_lbp).toLocaleString('en') + ' ل.ل.</td></tr>';
+                        html += '<tr><td style="padding:4px 0; color:#6b7280;">Paid</td><td style="text-align:right; color:#059669;">$' + parseFloat(data.paid_usd || 0).toFixed(2) + '</td></tr>';
+                        html += '<tr><td style="padding:4px 0; color:#6b7280;">Outstanding</td><td style="text-align:right; font-weight:600;">$' + parseFloat(data.outstanding_usd || 0).toFixed(2) + '</td></tr></table></div>';
+                        content.innerHTML = html;
+                    } catch (e) {
+                        content.innerHTML = '<p style="color: #dc2626;">Invalid response.</p>';
+                    }
+                };
+                xhr.onerror = function() {
+                    content.innerHTML = '<p style="color: #dc2626;">Network error.</p>';
+                };
+                xhr.send();
+            });
+        });
+    })();
+</script>
 
 <?php
 accounting_render_layout_end();

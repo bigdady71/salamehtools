@@ -129,7 +129,9 @@ if (!function_exists('accounting_render_layout_start')) {
         echo '.mb-1{margin-bottom:8px;}';
         echo '.mb-2{margin-bottom:16px;}';
         echo '.mt-2{margin-top:16px;}';
-        echo '</style></head><body class="theme-light"><div class="layout"><aside class="sidebar">';
+        echo '</style>';
+        echo '<link rel="stylesheet" href="', asset_url('/css/accounting.css'), '">';
+        echo '</head><body class="theme-light"><div class="layout"><aside class="sidebar">';
         echo '<div class="brand">Salameh Tools<small>Accounting Portal</small></div><nav class="nav-links">';
 
         foreach ($navItems as $slug => $item) {

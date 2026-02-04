@@ -1,0 +1,353 @@
+/**
+ * Accounting Portal – friendly, consistent UI
+ * Applied across all accounting pages.
+ */
+
+:root {
+    --bg: #f1f5f9;
+    --bg-panel: #ffffff;
+    --bg-panel-alt: #f8fafc;
+    --text: #0f172a;
+    --muted: #64748b;
+    --accent: #059669;
+    --accent-hover: #047857;
+    --accent-light: #d1fae5;
+    --border: #e2e8f0;
+    --ok: #065f46;
+    --warn: #92400e;
+    --err: #991b1b;
+    --radius: 10px;
+    --radius-sm: 8px;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--text);
+}
+
+/* Sidebar – clearer and friendlier */
+.sidebar {
+    padding: 24px 20px;
+    gap: 28px;
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.04);
+}
+
+.brand {
+    font-size: 1.35rem;
+    letter-spacing: 0.02em;
+}
+
+.brand small {
+    margin-top: 2px;
+    font-size: 0.8rem;
+}
+
+.nav-links a {
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nav-links a:hover {
+    background: var(--accent-light);
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.nav-links a.active {
+    background: var(--accent);
+    color: #fff;
+}
+
+.user-card {
+    padding: 16px;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+}
+
+.user-card a[href*="logout"] {
+    margin-top: 12px;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    transition: background 0.15s, color 0.15s;
+}
+
+.user-card a[href*="logout"]:hover {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+/* Main content area */
+.main {
+    padding: 28px 32px;
+    gap: 28px;
+}
+
+.page-header h1 {
+    font-size: 1.65rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.page-header p {
+    margin-top: 6px;
+    font-size: 0.95rem;
+}
+
+/* Cards – softer and more readable */
+.card {
+    border-radius: var(--radius);
+    padding: 24px;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border);
+}
+
+.card h2 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-bottom: 14px;
+}
+
+/* Buttons – clear hover states */
+.btn {
+    padding: 10px 16px;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    font-size: 0.9rem;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+}
+
+.btn:hover {
+    text-decoration: none;
+}
+
+.btn:active {
+    transform: scale(0.98);
+}
+
+.btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+.btn-sm {
+    padding: 7px 12px;
+    font-size: 0.85rem;
+}
+
+/* Info button – distinct and friendly */
+.invoice-info-btn {
+    background: #eff6ff !important;
+    border-color: #93c5fd !important;
+    color: #1d4ed8 !important;
+}
+
+.invoice-info-btn:hover {
+    background: #dbeafe !important;
+    border-color: #60a5fa !important;
+}
+
+/* Metric cards */
+.metric-grid {
+    gap: 20px;
+}
+
+.metric-card {
+    border-radius: var(--radius);
+    padding: 22px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+    transition: box-shadow 0.2s ease;
+}
+
+.metric-card:hover {
+    box-shadow: var(--shadow-md);
+}
+
+.metric-card .label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.metric-card .value {
+    font-size: 1.7rem;
+    margin: 6px 0 0;
+}
+
+/* Filters – more prominent and scannable */
+.filters {
+    gap: 14px;
+    padding: 18px 0;
+    margin-bottom: 20px;
+}
+
+.filter-input {
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    font-size: 0.9rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.filter-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
+}
+
+.filter-input::placeholder {
+    color: var(--muted);
+}
+
+/* Tables – easier to scan */
+.card table {
+    font-size: 0.9rem;
+}
+
+.card th,
+.card td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.card th {
+    background: var(--bg-panel-alt);
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+}
+
+.card tbody tr {
+    transition: background 0.12s ease;
+}
+
+.card tbody tr:hover {
+    background: #f8fafc;
+}
+
+.card tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Badges */
+.badge {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+/* Flashes */
+.flash {
+    padding: 14px 18px;
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    margin-bottom: 18px;
+}
+
+/* Modal overlay and box – used by invoice Info */
+.accounting-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.4);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    backdrop-filter: blur(4px);
+}
+
+.accounting-modal-overlay.is-open {
+    display: flex;
+}
+
+.accounting-modal-box {
+    background: #fff;
+    border-radius: 14px;
+    max-width: 560px;
+    width: 100%;
+    max-height: 88vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border);
+}
+
+.accounting-modal-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-panel-alt);
+    flex-shrink: 0;
+}
+
+.accounting-modal-header h3 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.accounting-modal-close {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.accounting-modal-close:hover {
+    background: #fee2e2;
+    color: #dc2626;
+    border-color: #fecaca;
+}
+
+.accounting-modal-body {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* Spacing utilities */
+.mb-0 {
+    margin-bottom: 0;
+}
+
+.mb-1 {
+    margin-bottom: 8px;
+}
+
+.mb-2 {
+    margin-bottom: 16px;
+}
+
+.mt-2 {
+    margin-top: 16px;
+}
