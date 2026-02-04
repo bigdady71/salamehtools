@@ -139,17 +139,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 
         // Validate customer and get their credit balance
         $customerCreditLBP = 0;
+        $customerPhone = '';
+        $customerName = '';
         if ($customerId <= 0) {
             $errors[] = 'Please select a customer.';
         } else {
-            // Verify customer is assigned to this sales rep and get credit balance
-            $customerStmt = $pdo->prepare("SELECT id, COALESCE(account_balance_lbp, 0) as credit_lbp FROM customers WHERE id = :id AND assigned_sales_rep_id = :rep_id AND is_active = 1");
+            // Verify customer is assigned to this sales rep and get credit balance + phone
+            $customerStmt = $pdo->prepare("SELECT id, name, phone, COALESCE(account_balance_lbp, 0) as credit_lbp FROM customers WHERE id = :id AND assigned_sales_rep_id = :rep_id AND is_active = 1");
             $customerStmt->execute([':id' => $customerId, ':rep_id' => $repId]);
             $customerData = $customerStmt->fetch(PDO::FETCH_ASSOC);
             if (!$customerData) {
                 $errors[] = 'Invalid customer selected or customer not assigned to you.';
             } else {
                 $customerCreditLBP = (float)$customerData['credit_lbp'];
+                $customerPhone = trim((string)($customerData['phone'] ?? ''));
+                $customerName = trim((string)($customerData['name'] ?? ''));
             }
         }
 
@@ -486,11 +490,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_order') {
 
                     if ($wantsJson) {
                         header('Content-Type: application/json');
+
+                        // Format phone for WhatsApp
+                        $whatsappPhone = '';
+                        if ($customerPhone) {
+                            $phone = preg_replace('/[^0-9+]/', '', $customerPhone);
+                            if (strpos($phone, '+961') === 0) {
+                                $whatsappPhone = '961' . substr($phone, 4);
+                            } elseif (strpos($phone, '00961') === 0) {
+                                $whatsappPhone = '961' . substr($phone, 5);
+                            } elseif (strpos($phone, '961') === 0) {
+                                $whatsappPhone = $phone;
+                            } elseif (strpos($phone, '0') === 0) {
+                                $whatsappPhone = '961' . substr($phone, 1);
+                            } else {
+                                $whatsappPhone = '961' . $phone;
+                            }
+                        }
+
+                        // Build WhatsApp URL
+                        $whatsappUrl = '';
+                        if ($whatsappPhone) {
+                            $invoiceMessage = "مرحبا {$customerName}،\n\n";
+                            $invoiceMessage .= "فاتورتك من سلامة تولز جاهزة:\n";
+                            $invoiceMessage .= "رقم الفاتورة: {$invoiceNumber}\n";
+                            $invoiceMessage .= "الإجمالي: \${$totalUSD}\n\n";
+                            $invoiceMessage .= "يمكنك عرض الفاتورة من الرابط أدناه:\n";
+                            $invoiceMessage .= (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['SCRIPT_NAME']) . "/invoice_pdf.php?invoice_id={$invoiceId}&action=view";
+                            $invoiceMessage .= "\n\nشكراً لتعاملك معنا!";
+                            $whatsappUrl = 'https://wa.me/' . $whatsappPhone . '?text=' . rawurlencode($invoiceMessage);
+                        }
+
                         echo json_encode([
                             'ok' => true,
                             'message' => 'Sale completed successfully.',
                             'invoice_id' => $invoiceId,
+                            'invoice_number' => $invoiceNumber,
+                            'customer_name' => $customerName,
+                            'customer_phone' => $customerPhone,
+                            'total_usd' => $totalUSD,
                             'redirect_url' => "print_invoice.php?invoice_id={$invoiceId}",
+                            'whatsapp_url' => $whatsappUrl,
+                            'pdf_url' => "invoice_pdf.php?invoice_id={$invoiceId}&action=download",
                         ]);
                         exit;
                     }
@@ -1228,26 +1269,26 @@ if (!$canCreateOrder) {
     echo '</div>';
 } else {
 ?>
-<!-- Filter Bar -->
-<div class="filter-bar">
-    <select id="categoryFilter" onchange="filterProducts()">
-        <option value="">جميع الفئات</option>
-        <?php foreach ($categories as $cat): ?>
-        <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>">
-            <?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></option>
-        <?php endforeach; ?>
-    </select>
-    <input type="text" id="searchFilter" placeholder="بحث بالاسم أو الكود..." oninput="filterProducts()">
-    <label class="toggle-filter" style="display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;">
-        <input type="checkbox" id="hideZeroToggle" checked onchange="filterProducts()"
-            style="width:18px; height:18px; cursor:pointer;">
-        <span style="font-size:0.9rem; color:var(--text);">إخفاء الكمية 0 والسعر 0</span>
-    </label>
-</div>
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+        <select id="categoryFilter" onchange="filterProducts()">
+            <option value="">جميع الفئات</option>
+            <?php foreach ($categories as $cat): ?>
+                <option value="<?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?>">
+                    <?= htmlspecialchars($cat, ENT_QUOTES, 'UTF-8') ?></option>
+            <?php endforeach; ?>
+        </select>
+        <input type="text" id="searchFilter" placeholder="بحث بالاسم أو الكود..." oninput="filterProducts()">
+        <label class="toggle-filter" style="display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;">
+            <input type="checkbox" id="hideZeroToggle" checked onchange="filterProducts()"
+                style="width:18px; height:18px; cursor:pointer;">
+            <span style="font-size:0.9rem; color:var(--text);">إخفاء الكمية 0 والسعر 0</span>
+        </label>
+    </div>
 
-<!-- Product Grid -->
-<div class="product-grid" id="productGrid">
-    <?php foreach ($products as $product):
+    <!-- Product Grid -->
+    <div class="product-grid" id="productGrid">
+        <?php foreach ($products as $product):
             $sku = $product['sku'] ?? '';
             $itemName = htmlspecialchars($product['item_name'], ENT_QUOTES, 'UTF-8');
             $category = $product['category'] ?? '';
@@ -1275,288 +1316,288 @@ if (!$canCreateOrder) {
             $imageSrc = $imagePath . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
             $fallbackSrc = '../../images/products/default.jpg' . ($imageVersion ? '?v=' . rawurlencode($imageVersion) : '');
         ?>
-    <div class="product-card" data-id="<?= $product['id'] ?>" data-name="<?= $itemName ?>"
-        data-sku="<?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?>" data-price="<?= $priceUSD ?>"
-        data-stock="<?= $stock ?>" data-category="<?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>">
-        <img src="<?= htmlspecialchars($imageSrc, ENT_QUOTES, 'UTF-8') ?>" alt="<?= $itemName ?>" loading="lazy"
-            class="lazy-image" onload="this.classList.add('is-loaded')"
-            onerror="this.src='<?= htmlspecialchars($fallbackSrc, ENT_QUOTES, 'UTF-8') ?>'">
-        <div class="product-sku"><?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?></div>
-        <div class="product-name"><?= $itemName ?></div>
-        <div class="product-price">$<?= number_format($priceUSD, 2) ?></div>
-        <div class="product-stock <?= $stock <= 5 ? 'low' : '' ?>">
-            المخزون: <?= number_format($stock, 1) ?>
-        </div>
-        <div class="product-controls" id="controls-<?= $product['id'] ?>" onclick="event.stopPropagation();">
-            <button type="button" class="product-qty-btn minus"
-                onclick="decreaseQtyFromCard(<?= $product['id'] ?>)">−</button>
-            <span class="product-qty-display" id="qty-display-<?= $product['id'] ?>">0</span>
-            <button type="button" class="product-qty-btn plus" onclick="increaseQtyFromCard(<?= $product['id'] ?>)"
-                id="plus-btn-<?= $product['id'] ?>">+</button>
-        </div>
-    </div>
-    <?php endforeach; ?>
-</div>
-
-<!-- Floating Cart Button -->
-<button class="cart-button empty" id="cartButton" onclick="openCart()">
-    <span>🛒</span>
-    <span id="cartTotal">$0.00</span>
-    <span class="cart-badge" id="cartBadge">0</span>
-</button>
-
-<!-- Cart Overlay -->
-<div class="cart-overlay" id="cartOverlay" onclick="closeCart()"></div>
-
-<!-- Cart Panel -->
-<div class="cart-panel" id="cartPanel">
-    <div class="cart-header">
-        <h2>🛒 سلتك</h2>
-        <button class="cart-close" onclick="closeCart()">&times;</button>
+            <div class="product-card" data-id="<?= $product['id'] ?>" data-name="<?= $itemName ?>"
+                data-sku="<?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?>" data-price="<?= $priceUSD ?>"
+                data-stock="<?= $stock ?>" data-category="<?= htmlspecialchars($category, ENT_QUOTES, 'UTF-8') ?>">
+                <img src="<?= htmlspecialchars($imageSrc, ENT_QUOTES, 'UTF-8') ?>" alt="<?= $itemName ?>" loading="lazy"
+                    class="lazy-image" onload="this.classList.add('is-loaded')"
+                    onerror="this.src='<?= htmlspecialchars($fallbackSrc, ENT_QUOTES, 'UTF-8') ?>'">
+                <div class="product-sku"><?= htmlspecialchars($sku, ENT_QUOTES, 'UTF-8') ?></div>
+                <div class="product-name"><?= $itemName ?></div>
+                <div class="product-price">$<?= number_format($priceUSD, 2) ?></div>
+                <div class="product-stock <?= $stock <= 5 ? 'low' : '' ?>">
+                    المخزون: <?= number_format($stock, 1) ?>
+                </div>
+                <div class="product-controls" id="controls-<?= $product['id'] ?>" onclick="event.stopPropagation();">
+                    <button type="button" class="product-qty-btn minus"
+                        onclick="decreaseQtyFromCard(<?= $product['id'] ?>)">−</button>
+                    <span class="product-qty-display" id="qty-display-<?= $product['id'] ?>">0</span>
+                    <button type="button" class="product-qty-btn plus" onclick="increaseQtyFromCard(<?= $product['id'] ?>)"
+                        id="plus-btn-<?= $product['id'] ?>">+</button>
+                </div>
+            </div>
+        <?php endforeach; ?>
     </div>
 
-    <form method="POST" action="" id="cartForm">
-        <input type="hidden" name="action" value="create_order">
-        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-        <input type="hidden" name="customer_id" id="customerId" value="">
-        <input type="hidden" name="cents_discount" id="centsDiscount" value="0">
+    <!-- Floating Cart Button -->
+    <button class="cart-button empty" id="cartButton" onclick="openCart()">
+        <span>🛒</span>
+        <span id="cartTotal">$0.00</span>
+        <span class="cart-badge" id="cartBadge">0</span>
+    </button>
 
-        <div class="cart-items" id="cartItems">
-            <div class="empty-state" id="emptyCart">
-                <div class="empty-state-icon">🛒</div>
-                <p>سلتك فارغة. اضغط على المنتجات لإضافتها.</p>
-            </div>
+    <!-- Cart Overlay -->
+    <div class="cart-overlay" id="cartOverlay" onclick="closeCart()"></div>
+
+    <!-- Cart Panel -->
+    <div class="cart-panel" id="cartPanel">
+        <div class="cart-header">
+            <h2>🛒 سلتك</h2>
+            <button class="cart-close" onclick="closeCart()">&times;</button>
         </div>
 
-        <div class="cart-customer">
-            <label>اختر الزبون</label>
-            <div class="customer-search-wrapper">
-                <input type="text" id="customerSearch" class="customer-input" placeholder="بحث بالاسم أو رقم الهاتف..."
-                    autocomplete="off">
-                <div id="customerDropdown" class="customer-dropdown"></div>
-            </div>
-            <div id="customerSelected" class="customer-selected">
-                <strong id="selectedCustomerName"></strong>
-                <div id="selectedCustomerInfo" style="font-size: 0.85rem; color: #15803d;"></div>
-            </div>
-        </div>
+        <form method="POST" action="" id="cartForm">
+            <input type="hidden" name="action" value="create_order">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+            <input type="hidden" name="customer_id" id="customerId" value="">
+            <input type="hidden" name="cents_discount" id="centsDiscount" value="0">
 
-        <div class="cart-notes">
-            <label>ملاحظات (اختياري)</label>
-            <textarea name="notes" id="orderNotes" placeholder="أضف ملاحظات..."></textarea>
-        </div>
-
-        <div class="cart-totals">
-            <div class="total-row">
-                <span>المنتجات:</span>
-                <span id="totalItems">0</span>
-            </div>
-            <div class="total-row" id="subtotalRow">
-                <span>المجموع الفرعي:</span>
-                <span id="subtotalUSD">$0.00</span>
-            </div>
-            <div class="total-row" id="discountRow" style="display:none; color:#059669;">
-                <span>خصم القروش:</span>
-                <span id="discountAmount">-$0.00</span>
-            </div>
-            <div class="total-row grand">
-                <span>المجموع بالدولار:</span>
-                <span id="totalUSD">$0.00</span>
-            </div>
-            <div class="total-row">
-                <span>المجموع بالليرة:</span>
-                <span id="totalLBP">ل.ل. 0</span>
-            </div>
-        </div>
-
-        <div class="cart-payment">
-            <h4>الدفع</h4>
-            <div class="payment-grid">
-                <div class="payment-group">
-                    <label>دولار $</label>
-                    <input type="number" name="payment_usd" id="paymentUSD" step="0.01" min="0" placeholder="0.00"
-                        oninput="updatePaymentDisplay()">
-                </div>
-                <div class="payment-group">
-                    <label>ليرة ل.ل.</label>
-                    <input type="number" name="payment_lbp" id="paymentLBP" step="1000" min="0" placeholder="0"
-                        oninput="updatePaymentDisplay()">
+            <div class="cart-items" id="cartItems">
+                <div class="empty-state" id="emptyCart">
+                    <div class="empty-state-icon">🛒</div>
+                    <p>سلتك فارغة. اضغط على المنتجات لإضافتها.</p>
                 </div>
             </div>
-            <div id="paymentRemaining" class="payment-remaining" style="display:none;">
-                <div class="payment-remaining-row">
-                    <span>المجموع المستحق:</span>
-                    <span id="displayTotalDue">$0.00</span>
+
+            <div class="cart-customer">
+                <label>اختر الزبون</label>
+                <div class="customer-search-wrapper">
+                    <input type="text" id="customerSearch" class="customer-input" placeholder="بحث بالاسم أو رقم الهاتف..."
+                        autocomplete="off">
+                    <div id="customerDropdown" class="customer-dropdown"></div>
                 </div>
-                <div class="payment-remaining-row">
-                    <span>المدفوع:</span>
-                    <span id="displayTotalPaid">$0.00</span>
-                </div>
-                <div class="payment-remaining-row highlight">
-                    <span id="remainingLabel">المتبقي:</span>
-                    <span id="displayRemaining">$0.00</span>
-                </div>
-                <div class="payment-remaining-row"
-                    style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,0.1);">
-                    <span>بالليرة:</span>
-                    <span id="displayRemainingLBP">ل.ل. 0</span>
+                <div id="customerSelected" class="customer-selected">
+                    <strong id="selectedCustomerName"></strong>
+                    <div id="selectedCustomerInfo" style="font-size: 0.85rem; color: #15803d;"></div>
                 </div>
             </div>
-            <div id="changeDisplay" class="change-display" style="display:none;">
-                <h5>💵 الباقي:</h5>
-                <div class="change-amount">
-                    <span id="changeUSD">$0.00</span> / <span id="changeLBP">ل.ل. 0</span>
+
+            <div class="cart-notes">
+                <label>ملاحظات (اختياري)</label>
+                <textarea name="notes" id="orderNotes" placeholder="أضف ملاحظات..."></textarea>
+            </div>
+
+            <div class="cart-totals">
+                <div class="total-row">
+                    <span>المنتجات:</span>
+                    <span id="totalItems">0</span>
+                </div>
+                <div class="total-row" id="subtotalRow">
+                    <span>المجموع الفرعي:</span>
+                    <span id="subtotalUSD">$0.00</span>
+                </div>
+                <div class="total-row" id="discountRow" style="display:none; color:#059669;">
+                    <span>خصم القروش:</span>
+                    <span id="discountAmount">-$0.00</span>
+                </div>
+                <div class="total-row grand">
+                    <span>المجموع بالدولار:</span>
+                    <span id="totalUSD">$0.00</span>
+                </div>
+                <div class="total-row">
+                    <span>المجموع بالليرة:</span>
+                    <span id="totalLBP">ل.ل. 0</span>
                 </div>
             </div>
-        </div>
 
-        <div class="cart-submit">
-            <button type="submit" class="btn-submit" id="submitBtn" disabled onclick="console.log('Button clicked');">
-                إتمام البيع
-            </button>
-        </div>
+            <div class="cart-payment">
+                <h4>الدفع</h4>
+                <div class="payment-grid">
+                    <div class="payment-group">
+                        <label>دولار $</label>
+                        <input type="number" name="payment_usd" id="paymentUSD" step="0.01" min="0" placeholder="0.00"
+                            oninput="updatePaymentDisplay()">
+                    </div>
+                    <div class="payment-group">
+                        <label>ليرة ل.ل.</label>
+                        <input type="number" name="payment_lbp" id="paymentLBP" step="1000" min="0" placeholder="0"
+                            oninput="updatePaymentDisplay()">
+                    </div>
+                </div>
+                <div id="paymentRemaining" class="payment-remaining" style="display:none;">
+                    <div class="payment-remaining-row">
+                        <span>المجموع المستحق:</span>
+                        <span id="displayTotalDue">$0.00</span>
+                    </div>
+                    <div class="payment-remaining-row">
+                        <span>المدفوع:</span>
+                        <span id="displayTotalPaid">$0.00</span>
+                    </div>
+                    <div class="payment-remaining-row highlight">
+                        <span id="remainingLabel">المتبقي:</span>
+                        <span id="displayRemaining">$0.00</span>
+                    </div>
+                    <div class="payment-remaining-row"
+                        style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,0.1);">
+                        <span>بالليرة:</span>
+                        <span id="displayRemainingLBP">ل.ل. 0</span>
+                    </div>
+                </div>
+                <div id="changeDisplay" class="change-display" style="display:none;">
+                    <h5>💵 الباقي:</h5>
+                    <div class="change-amount">
+                        <span id="changeUSD">$0.00</span> / <span id="changeLBP">ل.ل. 0</span>
+                    </div>
+                </div>
+            </div>
 
-        <!-- Hidden cart items inputs -->
-        <div id="cartInputs"></div>
-    </form>
-</div>
+            <div class="cart-submit">
+                <button type="submit" class="btn-submit" id="submitBtn" disabled onclick="console.log('Button clicked');">
+                    إتمام البيع
+                </button>
+            </div>
 
-<script>
-const exchangeRate = <?= json_encode($exchangeRate ?? 0, JSON_UNESCAPED_UNICODE) ?>;
-let cart = {};
-let debounceTimer = null;
+            <!-- Hidden cart items inputs -->
+            <div id="cartInputs"></div>
+        </form>
+    </div>
 
-// Filter products
-function filterProducts() {
-    const category = document.getElementById('categoryFilter').value.toLowerCase();
-    const search = document.getElementById('searchFilter').value.toLowerCase();
-    const hideZero = document.getElementById('hideZeroToggle').checked;
+    <script>
+        const exchangeRate = <?= json_encode($exchangeRate ?? 0, JSON_UNESCAPED_UNICODE) ?>;
+        let cart = {};
+        let debounceTimer = null;
 
-    document.querySelectorAll('.product-card').forEach(card => {
-        const cardCategory = (card.dataset.category || '').toLowerCase();
-        const cardName = (card.dataset.name || '').toLowerCase();
-        const cardSku = (card.dataset.sku || '').toLowerCase();
-        const cardStock = parseFloat(card.dataset.stock) || 0;
-        const cardPrice = parseFloat(card.dataset.price) || 0;
+        // Filter products
+        function filterProducts() {
+            const category = document.getElementById('categoryFilter').value.toLowerCase();
+            const search = document.getElementById('searchFilter').value.toLowerCase();
+            const hideZero = document.getElementById('hideZeroToggle').checked;
 
-        const matchesCategory = !category || cardCategory === category;
-        const matchesSearch = !search || cardName.includes(search) || cardSku.includes(search);
-        const matchesZeroFilter = !hideZero || (cardStock > 0 && cardPrice > 0);
+            document.querySelectorAll('.product-card').forEach(card => {
+                const cardCategory = (card.dataset.category || '').toLowerCase();
+                const cardName = (card.dataset.name || '').toLowerCase();
+                const cardSku = (card.dataset.sku || '').toLowerCase();
+                const cardStock = parseFloat(card.dataset.stock) || 0;
+                const cardPrice = parseFloat(card.dataset.price) || 0;
 
-        card.style.display = (matchesCategory && matchesSearch && matchesZeroFilter) ? 'block' : 'none';
-    });
-}
+                const matchesCategory = !category || cardCategory === category;
+                const matchesSearch = !search || cardName.includes(search) || cardSku.includes(search);
+                const matchesZeroFilter = !hideZero || (cardStock > 0 && cardPrice > 0);
 
-// Toggle item selection (select/deselect)
-function toggleSelectItem(cardElement) {
-    const id = cardElement.dataset.id;
-    const name = cardElement.dataset.name;
-    const sku = cardElement.dataset.sku;
-    const price = parseFloat(cardElement.dataset.price);
-    const stock = parseFloat(cardElement.dataset.stock);
-
-    if (cart[id]) {
-        // Already in cart - remove it (deselect)
-        delete cart[id];
-    } else {
-        // Not in cart - add with quantity 1 (select)
-        cart[id] = {
-            name,
-            sku,
-            price,
-            stock,
-            quantity: 1
-        };
-    }
-
-    updateCartDisplay();
-    updateProductCards();
-}
-
-// Increase quantity from product card controls
-function increaseQtyFromCard(id) {
-    if (cart[id] && cart[id].quantity < cart[id].stock) {
-        cart[id].quantity++;
-        updateCartDisplay();
-        updateProductCards();
-    }
-}
-
-// Decrease quantity from product card controls
-function decreaseQtyFromCard(id) {
-    if (cart[id]) {
-        cart[id].quantity--;
-        if (cart[id].quantity <= 0) {
-            delete cart[id];
+                card.style.display = (matchesCategory && matchesSearch && matchesZeroFilter) ? 'block' : 'none';
+            });
         }
-        updateCartDisplay();
-        updateProductCards();
-    }
-}
 
-// Update product cards to show in-cart state
-function updateProductCards() {
-    document.querySelectorAll('.product-card').forEach(card => {
-        const id = card.dataset.id;
-        const qtyDisplay = document.getElementById('qty-display-' + id);
-        const plusBtn = document.getElementById('plus-btn-' + id);
+        // Toggle item selection (select/deselect)
+        function toggleSelectItem(cardElement) {
+            const id = cardElement.dataset.id;
+            const name = cardElement.dataset.name;
+            const sku = cardElement.dataset.sku;
+            const price = parseFloat(cardElement.dataset.price);
+            const stock = parseFloat(cardElement.dataset.stock);
 
-        if (cart[id]) {
-            card.classList.add('in-cart');
-            card.dataset.cartQty = cart[id].quantity;
-            if (qtyDisplay) qtyDisplay.textContent = cart[id].quantity;
-            if (plusBtn) plusBtn.disabled = cart[id].quantity >= cart[id].stock;
-        } else {
-            card.classList.remove('in-cart');
-            delete card.dataset.cartQty;
-            if (qtyDisplay) qtyDisplay.textContent = '0';
+            if (cart[id]) {
+                // Already in cart - remove it (deselect)
+                delete cart[id];
+            } else {
+                // Not in cart - add with quantity 1 (select)
+                cart[id] = {
+                    name,
+                    sku,
+                    price,
+                    stock,
+                    quantity: 1
+                };
+            }
+
+            updateCartDisplay();
+            updateProductCards();
         }
-    });
-}
 
-// Update cart display
-function updateCartDisplay() {
-    const cartItems = document.getElementById('cartItems');
-    const cartInputs = document.getElementById('cartInputs');
-    const cartButton = document.getElementById('cartButton');
-    const cartBadge = document.getElementById('cartBadge');
-    const cartTotal = document.getElementById('cartTotal');
-    const submitBtn = document.getElementById('submitBtn');
+        // Increase quantity from product card controls
+        function increaseQtyFromCard(id) {
+            if (cart[id] && cart[id].quantity < cart[id].stock) {
+                cart[id].quantity++;
+                updateCartDisplay();
+                updateProductCards();
+            }
+        }
 
-    const keys = Object.keys(cart);
+        // Decrease quantity from product card controls
+        function decreaseQtyFromCard(id) {
+            if (cart[id]) {
+                cart[id].quantity--;
+                if (cart[id].quantity <= 0) {
+                    delete cart[id];
+                }
+                updateCartDisplay();
+                updateProductCards();
+            }
+        }
 
-    if (keys.length === 0) {
-        cartItems.innerHTML = `
+        // Update product cards to show in-cart state
+        function updateProductCards() {
+            document.querySelectorAll('.product-card').forEach(card => {
+                const id = card.dataset.id;
+                const qtyDisplay = document.getElementById('qty-display-' + id);
+                const plusBtn = document.getElementById('plus-btn-' + id);
+
+                if (cart[id]) {
+                    card.classList.add('in-cart');
+                    card.dataset.cartQty = cart[id].quantity;
+                    if (qtyDisplay) qtyDisplay.textContent = cart[id].quantity;
+                    if (plusBtn) plusBtn.disabled = cart[id].quantity >= cart[id].stock;
+                } else {
+                    card.classList.remove('in-cart');
+                    delete card.dataset.cartQty;
+                    if (qtyDisplay) qtyDisplay.textContent = '0';
+                }
+            });
+        }
+
+        // Update cart display
+        function updateCartDisplay() {
+            const cartItems = document.getElementById('cartItems');
+            const cartInputs = document.getElementById('cartInputs');
+            const cartButton = document.getElementById('cartButton');
+            const cartBadge = document.getElementById('cartBadge');
+            const cartTotal = document.getElementById('cartTotal');
+            const submitBtn = document.getElementById('submitBtn');
+
+            const keys = Object.keys(cart);
+
+            if (keys.length === 0) {
+                cartItems.innerHTML = `
                     <div class="empty-state" id="emptyCart">
                         <div class="empty-state-icon">🛒</div>
                         <p>سلتك فارغة. اضغط على المنتجات لإضافتها.</p>
                     </div>
                 `;
-        cartInputs.innerHTML = '';
-        cartButton.classList.add('empty');
-        cartBadge.textContent = '0';
-        cartTotal.textContent = '$0.00';
-        submitBtn.disabled = true;
-        document.getElementById('totalItems').textContent = '0';
-        document.getElementById('totalUSD').textContent = '$0.00';
-        document.getElementById('totalLBP').textContent = 'ل.ل. 0';
-        return;
-    }
+                cartInputs.innerHTML = '';
+                cartButton.classList.add('empty');
+                cartBadge.textContent = '0';
+                cartTotal.textContent = '$0.00';
+                submitBtn.disabled = true;
+                document.getElementById('totalItems').textContent = '0';
+                document.getElementById('totalUSD').textContent = '$0.00';
+                document.getElementById('totalLBP').textContent = 'ل.ل. 0';
+                return;
+            }
 
-    cartButton.classList.remove('empty');
+            cartButton.classList.remove('empty');
 
-    let totalQty = 0;
-    let totalUSD = 0;
-    let itemsHtml = '';
-    let inputsHtml = '';
+            let totalQty = 0;
+            let totalUSD = 0;
+            let itemsHtml = '';
+            let inputsHtml = '';
 
-    keys.forEach(id => {
-        const item = cart[id];
-        const subtotal = item.price * item.quantity;
-        totalQty += item.quantity;
-        totalUSD += subtotal;
+            keys.forEach(id => {
+                const item = cart[id];
+                const subtotal = item.price * item.quantity;
+                totalQty += item.quantity;
+                totalUSD += subtotal;
 
-        itemsHtml += `
+                itemsHtml += `
                     <div class="cart-item">
                         <div class="cart-item-info">
                             <div class="cart-item-sku">${escapeHtml(item.sku || '')}</div>
@@ -1573,377 +1614,569 @@ function updateCartDisplay() {
                     </div>
                 `;
 
-        inputsHtml += `
+                inputsHtml += `
                     <input type="hidden" name="items[${id}][product_id]" value="${id}">
                     <input type="hidden" name="items[${id}][quantity]" value="${item.quantity}">
                 `;
-    });
+            });
 
-    cartItems.innerHTML = itemsHtml;
-    cartInputs.innerHTML = inputsHtml;
+            cartItems.innerHTML = itemsHtml;
+            cartInputs.innerHTML = inputsHtml;
 
-    cartBadge.textContent = keys.length;
+            cartBadge.textContent = keys.length;
 
-    // Calculate cents discount: if total >= $20 and has decimals, discount the cents
-    let centsDiscount = 0;
-    let finalTotalUSD = totalUSD;
-    const cents = totalUSD - Math.floor(totalUSD);
+            // Calculate cents discount: if total >= $20 and has decimals, discount the cents
+            let centsDiscount = 0;
+            let finalTotalUSD = totalUSD;
+            const cents = totalUSD - Math.floor(totalUSD);
 
-    if (totalUSD >= 20 && cents > 0.001) {
-        centsDiscount = cents;
-        finalTotalUSD = Math.floor(totalUSD);
-    }
+            if (totalUSD >= 20 && cents > 0.001) {
+                centsDiscount = cents;
+                finalTotalUSD = Math.floor(totalUSD);
+            }
 
-    // Update hidden field for backend
-    document.getElementById('centsDiscount').value = centsDiscount.toFixed(2);
+            // Update hidden field for backend
+            document.getElementById('centsDiscount').value = centsDiscount.toFixed(2);
 
-    // Show/hide discount row
-    const discountRow = document.getElementById('discountRow');
-    const subtotalRow = document.getElementById('subtotalRow');
-    if (centsDiscount > 0) {
-        subtotalRow.style.display = 'flex';
-        discountRow.style.display = 'flex';
-        document.getElementById('subtotalUSD').textContent = '$' + totalUSD.toFixed(2);
-        document.getElementById('discountAmount').textContent = '-$' + centsDiscount.toFixed(2);
-    } else {
-        subtotalRow.style.display = 'none';
-        discountRow.style.display = 'none';
-    }
+            // Show/hide discount row
+            const discountRow = document.getElementById('discountRow');
+            const subtotalRow = document.getElementById('subtotalRow');
+            if (centsDiscount > 0) {
+                subtotalRow.style.display = 'flex';
+                discountRow.style.display = 'flex';
+                document.getElementById('subtotalUSD').textContent = '$' + totalUSD.toFixed(2);
+                document.getElementById('discountAmount').textContent = '-$' + centsDiscount.toFixed(2);
+            } else {
+                subtotalRow.style.display = 'none';
+                discountRow.style.display = 'none';
+            }
 
-    cartTotal.textContent = '$' + finalTotalUSD.toFixed(2);
+            cartTotal.textContent = '$' + finalTotalUSD.toFixed(2);
 
-    document.getElementById('totalItems').textContent = totalQty;
-    document.getElementById('totalUSD').textContent = '$' + finalTotalUSD.toFixed(2);
-    document.getElementById('totalLBP').textContent = 'ل.ل. ' + Math.round(finalTotalUSD * exchangeRate)
-        .toLocaleString();
+            document.getElementById('totalItems').textContent = totalQty;
+            document.getElementById('totalUSD').textContent = '$' + finalTotalUSD.toFixed(2);
+            document.getElementById('totalLBP').textContent = 'ل.ل. ' + Math.round(finalTotalUSD * exchangeRate)
+                .toLocaleString();
 
-    // Enable submit only if customer is selected
-    const customerId = document.getElementById('customerId').value;
-    submitBtn.disabled = !customerId;
-}
-
-// Remove from cart
-function removeFromCart(id) {
-    if (cart[id]) {
-        cart[id].quantity--;
-        if (cart[id].quantity <= 0) {
-            delete cart[id];
+            // Enable submit only if customer is selected
+            const customerId = document.getElementById('customerId').value;
+            submitBtn.disabled = !customerId;
         }
-    }
-    updateCartDisplay();
-    updateProductCards();
-}
 
-// Increase quantity
-function increaseQty(id) {
-    if (cart[id] && cart[id].quantity < cart[id].stock) {
-        cart[id].quantity++;
-        updateCartDisplay();
-        updateProductCards();
-    }
-}
+        // Remove from cart
+        function removeFromCart(id) {
+            if (cart[id]) {
+                cart[id].quantity--;
+                if (cart[id].quantity <= 0) {
+                    delete cart[id];
+                }
+            }
+            updateCartDisplay();
+            updateProductCards();
+        }
 
-// Open/close cart
-function openCart() {
-    document.getElementById('cartPanel').classList.add('open');
-    document.getElementById('cartOverlay').classList.add('open');
-    document.body.style.overflow = 'hidden';
-}
+        // Increase quantity
+        function increaseQty(id) {
+            if (cart[id] && cart[id].quantity < cart[id].stock) {
+                cart[id].quantity++;
+                updateCartDisplay();
+                updateProductCards();
+            }
+        }
 
-function closeCart() {
-    document.getElementById('cartPanel').classList.remove('open');
-    document.getElementById('cartOverlay').classList.remove('open');
-    document.body.style.overflow = '';
-}
+        // Open/close cart
+        function openCart() {
+            document.getElementById('cartPanel').classList.add('open');
+            document.getElementById('cartOverlay').classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
 
-// Customer search
-const customerSearch = document.getElementById('customerSearch');
-const customerDropdown = document.getElementById('customerDropdown');
-const customerSelected = document.getElementById('customerSelected');
-const customerIdInput = document.getElementById('customerId');
+        function closeCart() {
+            document.getElementById('cartPanel').classList.remove('open');
+            document.getElementById('cartOverlay').classList.remove('open');
+            document.body.style.overflow = '';
+        }
 
-customerSearch.addEventListener('input', function() {
-    const query = this.value.trim();
-    clearTimeout(debounceTimer);
+        // Customer search
+        const customerSearch = document.getElementById('customerSearch');
+        const customerDropdown = document.getElementById('customerDropdown');
+        const customerSelected = document.getElementById('customerSelected');
+        const customerIdInput = document.getElementById('customerId');
 
-    if (query.length < 1) {
-        customerDropdown.classList.remove('show');
-        return;
-    }
+        customerSearch.addEventListener('input', function() {
+            const query = this.value.trim();
+            clearTimeout(debounceTimer);
 
-    debounceTimer = setTimeout(() => {
-        fetch(`?action=search_customers&q=${encodeURIComponent(query)}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.results && data.results.length > 0) {
-                    customerDropdown.innerHTML = data.results.map(c => `
+            if (query.length < 1) {
+                customerDropdown.classList.remove('show');
+                return;
+            }
+
+            debounceTimer = setTimeout(() => {
+                fetch(`?action=search_customers&q=${encodeURIComponent(query)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.results && data.results.length > 0) {
+                            customerDropdown.innerHTML = data.results.map(c => `
                                 <div class="customer-option" onclick="selectCustomer(${c.id}, '${escapeHtml(c.name)}', '${escapeHtml(c.phone || '')}', '${escapeHtml(c.city || '')}')">
                                     <strong>${escapeHtml(c.name)}</strong>
                                     <small>${escapeHtml(c.phone || 'لا يوجد هاتف')} ${c.city ? '| ' + escapeHtml(c.city) : ''}</small>
                                 </div>
                             `).join('');
-                    customerDropdown.classList.add('show');
-                } else {
-                    customerDropdown.innerHTML =
-                        '<div class="customer-option" style="cursor:default;">لم يتم العثور على زبائن</div>';
-                    customerDropdown.classList.add('show');
-                }
-            });
-    }, 300);
-});
-
-function selectCustomer(id, name, phone, city) {
-    customerIdInput.value = id;
-    customerSearch.value = name;
-    customerDropdown.classList.remove('show');
-
-    document.getElementById('selectedCustomerName').textContent = name;
-    document.getElementById('selectedCustomerInfo').textContent =
-        `${phone || 'لا يوجد هاتف'}${city ? ' | ' + city : ''}`;
-    customerSelected.classList.add('show');
-
-    // Enable submit if cart has items
-    if (Object.keys(cart).length > 0) {
-        document.getElementById('submitBtn').disabled = false;
-    }
-}
-
-// Close dropdown when clicking outside
-document.addEventListener('click', function(e) {
-    if (!customerSearch.contains(e.target) && !customerDropdown.contains(e.target)) {
-        customerDropdown.classList.remove('show');
-    }
-});
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// Update payment display with remaining and change
-function updatePaymentDisplay() {
-    const paymentUSDInput = document.getElementById('paymentUSD');
-    const paymentLBPInput = document.getElementById('paymentLBP');
-    const paymentUSD = parseFloat(paymentUSDInput.value) || 0;
-    const paymentLBP = parseFloat(paymentLBPInput.value) || 0;
-    const paymentRemainingDiv = document.getElementById('paymentRemaining');
-    const changeDisplayDiv = document.getElementById('changeDisplay');
-
-    // Calculate total due (before discount)
-    let subtotalUSD = 0;
-    Object.keys(cart).forEach(id => {
-        subtotalUSD += cart[id].price * cart[id].quantity;
-    });
-
-    // Apply cents discount if applicable
-    let totalDueUSD = subtotalUSD;
-    const cents = subtotalUSD - Math.floor(subtotalUSD);
-    if (subtotalUSD >= 20 && cents > 0.001) {
-        totalDueUSD = Math.floor(subtotalUSD);
-    }
-
-    if (totalDueUSD <= 0) {
-        paymentRemainingDiv.style.display = 'none';
-        changeDisplayDiv.style.display = 'none';
-        // Reset placeholders
-        paymentUSDInput.placeholder = '0.00';
-        paymentLBPInput.placeholder = '0';
-        return;
-    }
-
-    // Convert LBP payment to USD
-    const paymentLBPinUSD = paymentLBP / exchangeRate;
-    const totalPaidUSD = paymentUSD + paymentLBPinUSD;
-    const remainingUSD = totalDueUSD - totalPaidUSD;
-    const remainingLBP = remainingUSD * exchangeRate;
-
-    // Update placeholders with remaining amounts
-    if (remainingUSD > 0.01) {
-        // Show remaining in placeholders
-        paymentUSDInput.placeholder = 'المتبقي: $' + remainingUSD.toFixed(2);
-        paymentLBPInput.placeholder = 'المتبقي: ' + Math.round(remainingLBP).toLocaleString();
-    } else {
-        // Paid in full or overpaid
-        paymentUSDInput.placeholder = '0.00';
-        paymentLBPInput.placeholder = '0';
-    }
-
-    // Update display
-    document.getElementById('displayTotalDue').textContent = '$' + totalDueUSD.toFixed(2);
-    document.getElementById('displayTotalPaid').textContent = '$' + totalPaidUSD.toFixed(2);
-
-    if (remainingUSD > 0.01) {
-        // Still owes money
-        document.getElementById('remainingLabel').textContent = 'المتبقي:';
-        document.getElementById('displayRemaining').textContent = '$' + remainingUSD.toFixed(2);
-        document.getElementById('displayRemainingLBP').textContent = 'ل.ل. ' + Math.round(remainingLBP)
-            .toLocaleString();
-        paymentRemainingDiv.className = 'payment-remaining';
-        changeDisplayDiv.style.display = 'none';
-    } else if (remainingUSD < -0.01) {
-        // Overpaid - show change
-        const changeUSD = Math.abs(remainingUSD);
-        const changeLBP = changeUSD * exchangeRate;
-        document.getElementById('remainingLabel').textContent = 'زيادة:';
-        document.getElementById('displayRemaining').textContent = '$' + changeUSD.toFixed(2);
-        document.getElementById('displayRemainingLBP').textContent = 'ل.ل. ' + Math.round(changeLBP).toLocaleString();
-        paymentRemainingDiv.className = 'payment-remaining overpaid';
-
-        // Show change to return
-        document.getElementById('changeUSD').textContent = '$' + changeUSD.toFixed(2);
-        document.getElementById('changeLBP').textContent = 'ل.ل. ' + Math.round(changeLBP).toLocaleString();
-        changeDisplayDiv.style.display = 'block';
-    } else {
-        // Exact payment
-        document.getElementById('remainingLabel').textContent = 'المتبقي:';
-        document.getElementById('displayRemaining').textContent = '$0.00';
-        document.getElementById('displayRemainingLBP').textContent = 'ل.ل. 0';
-        paymentRemainingDiv.className = 'payment-remaining paid';
-        changeDisplayDiv.style.display = 'none';
-    }
-
-    paymentRemainingDiv.style.display = 'block';
-}
-
-// Also update payment display when cart changes
-const originalUpdateCartDisplay = updateCartDisplay;
-updateCartDisplay = function() {
-    originalUpdateCartDisplay();
-    updatePaymentDisplay();
-};
-
-function showAjaxFlash(type, title, message, list) {
-    const host = document.getElementById('ajaxFlash');
-    const safeTitle = title || (type === 'success' ? 'تم' : 'خطأ');
-    let html = `<div class="flash ${type}">`;
-    html += `<h4>${safeTitle}</h4>`;
-    if (message) html += `<p>${message}</p>`;
-    if (Array.isArray(list) && list.length > 0) {
-        html += '<ul>';
-        list.forEach(item => {
-            html += `<li>${item}</li>`;
+                            customerDropdown.classList.add('show');
+                        } else {
+                            customerDropdown.innerHTML =
+                                '<div class="customer-option" style="cursor:default;">لم يتم العثور على زبائن</div>';
+                            customerDropdown.classList.add('show');
+                        }
+                    });
+            }, 300);
         });
-        html += '</ul>';
-    }
-    html += '</div>';
-    if (host) {
-        host.innerHTML = html;
-        host.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start'
-        });
-    } else {
-        alert(message || safeTitle);
-    }
-}
 
-// Form validation + AJAX submit
-document.getElementById('cartForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const customerId = document.getElementById('customerId').value;
-    const itemCount = Object.keys(cart).length;
-    const submitBtn = document.getElementById('submitBtn');
+        function selectCustomer(id, name, phone, city) {
+            customerIdInput.value = id;
+            customerSearch.value = name;
+            customerDropdown.classList.remove('show');
 
-    console.log('Form submit triggered', {
-        customerId,
-        itemCount,
-        cart
-    });
+            document.getElementById('selectedCustomerName').textContent = name;
+            document.getElementById('selectedCustomerInfo').textContent =
+                `${phone || 'لا يوجد هاتف'}${city ? ' | ' + city : ''}`;
+            customerSelected.classList.add('show');
 
-    if (!customerId) {
-        showAjaxFlash('error', 'يرجى اختيار زبون', 'يرجى اختيار زبون.');
-        return false;
-    }
+            // Enable submit if cart has items
+            if (Object.keys(cart).length > 0) {
+                document.getElementById('submitBtn').disabled = false;
+            }
+        }
 
-    if (itemCount === 0) {
-        showAjaxFlash('error', 'السلة فارغة', 'يرجى إضافة منتج واحد على الأقل.');
-        return false;
-    }
-
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'جاري المعالجة...';
-
-    try {
-        const formData = new FormData(this);
-        console.log('Sending form data...');
-
-        const response = await fetch(window.location.href, {
-            method: 'POST',
-            body: formData,
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'Accept': 'application/json'
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!customerSearch.contains(e.target) && !customerDropdown.contains(e.target)) {
+                customerDropdown.classList.remove('show');
             }
         });
 
-        console.log('Response status:', response.status);
-        const responseText = await response.text();
-        console.log('Response text:', responseText.substring(0, 500));
-
-        let payload;
-        try {
-            payload = JSON.parse(responseText);
-        } catch (parseErr) {
-            console.error('JSON parse error:', parseErr);
-            showAjaxFlash('error', 'خطأ في الاستجابة',
-                'الخادم أرجع استجابة غير صالحة. يرجى المحاولة مرة أخرى.');
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'إتمام البيع';
-            return;
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
-        if (!payload.ok) {
-            showAjaxFlash('error', 'فشل الطلب', payload.message || 'تعذر إنشاء الطلب.', payload.errors ||
-            []);
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'إتمام البيع';
-            return;
+        // Update payment display with remaining and change
+        function updatePaymentDisplay() {
+            const paymentUSDInput = document.getElementById('paymentUSD');
+            const paymentLBPInput = document.getElementById('paymentLBP');
+            const paymentUSD = parseFloat(paymentUSDInput.value) || 0;
+            const paymentLBP = parseFloat(paymentLBPInput.value) || 0;
+            const paymentRemainingDiv = document.getElementById('paymentRemaining');
+            const changeDisplayDiv = document.getElementById('changeDisplay');
+
+            // Calculate total due (before discount)
+            let subtotalUSD = 0;
+            Object.keys(cart).forEach(id => {
+                subtotalUSD += cart[id].price * cart[id].quantity;
+            });
+
+            // Apply cents discount if applicable
+            let totalDueUSD = subtotalUSD;
+            const cents = subtotalUSD - Math.floor(subtotalUSD);
+            if (subtotalUSD >= 20 && cents > 0.001) {
+                totalDueUSD = Math.floor(subtotalUSD);
+            }
+
+            if (totalDueUSD <= 0) {
+                paymentRemainingDiv.style.display = 'none';
+                changeDisplayDiv.style.display = 'none';
+                // Reset placeholders
+                paymentUSDInput.placeholder = '0.00';
+                paymentLBPInput.placeholder = '0';
+                return;
+            }
+
+            // Convert LBP payment to USD
+            const paymentLBPinUSD = paymentLBP / exchangeRate;
+            const totalPaidUSD = paymentUSD + paymentLBPinUSD;
+            const remainingUSD = totalDueUSD - totalPaidUSD;
+            const remainingLBP = remainingUSD * exchangeRate;
+
+            // Update placeholders with remaining amounts
+            if (remainingUSD > 0.01) {
+                // Show remaining in placeholders
+                paymentUSDInput.placeholder = 'المتبقي: $' + remainingUSD.toFixed(2);
+                paymentLBPInput.placeholder = 'المتبقي: ' + Math.round(remainingLBP).toLocaleString();
+            } else {
+                // Paid in full or overpaid
+                paymentUSDInput.placeholder = '0.00';
+                paymentLBPInput.placeholder = '0';
+            }
+
+            // Update display
+            document.getElementById('displayTotalDue').textContent = '$' + totalDueUSD.toFixed(2);
+            document.getElementById('displayTotalPaid').textContent = '$' + totalPaidUSD.toFixed(2);
+
+            if (remainingUSD > 0.01) {
+                // Still owes money
+                document.getElementById('remainingLabel').textContent = 'المتبقي:';
+                document.getElementById('displayRemaining').textContent = '$' + remainingUSD.toFixed(2);
+                document.getElementById('displayRemainingLBP').textContent = 'ل.ل. ' + Math.round(remainingLBP)
+                    .toLocaleString();
+                paymentRemainingDiv.className = 'payment-remaining';
+                changeDisplayDiv.style.display = 'none';
+            } else if (remainingUSD < -0.01) {
+                // Overpaid - show change
+                const changeUSD = Math.abs(remainingUSD);
+                const changeLBP = changeUSD * exchangeRate;
+                document.getElementById('remainingLabel').textContent = 'زيادة:';
+                document.getElementById('displayRemaining').textContent = '$' + changeUSD.toFixed(2);
+                document.getElementById('displayRemainingLBP').textContent = 'ل.ل. ' + Math.round(changeLBP).toLocaleString();
+                paymentRemainingDiv.className = 'payment-remaining overpaid';
+
+                // Show change to return
+                document.getElementById('changeUSD').textContent = '$' + changeUSD.toFixed(2);
+                document.getElementById('changeLBP').textContent = 'ل.ل. ' + Math.round(changeLBP).toLocaleString();
+                changeDisplayDiv.style.display = 'block';
+            } else {
+                // Exact payment
+                document.getElementById('remainingLabel').textContent = 'المتبقي:';
+                document.getElementById('displayRemaining').textContent = '$0.00';
+                document.getElementById('displayRemainingLBP').textContent = 'ل.ل. 0';
+                paymentRemainingDiv.className = 'payment-remaining paid';
+                changeDisplayDiv.style.display = 'none';
+            }
+
+            paymentRemainingDiv.style.display = 'block';
         }
 
-        showAjaxFlash('success', 'تمت العملية', payload.message || 'تمت عملية البيع بنجاح.');
-        cart = {};
-        updateCartDisplay();
-        updateProductCards();
-        closeCart();
-        document.getElementById('customerId').value = '';
-        document.getElementById('customerSearch').value = '';
-        document.getElementById('customerSelected').classList.remove('show');
-        document.getElementById('selectedCustomerName').textContent = '';
-        document.getElementById('selectedCustomerInfo').textContent = '';
-        const notes = document.getElementById('orderNotes');
-        if (notes) notes.value = '';
-        document.getElementById('paymentUSD').value = '';
-        document.getElementById('paymentLBP').value = '';
-        updatePaymentDisplay();
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'إتمام البيع';
+        // Also update payment display when cart changes
+        const originalUpdateCartDisplay = updateCartDisplay;
+        updateCartDisplay = function() {
+            originalUpdateCartDisplay();
+            updatePaymentDisplay();
+        };
 
-        if (payload.redirect_url) {
-            window.open(payload.redirect_url, '_blank');
+        function showAjaxFlash(type, title, message, list) {
+            const host = document.getElementById('ajaxFlash');
+            const safeTitle = title || (type === 'success' ? 'تم' : 'خطأ');
+            let html = `<div class="flash ${type}">`;
+            html += `<h4>${safeTitle}</h4>`;
+            if (message) html += `<p>${message}</p>`;
+            if (Array.isArray(list) && list.length > 0) {
+                html += '<ul>';
+                list.forEach(item => {
+                    html += `<li>${item}</li>`;
+                });
+                html += '</ul>';
+            }
+            html += '</div>';
+            if (host) {
+                host.innerHTML = html;
+                host.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+            } else {
+                alert(message || safeTitle);
+            }
         }
-    } catch (err) {
-        console.error('Fetch error:', err);
-        showAjaxFlash('error', 'خطأ بالشبكة', 'تعذر إرسال الطلب، حاول مرة أخرى. ' + err.message);
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'إتمام البيع';
-    }
-});
 
-// Add click listeners to all product cards
-document.querySelectorAll('.product-card').forEach(card => {
-    card.addEventListener('click', function(e) {
-        // Don't trigger if clicking on controls
-        if (e.target.closest('.product-controls')) {
-            return;
+        // Form validation + AJAX submit
+        document.getElementById('cartForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const customerId = document.getElementById('customerId').value;
+            const itemCount = Object.keys(cart).length;
+            const submitBtn = document.getElementById('submitBtn');
+
+            console.log('Form submit triggered', {
+                customerId,
+                itemCount,
+                cart
+            });
+
+            if (!customerId) {
+                showAjaxFlash('error', 'يرجى اختيار زبون', 'يرجى اختيار زبون.');
+                return false;
+            }
+
+            if (itemCount === 0) {
+                showAjaxFlash('error', 'السلة فارغة', 'يرجى إضافة منتج واحد على الأقل.');
+                return false;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'جاري المعالجة...';
+
+            try {
+                const formData = new FormData(this);
+                console.log('Sending form data...');
+
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json'
+                    }
+                });
+
+                console.log('Response status:', response.status);
+                const responseText = await response.text();
+                console.log('Response text:', responseText.substring(0, 500));
+
+                let payload;
+                try {
+                    payload = JSON.parse(responseText);
+                } catch (parseErr) {
+                    console.error('JSON parse error:', parseErr);
+                    showAjaxFlash('error', 'خطأ في الاستجابة',
+                        'الخادم أرجع استجابة غير صالحة. يرجى المحاولة مرة أخرى.');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'إتمام البيع';
+                    return;
+                }
+
+                if (!payload.ok) {
+                    showAjaxFlash('error', 'فشل الطلب', payload.message || 'تعذر إنشاء الطلب.', payload.errors || []);
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'إتمام البيع';
+                    return;
+                }
+
+                // Clear cart and reset form
+                cart = {};
+                updateCartDisplay();
+                updateProductCards();
+                closeCart();
+                document.getElementById('customerId').value = '';
+                document.getElementById('customerSearch').value = '';
+                document.getElementById('customerSelected').classList.remove('show');
+                document.getElementById('selectedCustomerName').textContent = '';
+                document.getElementById('selectedCustomerInfo').textContent = '';
+                const notes = document.getElementById('orderNotes');
+                if (notes) notes.value = '';
+                document.getElementById('paymentUSD').value = '';
+                document.getElementById('paymentLBP').value = '';
+                updatePaymentDisplay();
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'إتمام البيع';
+
+                // Show success modal with WhatsApp option
+                showSaleSuccessModal(payload);
+            } catch (err) {
+                console.error('Fetch error:', err);
+                showAjaxFlash('error', 'خطأ بالشبكة', 'تعذر إرسال الطلب، حاول مرة أخرى. ' + err.message);
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'إتمام البيع';
+            }
+        });
+
+        // Add click listeners to all product cards
+        document.querySelectorAll('.product-card').forEach(card => {
+            card.addEventListener('click', function(e) {
+                // Don't trigger if clicking on controls
+                if (e.target.closest('.product-controls')) {
+                    return;
+                }
+                toggleSelectItem(this);
+            });
+        });
+
+        // Apply filter on page load to hide 0 qty and 0 price items by default
+        filterProducts();
+
+        // Sale success modal with WhatsApp integration
+        function showSaleSuccessModal(payload) {
+            // Remove existing modal if any
+            const existingModal = document.getElementById('saleSuccessModal');
+            if (existingModal) existingModal.remove();
+
+            const hasWhatsApp = payload.whatsapp_url && payload.whatsapp_url.length > 0;
+
+            const modalHtml = `
+        <div id="saleSuccessModal" class="sale-success-modal" onclick="if(event.target===this) closeSaleSuccessModal()">
+            <div class="sale-success-content">
+                <div class="sale-success-icon">✓</div>
+                <h2>تمت عملية البيع بنجاح!</h2>
+                <div class="sale-success-details">
+                    <p><strong>رقم الفاتورة:</strong> ${payload.invoice_number || ''}</p>
+                    <p><strong>العميل:</strong> ${payload.customer_name || ''}</p>
+                    <p><strong>الإجمالي:</strong> $${(payload.total_usd || 0).toFixed(2)}</p>
+                </div>
+                <div class="sale-success-actions">
+                    ${hasWhatsApp ? `
+                    <a href="${payload.whatsapp_url}" target="_blank" class="btn-whatsapp-send" onclick="setTimeout(closeSaleSuccessModal, 500)">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                        </svg>
+                        إرسال عبر واتساب
+                    </a>
+                    ` : ''}
+                    <a href="${payload.redirect_url || '#'}" target="_blank" class="btn-view-invoice" onclick="setTimeout(closeSaleSuccessModal, 500)">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                            <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M12,19L8,15H10.5V12H13.5V15H16L12,19Z"/>
+                        </svg>
+                        عرض الفاتورة
+                    </a>
+                    <a href="${payload.pdf_url || '#'}" target="_blank" class="btn-download-pdf">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                            <path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/>
+                        </svg>
+                        تحميل PDF
+                    </a>
+                    <button type="button" class="btn-new-sale" onclick="closeSaleSuccessModal()">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                            <path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/>
+                        </svg>
+                        عملية بيع جديدة
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // Add styles if not already present
+            if (!document.getElementById('saleSuccessStyles')) {
+                const styles = `
+            <style id="saleSuccessStyles">
+                .sale-success-modal {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0,0,0,0.7);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 10000;
+                    animation: fadeIn 0.3s ease;
+                }
+                @keyframes fadeIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
+                @keyframes fadeOut {
+                    from { opacity: 1; }
+                    to { opacity: 0; }
+                }
+                .sale-success-content {
+                    background: white;
+                    border-radius: 16px;
+                    padding: 32px;
+                    max-width: 420px;
+                    width: 90%;
+                    text-align: center;
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                    animation: slideUp 0.3s ease;
+                }
+                @keyframes slideUp {
+                    from { transform: translateY(30px); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                }
+                .sale-success-icon {
+                    width: 80px;
+                    height: 80px;
+                    background: linear-gradient(135deg, #22c55e, #16a34a);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    margin: 0 auto 20px;
+                    font-size: 40px;
+                    color: white;
+                    box-shadow: 0 8px 20px rgba(34, 197, 94, 0.4);
+                }
+                .sale-success-content h2 {
+                    margin: 0 0 16px;
+                    color: #1e293b;
+                    font-size: 1.5rem;
+                }
+                .sale-success-details {
+                    background: #f8fafc;
+                    border-radius: 10px;
+                    padding: 16px;
+                    margin-bottom: 24px;
+                    text-align: right;
+                }
+                .sale-success-details p {
+                    margin: 8px 0;
+                    color: #475569;
+                    font-size: 0.95rem;
+                }
+                .sale-success-details strong {
+                    color: #1e293b;
+                }
+                .sale-success-actions {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }
+                .sale-success-actions a,
+                .sale-success-actions button {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 10px;
+                    padding: 14px 20px;
+                    border-radius: 10px;
+                    font-size: 1rem;
+                    font-weight: 600;
+                    text-decoration: none;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    border: none;
+                }
+                .btn-whatsapp-send {
+                    background: linear-gradient(135deg, #25D366, #128C7E);
+                    color: white !important;
+                    box-shadow: 0 4px 15px rgba(37, 211, 102, 0.4);
+                }
+                .btn-whatsapp-send:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 20px rgba(37, 211, 102, 0.5);
+                }
+                .btn-view-invoice {
+                    background: linear-gradient(135deg, #3b82f6, #2563eb);
+                    color: white !important;
+                }
+                .btn-view-invoice:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+                }
+                .btn-download-pdf {
+                    background: #f1f5f9;
+                    color: #475569 !important;
+                    border: 1px solid #e2e8f0;
+                }
+                .btn-download-pdf:hover {
+                    background: #e2e8f0;
+                }
+                .btn-new-sale {
+                    background: linear-gradient(135deg, #22c55e, #16a34a);
+                    color: white;
+                }
+                .btn-new-sale:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
+                }
+                .sale-success-actions svg {
+                    flex-shrink: 0;
+                }
+            </style>
+        `;
+                document.head.insertAdjacentHTML('beforeend', styles);
+            }
         }
-        toggleSelectItem(this);
-    });
-});
 
-// Apply filter on page load to hide 0 qty and 0 price items by default
-filterProducts();
-</script>
+        function closeSaleSuccessModal() {
+            const modal = document.getElementById('saleSuccessModal');
+            if (modal) {
+                modal.style.animation = 'fadeOut 0.2s ease forwards';
+                setTimeout(() => modal.remove(), 200);
+            }
+        }
+    </script>
 <?php
 }
 
