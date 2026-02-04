@@ -13,9 +13,14 @@ RewriteBase /
 RewriteCond %{HTTP_HOST} salameh-tools-wholesale\.com$ [NC]
 RewriteRule ^salamehtools/(.*)$ /$1 [R=301,L]
 
+# Redirect root URL to login page
+RewriteCond %{REQUEST_URI} ^/?$
+RewriteRule ^$ /pages/login.php [R=302,L]
+
+# Handle other non-existent paths
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*)$ index.php?path=$1 [QSA,L]
+RewriteRule ^(.*)$ /pages/login.php [R=302,L]
 
 # Static asset caching (production)
 <IfModule mod_expires.c>

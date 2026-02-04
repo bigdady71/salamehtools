@@ -338,6 +338,7 @@ body {
     padding: 16px 12px;
     overflow-y: auto;
     overflow-x: hidden;
+    min-height: 0; /* Important for flex overflow */
 }
 
 .nav-item {
@@ -377,10 +378,13 @@ body {
     text-overflow: ellipsis;
 }
 
-/* Sidebar Footer */
+/* Sidebar Footer - Always visible at bottom */
 .sidebar-footer {
     padding: 16px;
     border-top: 1px solid rgba(255,255,255,0.1);
+    margin-top: auto;
+    flex-shrink: 0;
+    background: linear-gradient(180deg, #1F2937 0%, #111827 100%);
 }
 
 .logout-btn {
@@ -654,7 +658,55 @@ tr:hover td {
     border: 1px solid #FECACA;
 }
 
-/* Responsive - Tablet */
+/* Responsive - Tablet Landscape */
+@media (max-width: 1024px) and (min-width: 769px) {
+    .sidebar {
+        width: 220px;
+    }
+    
+    .main-wrapper {
+        margin-left: 220px;
+    }
+    
+    .sidebar-nav {
+        padding: 12px 8px;
+        max-height: calc(100vh - 280px);
+        overflow-y: auto;
+    }
+    
+    .nav-item {
+        padding: 10px 12px;
+        font-size: 0.85rem;
+    }
+    
+    .sidebar-footer {
+        padding: 12px;
+        position: sticky;
+        bottom: 0;
+        background: inherit;
+    }
+    
+    .logout-btn {
+        padding: 10px;
+        font-size: 0.85rem;
+    }
+    
+    .sidebar-user {
+        padding: 12px 16px;
+    }
+    
+    .user-avatar {
+        width: 38px;
+        height: 38px;
+        font-size: 1rem;
+    }
+    
+    .user-name {
+        font-size: 0.9rem;
+    }
+}
+
+/* Responsive - Tablet Portrait */
 @media (max-width: 1024px) {
     .main-content {
         padding: 24px;
