@@ -54,6 +54,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'reject') {
     }
 }
 
+// Handle cancel request (warehouse can also cancel)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'cancel') {
+    if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+        $flashes[] = ['type' => 'error', 'title' => 'Security Error', 'message' => 'Invalid CSRF token.'];
+    } else {
+        $requestId = (int)($_POST['request_id'] ?? 0);
+        $reason = trim((string)($_POST['reason'] ?? ''));
+        if ($requestId > 0) {
+            $cancelStmt = $pdo->prepare("
+                UPDATE van_restock_requests
+                SET status = 'cancelled', rejection_reason = :reason, approved_at = NOW(), approved_by = :user_id
+                WHERE id = :id AND status IN ('submitted', 'approved')
+            ");
+            $cancelStmt->execute([':reason' => $reason ?: 'Cancelled by warehouse', ':user_id' => $user['id'], ':id' => $requestId]);
+
+            if ($cancelStmt->rowCount() > 0) {
+                $flashes[] = ['type' => 'success', 'title' => 'Cancelled', 'message' => 'Restock request has been cancelled.'];
+            }
+        }
+    }
+}
+
 // Handle fulfill request (transfer stock to van)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'fulfill') {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
@@ -168,14 +190,14 @@ $pendingStmt = $pdo->prepare("
 $pendingStmt->execute();
 $pendingRequests = $pendingStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Get recent fulfilled/rejected requests
+// Get recent fulfilled/rejected/cancelled requests
 $historyStmt = $pdo->prepare("
     SELECT r.*, u.name as rep_name,
            (SELECT COUNT(*) FROM van_restock_items WHERE request_id = r.id) as item_count,
            (SELECT SUM(quantity) FROM van_restock_items WHERE request_id = r.id) as total_quantity
     FROM van_restock_requests r
     JOIN users u ON u.id = r.sales_rep_id
-    WHERE r.status IN ('fulfilled', 'rejected')
+    WHERE r.status IN ('fulfilled', 'rejected', 'cancelled')
     ORDER BY r.fulfilled_at DESC, r.approved_at DESC
     LIMIT 50
 ");
@@ -365,35 +387,60 @@ warehouse_portal_render_layout_start([
         }
         .status-fulfilled { background: #d1fae5; color: #065f46; }
         .status-rejected { background: #fee2e2; color: #991b1b; }
+        .status-cancelled { background: #f3f4f6; color: #4b5563; }
         .modal {
             display: none;
             position: fixed;
             top: 0;
             left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 1000;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.6);
+            z-index: 9999;
             align-items: center;
             justify-content: center;
+            backdrop-filter: blur(4px);
         }
-        .modal.show { display: flex; }
+        .modal.show { display: flex !important; }
         .modal-content {
             background: white;
             border-radius: 16px;
-            padding: 24px;
-            max-width: 400px;
+            padding: 28px;
+            max-width: 450px;
             width: 90%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            transform: scale(1);
+            animation: modalIn 0.2s ease-out;
         }
-        .modal-title { font-size: 1.2rem; font-weight: 700; margin-bottom: 16px; }
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .modal-title { 
+            font-size: 1.3rem; 
+            font-weight: 700; 
+            margin-bottom: 20px; 
+            color: #1f2937;
+        }
         .modal-content textarea {
             width: 100%;
-            padding: 12px;
+            padding: 14px;
             border: 2px solid var(--border);
-            border-radius: 8px;
-            margin-bottom: 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
             resize: none;
-            height: 100px;
+            height: 120px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+        .modal-content textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
         }
     </style>',
 ]);
@@ -507,8 +554,8 @@ foreach ($flashes as $flash) {
                                 <input type="hidden" name="request_id" value="<?= $request['id'] ?>">
                                 <button type="submit" class="btn btn-success">✅ Approve</button>
                             </form>
-                            <button type="button" class="btn btn-danger" onclick="showRejectModal(<?= $request['id'] ?>)">❌
-                                Reject</button>
+                            <button type="button" class="btn btn-danger" onclick="showRejectModal(<?= $request['id'] ?>)">❌ Reject</button>
+                            <button type="button" class="btn btn-secondary" onclick="showCancelModal(<?= $request['id'] ?>)">🚫 Cancel</button>
                         <?php elseif ($request['status'] === 'approved'): ?>
                             <form method="POST" style="display: inline;"
                                 onsubmit="return confirm('Transfer stock to van? This action cannot be undone.');">
@@ -518,6 +565,7 @@ foreach ($flashes as $flash) {
                                 <input type="hidden" name="request_id" value="<?= $request['id'] ?>">
                                 <button type="submit" class="btn btn-primary">🚚 Fulfill & Transfer Stock</button>
                             </form>
+                            <button type="button" class="btn btn-secondary" onclick="showCancelModal(<?= $request['id'] ?>)">🚫 Cancel</button>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -541,7 +589,14 @@ foreach ($flashes as $flash) {
                         </small>
                     </div>
                     <span class="history-status status-<?= $history['status'] ?>">
-                        <?= $history['status'] === 'fulfilled' ? '✅ Fulfilled' : '❌ Rejected' ?>
+                        <?php
+                        $statusLabels = [
+                            'fulfilled' => '✅ Fulfilled',
+                            'rejected' => '❌ Rejected',
+                            'cancelled' => '🚫 Cancelled'
+                        ];
+                        echo $statusLabels[$history['status']] ?? $history['status'];
+                        ?>
                     </span>
                 </div>
             <?php endforeach; ?>
@@ -552,15 +607,38 @@ foreach ($flashes as $flash) {
 <!-- Reject Modal -->
 <div class="modal" id="rejectModal">
     <div class="modal-content">
-        <div class="modal-title">Reject Request</div>
+        <div class="modal-title">❌ Reject Request</div>
+        <p style="color: var(--muted); margin-bottom: 16px; font-size: 0.95rem;">
+            This will reject the restock request. The sales rep will be notified.
+        </p>
         <form method="POST">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
             <input type="hidden" name="action" value="reject">
             <input type="hidden" name="request_id" id="rejectRequestId" value="">
             <textarea name="reason" placeholder="Reason for rejection (optional)..."></textarea>
-            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <div class="modal-actions">
                 <button type="button" class="btn btn-secondary" onclick="hideRejectModal()">Cancel</button>
-                <button type="submit" class="btn btn-danger">Reject</button>
+                <button type="submit" class="btn btn-danger">Reject Request</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Cancel Modal -->
+<div class="modal" id="cancelModal">
+    <div class="modal-content">
+        <div class="modal-title">🚫 Cancel Request</div>
+        <p style="color: var(--muted); margin-bottom: 16px; font-size: 0.95rem;">
+            This will cancel the restock request without fulfilling it.
+        </p>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+            <input type="hidden" name="action" value="cancel">
+            <input type="hidden" name="request_id" id="cancelRequestId" value="">
+            <textarea name="reason" placeholder="Reason for cancellation (optional)..."></textarea>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="hideCancelModal()">Close</button>
+                <button type="submit" class="btn btn-danger">Cancel Request</button>
             </div>
         </form>
     </div>
@@ -576,8 +654,21 @@ foreach ($flashes as $flash) {
         document.getElementById('rejectModal').classList.remove('show');
     }
 
+    function showCancelModal(requestId) {
+        document.getElementById('cancelRequestId').value = requestId;
+        document.getElementById('cancelModal').classList.add('show');
+    }
+
+    function hideCancelModal() {
+        document.getElementById('cancelModal').classList.remove('show');
+    }
+
     document.getElementById('rejectModal').addEventListener('click', function(e) {
         if (e.target === this) hideRejectModal();
+    });
+
+    document.getElementById('cancelModal').addEventListener('click', function(e) {
+        if (e.target === this) hideCancelModal();
     });
 </script>
 

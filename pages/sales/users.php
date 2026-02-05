@@ -78,10 +78,38 @@ if ($action === 'get_customer_detail') {
     $ordersStmt->execute([':customer_id' => $customerId]);
     $orders = $ordersStmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Get recent invoices (last 10)
+    $invoicesStmt = $pdo->prepare("
+        SELECT
+            i.id,
+            i.invoice_number,
+            i.status,
+            i.total_usd,
+            i.total_lbp,
+            i.issued_at,
+            i.created_at,
+            o.order_number,
+            COALESCE(p.paid_usd, 0) as paid_usd,
+            (i.total_usd - COALESCE(p.paid_usd, 0)) as outstanding_usd
+        FROM invoices i
+        INNER JOIN orders o ON o.id = i.order_id
+        LEFT JOIN (
+            SELECT invoice_id, SUM(amount_usd) as paid_usd
+            FROM payments
+            GROUP BY invoice_id
+        ) p ON p.invoice_id = i.id
+        WHERE o.customer_id = :customer_id
+        ORDER BY i.created_at DESC
+        LIMIT 10
+    ");
+    $invoicesStmt->execute([':customer_id' => $customerId]);
+    $invoices = $invoicesStmt->fetchAll(PDO::FETCH_ASSOC);
+
     echo json_encode([
         'customer' => $customer,
         'stats' => $stats,
-        'orders' => $orders
+        'orders' => $orders,
+        'invoices' => $invoices
     ]);
     exit;
 }
@@ -1427,6 +1455,19 @@ echo '</form>';
 echo '</div>';
 echo '</div>';
 
+// Invoice Info Modal
+echo '<div id="invoiceInfoModal" class="modal">';
+echo '<div class="modal-content" style="max-width: 700px;">';
+echo '<div class="modal-header">';
+echo '<h2>Invoice Details</h2>';
+echo '<button class="modal-close" onclick="closeInvoiceInfo()">&times;</button>';
+echo '</div>';
+echo '<div id="invoiceInfoContent" style="min-height: 200px;">';
+echo '<div style="text-align: center; padding: 40px; color: var(--muted);">Loading...</div>';
+echo '</div>';
+echo '</div>';
+echo '</div>';
+
 echo '<script>';
 echo 'function applyFilters() {';
 echo '  const search = document.getElementById("filter-search").value;';
@@ -1502,6 +1543,42 @@ echo '      html += "<div><strong>Outstanding:</strong> " + outstandingText + "<
 echo '      html += "<div><strong>Last Order:</strong> " + (data.stats.last_order_date ? new Date(data.stats.last_order_date).toLocaleDateString() : "Never") + "</div>";';
 echo '      html += "</div></div>";';
 echo '      html += "</div>";';
+echo '      html += "<h3 style=\"margin: 24px 0 16px 0; font-size: 1.1rem; border-bottom: 2px solid var(--accent); padding-bottom: 8px;\">Recent Invoices</h3>";';
+echo '      if (!data.invoices || data.invoices.length === 0) {';
+echo '        html += "<div style=\"text-align: center; padding: 24px; color: var(--muted);\">No invoices yet</div>";';
+echo '      } else {';
+echo '        html += "<table style=\"width: 100%; border-collapse: collapse;\"><thead><tr style=\"background: var(--bg); text-align: left;\">";';
+echo '        html += "<th style=\"padding: 10px;\">Invoice #</th><th>Date</th><th>Status</th><th>Total</th><th>Paid</th><th>Outstanding</th><th>Actions</th></tr></thead><tbody>";';
+echo '        data.invoices.forEach(inv => {';
+echo '          const invOutstanding = parseFloat(inv.outstanding_usd || 0);';
+echo '          const invPaid = parseFloat(inv.paid_usd || 0);';
+echo '          let outstandingText = "";';
+echo '          if (invOutstanding > 0.01) {';
+echo '            outstandingText = "<span style=\"color: #dc2626; font-weight: 600;\">$" + invOutstanding.toFixed(2) + "</span>";';
+echo '          } else {';
+echo '            outstandingText = "<span style=\"color: #059669;\">$0.00</span>";';
+echo '          }';
+echo '          const statusColors = {';
+echo '            "draft": "background: rgba(156, 163, 175, 0.15); color: #4b5563;",';
+echo '            "pending": "background: rgba(251, 191, 36, 0.15); color: #b45309;",';
+echo '            "issued": "background: rgba(59, 130, 246, 0.15); color: #1d4ed8;",';
+echo '            "paid": "background: rgba(34, 197, 94, 0.15); color: #15803d;",';
+echo '            "voided": "background: rgba(239, 68, 68, 0.15); color: #991b1b;"';
+echo '          };';
+echo '          const statusStyle = statusColors[inv.status] || statusColors["draft"];';
+echo '          html += "<tr style=\"border-bottom: 1px solid var(--border);\">";';
+echo '          html += "<td style=\"padding: 10px;\"><strong>" + inv.invoice_number + "</strong></td>";';
+echo '          html += "<td>" + (inv.issued_at ? new Date(inv.issued_at).toLocaleDateString() : new Date(inv.created_at).toLocaleDateString()) + "</td>";';
+echo '          html += "<td><span style=\"padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; " + statusStyle + "\">" + inv.status.charAt(0).toUpperCase() + inv.status.slice(1) + "</span></td>";';
+echo '          html += "<td>$" + parseFloat(inv.total_usd).toFixed(2) + "</td>";';
+echo '          html += "<td style=\"color: #059669;\">$" + invPaid.toFixed(2) + "</td>";';
+echo '          html += "<td>" + outstandingText + "</td>";';
+echo '          html += "<td><button onclick=\"showInvoiceInfo(" + inv.id + ")\" style=\"padding: 4px 10px; border-radius: 6px; background: #0ea5e9; color: white; border: none; cursor: pointer; font-size: 0.85rem; font-weight: 600;\">Info</button> ";';
+echo '          html += "<a href=\"invoice_pdf.php?invoice_id=" + inv.id + "\" target=\"_blank\" style=\"padding: 4px 10px; border-radius: 6px; background: #6b7280; color: white; border: none; cursor: pointer; font-size: 0.85rem; font-weight: 600; text-decoration: none;\">PDF</a></td>";';
+echo '          html += "</tr>";';
+echo '        });';
+echo '        html += "</tbody></table>";';
+echo '      }';
 echo '      html += "<h3 style=\"margin: 24px 0 16px 0; font-size: 1.1rem; border-bottom: 2px solid var(--accent); padding-bottom: 8px;\">Recent Orders</h3>";';
 echo '      if (data.orders.length === 0) {';
 echo '        html += "<div style=\"text-align: center; padding: 24px; color: var(--muted);\">No orders yet</div>";';
@@ -1551,6 +1628,72 @@ echo '}';
 echo 'document.getElementById("filter-search").addEventListener("keypress", function(e) {';
 echo '  if (e.key === "Enter") applyFilters();';
 echo '});';
+echo 'function showInvoiceInfo(invoiceId) {';
+echo '  document.getElementById("invoiceInfoModal").classList.add("active");';
+echo '  document.getElementById("invoiceInfoContent").innerHTML = "<div style=\"text-align: center; padding: 40px; color: var(--muted);\">Loading...</div>";';
+echo '  fetch("invoice_info.php?invoice_id=" + invoiceId)';
+echo '    .then(r => r.json())';
+echo '    .then(data => {';
+echo '      if (data.error) {';
+echo '        document.getElementById("invoiceInfoContent").innerHTML = "<div style=\"text-align: center; padding: 40px; color: #dc2626;\">" + data.error + "</div>";';
+echo '        return;';
+echo '      }';
+echo '      let html = "<div style=\"display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;\">";';
+echo '      html += "<div>";';
+echo '      html += "<table style=\"width: 100%; border-collapse: collapse; font-size: 0.9rem;\">";';
+echo '      html += "<tr><td style=\"padding: 6px 0; color: var(--muted);\">Invoice #</td><td style=\"padding: 6px 0; font-weight: 600;\">" + (data.invoice_number || "-") + "</td></tr>";';
+echo '      html += "<tr><td style=\"padding: 6px 0; color: var(--muted);\">Order #</td><td style=\"padding: 6px 0;\">" + (data.order_number || "-") + "</td></tr>";';
+echo '      const statusColors = { draft: "background: rgba(156, 163, 175, 0.15); color: #4b5563;", pending: "background: rgba(251, 191, 36, 0.15); color: #b45309;", issued: "background: rgba(59, 130, 246, 0.15); color: #1d4ed8;", paid: "background: rgba(34, 197, 94, 0.15); color: #15803d;", voided: "background: rgba(239, 68, 68, 0.15); color: #991b1b;" };';
+echo '      const statusStyle = statusColors[data.status] || statusColors.draft;';
+echo '      html += "<tr><td style=\"padding: 6px 0; color: var(--muted);\">Status</td><td style=\"padding: 6px 0;\"><span style=\"padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; " + statusStyle + "\">" + (data.status ? data.status.charAt(0).toUpperCase() + data.status.slice(1) : "-") + "</span></td></tr>";';
+echo '      html += "<tr><td style=\"padding: 6px 0; color: var(--muted);\">Date</td><td style=\"padding: 6px 0;\">" + (data.issued_at ? new Date(data.issued_at).toLocaleDateString() : "-") + "</td></tr>";';
+echo '      html += "</table></div>";';
+echo '      html += "<div>";';
+echo '      html += "<table style=\"width: 100%; border-collapse: collapse; font-size: 0.9rem;\">";';
+echo '      html += "<tr><td style=\"padding: 6px 0; color: var(--muted);\">Customer</td><td style=\"padding: 6px 0; font-weight: 600;\">" + (data.customer_name || "-") + "</td></tr>";';
+echo '      html += "<tr><td style=\"padding: 6px 0; color: var(--muted);\">Phone</td><td style=\"padding: 6px 0;\">" + (data.customer_phone || "-") + "</td></tr>";';
+echo '      html += "<tr><td style=\"padding: 6px 0; color: var(--muted);\">Location</td><td style=\"padding: 6px 0;\">" + (data.customer_location || "-") + "</td></tr>";';
+echo '      html += "</table></div></div>";';
+echo '      if (data.items && data.items.length) {';
+echo '        html += "<div style=\"border-top: 1px solid var(--border); padding-top: 16px; margin-bottom: 16px;\">";';
+echo '        html += "<h4 style=\"margin: 0 0 12px 0; font-size: 1rem; font-weight: 600;\">Line Items</h4>";';
+echo '        html += "<table style=\"width: 100%; border-collapse: collapse; font-size: 0.85rem;\">";';
+echo '        html += "<thead><tr style=\"border-bottom: 1px solid var(--border);\">";';
+echo '        html += "<th style=\"text-align: left; padding: 8px 4px; color: var(--muted);\">Item</th>";';
+echo '        html += "<th style=\"text-align: center; padding: 8px 4px; color: var(--muted);\">Qty</th>";';
+echo '        html += "<th style=\"text-align: right; padding: 8px 4px; color: var(--muted);\">Price</th>";';
+echo '        html += "<th style=\"text-align: right; padding: 8px 4px; color: var(--muted);\">Total</th>";';
+echo '        html += "</tr></thead><tbody>";';
+echo '        data.items.forEach(item => {';
+echo '          html += "<tr style=\"border-bottom: 1px solid #f3f4f6;\">";';
+echo '          html += "<td style=\"padding: 8px 4px;\">" + (item.item_name || "") + "</td>";';
+echo '          html += "<td style=\"text-align: center; padding: 8px 4px;\">" + (item.quantity || 0) + "</td>";';
+echo '          html += "<td style=\"text-align: right; padding: 8px 4px;\">$" + parseFloat(item.unit_price_usd || 0).toFixed(2) + "</td>";';
+echo '          html += "<td style=\"text-align: right; padding: 8px 4px; font-weight: 500;\">$" + parseFloat(item.subtotal_usd || 0).toFixed(2) + "</td>";';
+echo '          html += "</tr>";';
+echo '        });';
+echo '        html += "</tbody></table></div>";';
+echo '      }';
+echo '      html += "<div style=\"border-top: 2px solid var(--border); padding-top: 16px;\">";';
+echo '      html += "<table style=\"width: 100%; font-size: 0.9rem;\">";';
+echo '      html += "<tr><td style=\"padding: 4px 0; color: var(--muted);\">Total (USD)</td><td style=\"text-align: right; font-weight: 600;\">$" + parseFloat(data.total_usd || 0).toFixed(2) + "</td></tr>";';
+echo '      html += "<tr><td style=\"padding: 4px 0; color: var(--muted);\">Paid (USD)</td><td style=\"text-align: right; color: #059669;\">$" + parseFloat(data.paid_usd || 0).toFixed(2) + "</td></tr>";';
+echo '      const outstanding = parseFloat(data.outstanding_usd || 0);';
+echo '      html += "<tr><td style=\"padding: 4px 0; color: var(--muted);\">Outstanding</td><td style=\"text-align: right; font-weight: 600; color: " + (outstanding > 0.01 ? "#ea580c" : "#059669") + ";\">$" + outstanding.toFixed(2) + "</td></tr>";';
+echo '      html += "</table></div>";';
+echo '      html += "<div style=\"border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; display: flex; gap: 12px; justify-content: flex-end;\">";';
+echo '      html += "<a href=\"invoice_pdf.php?invoice_id=" + data.id + "\" target=\"_blank\" style=\"padding: 8px 16px; border-radius: 8px; background: #6b7280; color: white; text-decoration: none; font-weight: 600;\">View PDF</a>";';
+echo '      html += "<button onclick=\"closeInvoiceInfo()\" style=\"padding: 8px 16px; border-radius: 8px; background: var(--accent); color: white; border: none; cursor: pointer; font-weight: 600;\">Close</button>";';
+echo '      html += "</div>";';
+echo '      document.getElementById("invoiceInfoContent").innerHTML = html;';
+echo '    })';
+echo '    .catch(err => {';
+echo '      document.getElementById("invoiceInfoContent").innerHTML = "<div style=\"text-align: center; padding: 40px; color: #dc2626;\">Failed to load invoice details</div>";';
+echo '    });';
+echo '}';
+echo 'function closeInvoiceInfo() {';
+echo '  document.getElementById("invoiceInfoModal").classList.remove("active");';
+echo '}';
 echo '</script>';
 
 sales_portal_render_layout_end();

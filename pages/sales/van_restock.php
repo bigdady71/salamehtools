@@ -319,6 +319,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'remove_item') {
     exit;
 }
 
+// Handle cancelling own submitted request
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'cancel_request') {
+    if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+        if ($wantsJson) {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => false, 'message' => 'رمز الأمان غير صالح.']);
+            exit;
+        }
+        $flashes[] = ['type' => 'error', 'title' => 'خطأ أمني', 'message' => 'رمز الأمان غير صالح.'];
+    } else {
+        $requestId = (int)($_POST['request_id'] ?? 0);
+        if ($requestId > 0) {
+            // Can only cancel own submitted requests (not approved/fulfilled)
+            $cancelStmt = $pdo->prepare("
+                UPDATE van_restock_requests
+                SET status = 'cancelled'
+                WHERE id = :id AND sales_rep_id = :rep_id AND status = 'submitted'
+            ");
+            $cancelStmt->execute([':id' => $requestId, ':rep_id' => $repId]);
+
+            if ($cancelStmt->rowCount() > 0) {
+                $flashes[] = ['type' => 'success', 'title' => 'تم الإلغاء', 'message' => 'تم إلغاء طلب التعبئة بنجاح.'];
+                if ($wantsJson) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['ok' => true, 'message' => 'تم إلغاء طلب التعبئة بنجاح.']);
+                    exit;
+                }
+            } else {
+                $flashes[] = ['type' => 'error', 'title' => 'خطأ', 'message' => 'لا يمكن إلغاء هذا الطلب.'];
+            }
+        }
+    }
+}
+
 // Handle submitting the restock request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'submit_request') {
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
@@ -887,6 +921,7 @@ sales_portal_render_layout_start([
         .status-approved { background: #dbeafe; color: #1e40af; }
         .status-fulfilled { background: #d1fae5; color: #065f46; }
         .status-rejected { background: #fee2e2; color: #991b1b; }
+        .status-cancelled { background: #f3f4f6; color: #4b5563; }
         .flash {
             padding: 12px 16px;
             border-radius: 8px;
@@ -995,7 +1030,7 @@ foreach ($flashes as $flash) {
                 <h2 class="section-title">📜 سجل الطلبات</h2>
                 <?php foreach ($requestHistory as $history): ?>
                     <div class="history-item">
-                        <div>
+                        <div style="flex: 1;">
                             <strong><?= (int)$history['item_count'] ?> منتج</strong>
                             <span style="color: var(--muted);">- <?= number_format((float)$history['total_quantity'], 1) ?>
                                 وحدة</span>
@@ -1003,17 +1038,28 @@ foreach ($flashes as $flash) {
                             <small
                                 style="color: var(--muted);"><?= date('Y/m/d H:i', strtotime($history['created_at'])) ?></small>
                         </div>
-                        <span class="history-status status-<?= $history['status'] ?>">
-                            <?php
-                            $statusLabels = [
-                                'submitted' => 'مرسل',
-                                'approved' => 'معتمد',
-                                'fulfilled' => 'مكتمل',
-                                'rejected' => 'مرفوض'
-                            ];
-                            echo $statusLabels[$history['status']] ?? $history['status'];
-                            ?>
-                        </span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <?php if ($history['status'] === 'submitted'): ?>
+                                <form method="POST" style="display: inline;" onsubmit="return confirm('هل أنت متأكد من إلغاء هذا الطلب؟');">
+                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                                    <input type="hidden" name="action" value="cancel_request">
+                                    <input type="hidden" name="request_id" value="<?= (int)$history['id'] ?>">
+                                    <button type="submit" class="btn btn-danger" style="padding: 4px 10px; font-size: 0.8rem;">إلغاء</button>
+                                </form>
+                            <?php endif; ?>
+                            <span class="history-status status-<?= $history['status'] ?>">
+                                <?php
+                                $statusLabels = [
+                                    'submitted' => '⏳ مرسل',
+                                    'approved' => '✅ معتمد',
+                                    'fulfilled' => '📦 مكتمل',
+                                    'rejected' => '❌ مرفوض',
+                                    'cancelled' => '🚫 ملغي'
+                                ];
+                                echo $statusLabels[$history['status']] ?? $history['status'];
+                                ?>
+                            </span>
+                        </div>
                     </div>
                 <?php endforeach; ?>
             </div>

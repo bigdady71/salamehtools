@@ -48,6 +48,219 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $action = $_POST['action'] ?? '';
 
+    // Request void
+    if ($action === 'request_void') {
+        $invoiceId = (int)($_POST['invoice_id'] ?? 0);
+        $reason = trim($_POST['reason'] ?? '');
+
+        if ($invoiceId <= 0) {
+            flash('error', 'Invalid invoice ID.');
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+        }
+
+        if ($reason === '') {
+            flash('error', 'Please provide a reason for the void request.');
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+        }
+
+        try {
+            // Verify invoice belongs to sales rep
+            $checkStmt = $pdo->prepare("
+                SELECT i.id, i.invoice_number, i.status, i.total_usd, i.total_lbp
+                FROM invoices i
+                INNER JOIN orders o ON o.id = i.order_id
+                INNER JOIN customers c ON c.id = o.customer_id
+                WHERE i.id = :id AND c.assigned_sales_rep_id = :rep_id
+            ");
+            $checkStmt->execute([':id' => $invoiceId, ':rep_id' => $repId]);
+            $invoice = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$invoice) {
+                flash('error', 'Invoice not found or you do not have permission.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+
+            if ($invoice['status'] === 'voided') {
+                flash('error', 'This invoice is already voided.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+
+            // Check for existing pending request
+            $existingStmt = $pdo->prepare("
+                SELECT id FROM invoice_change_requests 
+                WHERE invoice_id = :invoice_id AND status = 'pending'
+            ");
+            $existingStmt->execute([':invoice_id' => $invoiceId]);
+            if ($existingStmt->fetch()) {
+                flash('warning', 'There is already a pending request for this invoice. Please wait for admin review.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+
+            // Create void request
+            $insertStmt = $pdo->prepare("
+                INSERT INTO invoice_change_requests (invoice_id, requested_by, request_type, reason, original_data)
+                VALUES (:invoice_id, :requested_by, 'void', :reason, :original_data)
+            ");
+            $insertStmt->execute([
+                ':invoice_id' => $invoiceId,
+                ':requested_by' => $repId,
+                ':reason' => $reason,
+                ':original_data' => json_encode($invoice)
+            ]);
+
+            $requestId = (int)$pdo->lastInsertId();
+
+            // Log the action
+            audit_log($pdo, $repId, 'invoice_void_requested', 'invoice_change_requests', $requestId, [
+                'invoice_number' => $invoice['invoice_number'],
+                'reason' => $reason
+            ]);
+
+            // Notify admins about the new request
+            $adminNotifyStmt = $pdo->prepare("
+                INSERT INTO notifications (user_id, type, payload, created_at)
+                SELECT id, 'invoice_void_request', :payload, NOW()
+                FROM users WHERE role IN ('admin', 'super_admin') AND is_active = 1
+            ");
+            $adminNotifyStmt->execute([
+                ':payload' => json_encode([
+                    'request_id' => $requestId,
+                    'invoice_number' => $invoice['invoice_number'],
+                    'requested_by' => $user['name'],
+                    'message' => 'Invoice void request for ' . $invoice['invoice_number'] . ' from ' . $user['name']
+                ])
+            ]);
+
+            flash('success', 'Void request submitted for invoice ' . $invoice['invoice_number'] . '. Awaiting admin approval.');
+        } catch (PDOException $e) {
+            flash('error', 'Failed to submit void request: ' . $e->getMessage());
+        }
+
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+
+    // Request edit
+    if ($action === 'request_edit') {
+        $invoiceId = (int)($_POST['invoice_id'] ?? 0);
+        $reason = trim($_POST['reason'] ?? '');
+        $proposedNotes = trim($_POST['proposed_notes'] ?? '');
+        $proposedDiscount = $_POST['proposed_discount'] ?? null;
+
+        if ($invoiceId <= 0) {
+            flash('error', 'Invalid invoice ID.');
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+        }
+
+        if ($reason === '') {
+            flash('error', 'Please provide a reason for the edit request.');
+            header('Location: ' . $_SERVER['REQUEST_URI']);
+            exit;
+        }
+
+        try {
+            // Verify invoice belongs to sales rep
+            $checkStmt = $pdo->prepare("
+                SELECT i.id, i.invoice_number, i.status, i.total_usd, i.total_lbp, o.notes AS order_notes
+                FROM invoices i
+                INNER JOIN orders o ON o.id = i.order_id
+                INNER JOIN customers c ON c.id = o.customer_id
+                WHERE i.id = :id AND c.assigned_sales_rep_id = :rep_id
+            ");
+            $checkStmt->execute([':id' => $invoiceId, ':rep_id' => $repId]);
+            $invoice = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$invoice) {
+                flash('error', 'Invoice not found or you do not have permission.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+
+            if ($invoice['status'] === 'voided') {
+                flash('error', 'Cannot edit a voided invoice.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+
+            // Check for existing pending request
+            $existingStmt = $pdo->prepare("
+                SELECT id FROM invoice_change_requests 
+                WHERE invoice_id = :invoice_id AND status = 'pending'
+            ");
+            $existingStmt->execute([':invoice_id' => $invoiceId]);
+            if ($existingStmt->fetch()) {
+                flash('warning', 'There is already a pending request for this invoice. Please wait for admin review.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+
+            // Build proposed changes
+            $proposedChanges = [];
+            if ($proposedNotes !== '') {
+                $proposedChanges['notes'] = $proposedNotes;
+            }
+            if ($proposedDiscount !== null && $proposedDiscount !== '') {
+                $proposedChanges['discount_percent'] = (float)$proposedDiscount;
+            }
+
+            if (empty($proposedChanges)) {
+                flash('error', 'Please specify at least one change you want to make.');
+                header('Location: ' . $_SERVER['REQUEST_URI']);
+                exit;
+            }
+
+            // Create edit request
+            $insertStmt = $pdo->prepare("
+                INSERT INTO invoice_change_requests (invoice_id, requested_by, request_type, reason, proposed_changes, original_data)
+                VALUES (:invoice_id, :requested_by, 'edit', :reason, :proposed_changes, :original_data)
+            ");
+            $insertStmt->execute([
+                ':invoice_id' => $invoiceId,
+                ':requested_by' => $repId,
+                ':reason' => $reason,
+                ':proposed_changes' => json_encode($proposedChanges),
+                ':original_data' => json_encode($invoice)
+            ]);
+
+            $requestId = (int)$pdo->lastInsertId();
+
+            // Log the action
+            audit_log($pdo, $repId, 'invoice_edit_requested', 'invoice_change_requests', $requestId, [
+                'invoice_number' => $invoice['invoice_number'],
+                'reason' => $reason,
+                'proposed_changes' => $proposedChanges
+            ]);
+
+            // Notify admins about the new request
+            $adminNotifyStmt = $pdo->prepare("
+                INSERT INTO notifications (user_id, type, payload, created_at)
+                SELECT id, 'invoice_edit_request', :payload, NOW()
+                FROM users WHERE role IN ('admin', 'super_admin') AND is_active = 1
+            ");
+            $adminNotifyStmt->execute([
+                ':payload' => json_encode([
+                    'request_id' => $requestId,
+                    'invoice_number' => $invoice['invoice_number'],
+                    'requested_by' => $user['name'],
+                    'message' => 'Invoice edit request for ' . $invoice['invoice_number'] . ' from ' . $user['name']
+                ])
+            ]);
+
+            flash('success', 'Edit request submitted for invoice ' . $invoice['invoice_number'] . '. Awaiting admin approval.');
+        } catch (PDOException $e) {
+            flash('error', 'Failed to submit edit request: ' . $e->getMessage());
+        }
+
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+
     // Record payment
     if ($action === 'record_payment') {
         $invoiceId = (int)($_POST['invoice_id'] ?? 0);
@@ -483,6 +696,24 @@ $customersStmt = $pdo->prepare("
 ");
 $customersStmt->execute([':rep_id' => $repId]);
 $customers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Get pending change requests for user's invoices
+$pendingRequestsStmt = $pdo->prepare("
+    SELECT icr.invoice_id, icr.request_type, icr.status, icr.created_at
+    FROM invoice_change_requests icr
+    INNER JOIN invoices i ON i.id = icr.invoice_id
+    INNER JOIN orders o ON o.id = i.order_id
+    INNER JOIN customers c ON c.id = o.customer_id
+    WHERE c.assigned_sales_rep_id = :rep_id AND icr.status = 'pending'
+");
+$pendingRequestsStmt->execute([':rep_id' => $repId]);
+$pendingRequests = [];
+while ($row = $pendingRequestsStmt->fetch(PDO::FETCH_ASSOC)) {
+    $pendingRequests[$row['invoice_id']] = $row;
+}
+
+// Count user's pending requests
+$myPendingCount = count($pendingRequests);
 
 $flashes = consume_flashes();
 
@@ -975,14 +1206,52 @@ admin_render_flashes($flashes);
                     </td>
                     <td><?= $issuedDate ?></td>
                     <td class="text-center">
-                        <?php if ($invoice['status'] !== 'voided' && $invoice['status'] !== 'draft' && $invoice['status'] !== 'paid' && ($balanceUsd > 0.01 || $balanceLbp > 0.01)): ?>
-                            <button onclick="openPaymentModal(<?= $invoice['id'] ?>, '<?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?>', <?= $balanceUsd ?>, <?= $balanceLbp ?>)"
-                                    class="btn btn-success btn-sm">
-                                Record Payment
+                        <?php 
+                        $hasPendingRequest = isset($pendingRequests[$invoice['id']]);
+                        $pendingRequest = $hasPendingRequest ? $pendingRequests[$invoice['id']] : null;
+                        ?>
+                        <div style="display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;">
+                            <!-- View Details Button -->
+                            <button type="button" class="btn btn-info btn-sm invoice-info-btn" 
+                                    data-invoice-id="<?= (int)$invoice['id'] ?>" title="View invoice details">
+                                Info
                             </button>
-                        <?php else: ?>
-                            <span style="color: var(--muted); font-size: 0.85rem;">—</span>
-                        <?php endif; ?>
+                            
+                            <!-- PDF Button -->
+                            <a href="invoice_pdf.php?invoice_id=<?= (int)$invoice['id'] ?>" target="_blank" 
+                               class="btn btn-secondary btn-sm" title="View PDF">PDF</a>
+                            
+                            <?php if ($hasPendingRequest): ?>
+                                <!-- Show pending request status -->
+                                <span class="badge" style="background: rgba(251, 191, 36, 0.15); color: #b45309; font-size: 0.7rem;">
+                                    ⏳ <?= ucfirst($pendingRequest['request_type']) ?> Pending
+                                </span>
+                            <?php else: ?>
+                                <?php if ($invoice['status'] !== 'voided'): ?>
+                                    <!-- Request Edit Button -->
+                                    <button type="button" class="btn btn-warning btn-sm" 
+                                            onclick="openEditRequestModal(<?= $invoice['id'] ?>, '<?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?>')"
+                                            title="Request changes to this invoice">
+                                        Edit
+                                    </button>
+                                    
+                                    <!-- Request Void Button -->
+                                    <button type="button" class="btn btn-danger btn-sm" 
+                                            onclick="openVoidRequestModal(<?= $invoice['id'] ?>, '<?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?>')"
+                                            title="Request to void this invoice">
+                                        Void
+                                    </button>
+                                <?php endif; ?>
+                                
+                                <?php if ($invoice['status'] !== 'voided' && $invoice['status'] !== 'draft' && $invoice['status'] !== 'paid' && ($balanceUsd > 0.01 || $balanceLbp > 0.01)): ?>
+                                    <!-- Record Payment Button -->
+                                    <button onclick="openPaymentModal(<?= $invoice['id'] ?>, '<?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?>', <?= $balanceUsd ?>, <?= $balanceLbp ?>)"
+                                            class="btn btn-success btn-sm">
+                                        Pay
+                                    </button>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -1008,6 +1277,106 @@ admin_render_flashes($flashes);
             </div>
         <?php endif; ?>
     <?php endif; ?>
+</div>
+
+<!-- Invoice Info Modal -->
+<div id="invoiceInfoModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3>Invoice Details</h3>
+            <button type="button" class="modal-close" onclick="closeInfoModal()">&times;</button>
+        </div>
+        <div id="invoiceInfoContent" style="min-height: 200px;">
+            <p style="color: var(--muted); text-align: center;">Loading...</p>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Request Modal -->
+<div id="editRequestModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Request Invoice Edit</h3>
+            <button type="button" class="modal-close" onclick="closeEditRequestModal()">&times;</button>
+        </div>
+
+        <form method="POST" action="invoices.php">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="request_edit">
+            <input type="hidden" name="invoice_id" id="edit_invoice_id">
+
+            <div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+                <div style="font-weight: 600; color: #92400e; margin-bottom: 4px;">
+                    📝 Edit Request for Invoice: <span id="edit_invoice_number"></span>
+                </div>
+                <div style="font-size: 0.85rem; color: #a16207;">
+                    Your edit request will be reviewed by an administrator before any changes are applied.
+                </div>
+            </div>
+
+            <div class="form-field">
+                <label>Reason for Edit Request <span style="color: #dc2626;">*</span></label>
+                <textarea name="reason" rows="3" required placeholder="Explain why you need to edit this invoice..." 
+                          style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95rem; resize: vertical;"></textarea>
+                <small>This will be reviewed by an administrator</small>
+            </div>
+
+            <div class="form-field">
+                <label>Proposed Notes/Comments</label>
+                <textarea name="proposed_notes" rows="2" placeholder="Any notes you want to add or change..."
+                          style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95rem; resize: vertical;"></textarea>
+            </div>
+
+            <div class="form-field">
+                <label>Proposed Discount (%)</label>
+                <input type="number" name="proposed_discount" step="0.01" min="0" max="100" placeholder="e.g. 5">
+                <small>Leave empty if no discount change needed</small>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeEditRequestModal()">Cancel</button>
+                <button type="submit" class="btn btn-warning">Submit Edit Request</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Void Request Modal -->
+<div id="voidRequestModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Request Invoice Void</h3>
+            <button type="button" class="modal-close" onclick="closeVoidRequestModal()">&times;</button>
+        </div>
+
+        <form method="POST" action="invoices.php">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="request_void">
+            <input type="hidden" name="invoice_id" id="void_invoice_id">
+
+            <div style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+                <div style="font-weight: 600; color: #991b1b; margin-bottom: 4px;">
+                    ⚠️ Void Request for Invoice: <span id="void_invoice_number"></span>
+                </div>
+                <div style="font-size: 0.85rem; color: #b91c1c;">
+                    Voiding an invoice is a serious action. Stock may need to be adjusted and payments may need to be refunded.
+                    Your request will be reviewed by an administrator.
+                </div>
+            </div>
+
+            <div class="form-field">
+                <label>Reason for Void Request <span style="color: #dc2626;">*</span></label>
+                <textarea name="reason" rows="4" required placeholder="Please explain why this invoice needs to be voided..."
+                          style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95rem; resize: vertical;"></textarea>
+                <small>Be specific - e.g. "Customer returned all items", "Duplicate invoice created by mistake", etc.</small>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeVoidRequestModal()">Cancel</button>
+                <button type="submit" class="btn btn-danger">Submit Void Request</button>
+            </div>
+        </form>
+    </div>
 </div>
 
 <!-- Payment Modal -->
@@ -1213,6 +1582,162 @@ function convertLbpToUsd() {
         }
     });
 })();
+
+// Edit Request Modal
+function openEditRequestModal(invoiceId, invoiceNumber) {
+    document.getElementById('edit_invoice_id').value = invoiceId;
+    document.getElementById('edit_invoice_number').textContent = invoiceNumber;
+    document.getElementById('editRequestModal').classList.add('active');
+}
+
+function closeEditRequestModal() {
+    document.getElementById('editRequestModal').classList.remove('active');
+}
+
+// Void Request Modal
+function openVoidRequestModal(invoiceId, invoiceNumber) {
+    document.getElementById('void_invoice_id').value = invoiceId;
+    document.getElementById('void_invoice_number').textContent = invoiceNumber;
+    document.getElementById('voidRequestModal').classList.add('active');
+}
+
+function closeVoidRequestModal() {
+    document.getElementById('voidRequestModal').classList.remove('active');
+}
+
+// Invoice Info Modal
+function openInfoModal() {
+    document.getElementById('invoiceInfoModal').classList.add('active');
+}
+
+function closeInfoModal() {
+    document.getElementById('invoiceInfoModal').classList.remove('active');
+}
+
+// Invoice Info Button handlers
+document.querySelectorAll('.invoice-info-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        const invoiceId = this.getAttribute('data-invoice-id');
+        if (!invoiceId) return;
+        
+        const content = document.getElementById('invoiceInfoContent');
+        content.innerHTML = '<p style="color: var(--muted); text-align: center; padding: 40px;">Loading...</p>';
+        openInfoModal();
+        
+        fetch('invoice_info.php?invoice_id=' + encodeURIComponent(invoiceId))
+            .then(function(response) {
+                if (!response.ok) throw new Error('Network response was not ok');
+                return response.json();
+            })
+            .then(function(data) {
+                if (data.error) {
+                    content.innerHTML = '<p style="color: #dc2626; text-align: center; padding: 40px;">' + data.error + '</p>';
+                    return;
+                }
+                
+                let html = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">';
+                
+                // Invoice details
+                html += '<div>';
+                html += '<table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Invoice #</td><td style="padding: 6px 0; font-weight: 600;">' + (data.invoice_number || '-') + '</td></tr>';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Order #</td><td style="padding: 6px 0;">' + (data.order_number || '-') + '</td></tr>';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Status</td><td style="padding: 6px 0;"><span class="badge" style="' + getStatusStyle(data.status) + '">' + (data.status ? data.status.charAt(0).toUpperCase() + data.status.slice(1) : '-') + '</span></td></tr>';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Date</td><td style="padding: 6px 0;">' + (data.issued_at ? new Date(data.issued_at).toLocaleDateString() : '-') + '</td></tr>';
+                html += '</table>';
+                html += '</div>';
+                
+                // Customer details
+                html += '<div>';
+                html += '<table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Customer</td><td style="padding: 6px 0; font-weight: 600;">' + (data.customer_name || '-') + '</td></tr>';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Phone</td><td style="padding: 6px 0;">' + (data.customer_phone || '-') + '</td></tr>';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Location</td><td style="padding: 6px 0;">' + (data.customer_location || '-') + '</td></tr>';
+                html += '</table>';
+                html += '</div>';
+                html += '</div>';
+                
+                // Line items
+                if (data.items && data.items.length) {
+                    html += '<div style="border-top: 1px solid var(--border); padding-top: 16px; margin-bottom: 16px;">';
+                    html += '<h4 style="margin: 0 0 12px 0; font-size: 1rem; font-weight: 600;">Line Items</h4>';
+                    html += '<table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">';
+                    html += '<thead><tr style="border-bottom: 1px solid var(--border);">';
+                    html += '<th style="text-align: left; padding: 8px 4px; color: var(--muted);">Item</th>';
+                    html += '<th style="text-align: center; padding: 8px 4px; color: var(--muted);">Qty</th>';
+                    html += '<th style="text-align: right; padding: 8px 4px; color: var(--muted);">Price</th>';
+                    html += '<th style="text-align: right; padding: 8px 4px; color: var(--muted);">Total</th>';
+                    html += '</tr></thead><tbody>';
+                    
+                    for (let i = 0; i < data.items.length; i++) {
+                        const item = data.items[i];
+                        html += '<tr style="border-bottom: 1px solid #f3f4f6;">';
+                        html += '<td style="padding: 8px 4px;">' + (item.item_name || '') + '</td>';
+                        html += '<td style="text-align: center; padding: 8px 4px;">' + (item.quantity || 0) + '</td>';
+                        html += '<td style="text-align: right; padding: 8px 4px;">$' + parseFloat(item.unit_price_usd || 0).toFixed(2) + '</td>';
+                        html += '<td style="text-align: right; padding: 8px 4px; font-weight: 500;">$' + parseFloat(item.subtotal_usd || 0).toFixed(2) + '</td>';
+                        html += '</tr>';
+                    }
+                    html += '</tbody></table>';
+                    html += '</div>';
+                }
+                
+                // Totals
+                html += '<div style="border-top: 2px solid var(--border); padding-top: 16px;">';
+                html += '<table style="width: 100%; font-size: 0.9rem;">';
+                html += '<tr><td style="padding: 4px 0; color: var(--muted);">Total (USD)</td><td style="text-align: right; font-weight: 600;">$' + parseFloat(data.total_usd || 0).toFixed(2) + '</td></tr>';
+                html += '<tr><td style="padding: 4px 0; color: var(--muted);">Paid (USD)</td><td style="text-align: right; color: #059669;">$' + parseFloat(data.paid_usd || 0).toFixed(2) + '</td></tr>';
+                const outstanding = parseFloat(data.outstanding_usd || 0);
+                html += '<tr><td style="padding: 4px 0; color: var(--muted);">Outstanding</td><td style="text-align: right; font-weight: 600; color: ' + (outstanding > 0.01 ? '#ea580c' : '#059669') + ';">$' + outstanding.toFixed(2) + '</td></tr>';
+                html += '</table>';
+                html += '</div>';
+                
+                // Action buttons
+                html += '<div style="border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; display: flex; gap: 12px; justify-content: flex-end;">';
+                html += '<a href="invoice_pdf.php?invoice_id=' + data.id + '" target="_blank" class="btn btn-secondary">View PDF</a>';
+                html += '<button type="button" class="btn btn-info" onclick="closeInfoModal()">Close</button>';
+                html += '</div>';
+                
+                content.innerHTML = html;
+            })
+            .catch(function(error) {
+                content.innerHTML = '<p style="color: #dc2626; text-align: center; padding: 40px;">Failed to load invoice information.</p>';
+                console.error('Error:', error);
+            });
+    });
+});
+
+function getStatusStyle(status) {
+    const styles = {
+        'draft': 'background: rgba(156, 163, 175, 0.15); color: #4b5563;',
+        'pending': 'background: rgba(251, 191, 36, 0.15); color: #b45309;',
+        'issued': 'background: rgba(59, 130, 246, 0.15); color: #1d4ed8;',
+        'paid': 'background: rgba(34, 197, 94, 0.15); color: #15803d;',
+        'voided': 'background: rgba(239, 68, 68, 0.15); color: #991b1b;'
+    };
+    return styles[status] || 'background: rgba(156, 163, 175, 0.15); color: #4b5563;';
+}
+
+// Close modals when clicking outside
+['invoiceInfoModal', 'editRequestModal', 'voidRequestModal'].forEach(function(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.addEventListener('click', function(e) {
+            if (e.target === this) {
+                this.classList.remove('active');
+            }
+        });
+    }
+});
+
+// Close modals with Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeInfoModal();
+        closeEditRequestModal();
+        closeVoidRequestModal();
+    }
+});
 </script>
 
 <?php sales_portal_render_layout_end(); ?>

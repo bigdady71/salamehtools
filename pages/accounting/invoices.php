@@ -55,14 +55,15 @@ if ($dateTo !== '') {
 
 $whereClause = implode(' AND ', $conditions);
 
-// Get totals
+// Get totals (exclude voided invoices from value totals)
 $totalsStmt = $pdo->prepare("
     SELECT
         COUNT(*) as total_invoices,
-        COALESCE(SUM(i.total_usd), 0) as total_usd,
-        COALESCE(SUM(i.total_lbp), 0) as total_lbp,
+        COALESCE(SUM(CASE WHEN i.status != 'voided' THEN i.total_usd ELSE 0 END), 0) as total_usd,
+        COALESCE(SUM(CASE WHEN i.status != 'voided' THEN i.total_lbp ELSE 0 END), 0) as total_lbp,
         SUM(CASE WHEN i.status = 'issued' THEN 1 ELSE 0 END) as issued_count,
-        SUM(CASE WHEN i.status = 'paid' THEN 1 ELSE 0 END) as paid_count
+        SUM(CASE WHEN i.status = 'paid' THEN 1 ELSE 0 END) as paid_count,
+        SUM(CASE WHEN i.status = 'voided' THEN 1 ELSE 0 END) as voided_count
     FROM invoices i
     JOIN orders o ON o.id = i.order_id
     JOIN customers c ON c.id = o.customer_id

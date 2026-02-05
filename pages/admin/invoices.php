@@ -867,6 +867,18 @@ body.show-lbp .lbp-value {
                 <label>To Date</label>
                 <input type="date" name="date_to" value="<?= htmlspecialchars($dateTo, ENT_QUOTES, 'UTF-8') ?>">
             </div>
+
+            <div class="filter-field">
+                <label>Sales Rep</label>
+                <select name="sales_rep">
+                    <option value="">All Sales Reps</option>
+                    <?php foreach ($salesReps as $rep): ?>
+                    <option value="<?= $rep['id'] ?>" <?= $salesRepFilter === (int)$rep['id'] ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($rep['name'], ENT_QUOTES, 'UTF-8') ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
         </div>
 
         <div class="filter-actions">
@@ -889,6 +901,9 @@ body.show-lbp .lbp-value {
             }
             if ($dateTo !== '') {
                 $exportUrl .= '&date_to=' . urlencode($dateTo);
+            }
+            if ($salesRepFilter > 0) {
+                $exportUrl .= '&sales_rep=' . $salesRepFilter;
             }
             ?>
             <a href="<?= htmlspecialchars($exportUrl, ENT_QUOTES, 'UTF-8') ?>" class="btn btn-success">📊 Export CSV</a>
@@ -996,15 +1011,21 @@ body.show-lbp .lbp-value {
                 </td>
                 <td><?= $issuedDate ?></td>
                 <td class="text-center">
-                    <?php if ($invoice['status'] !== 'voided' && $invoice['status'] !== 'draft' && $invoice['status'] !== 'paid' && ($balanceUsd > 0.01 || $balanceLbp > 0.01)): ?>
-                    <button
-                        onclick="openPaymentModal(<?= $invoice['id'] ?>, '<?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?>', <?= $balanceUsd ?>, <?= $balanceLbp ?>)"
-                        class="btn btn-success btn-sm">
-                        Record Payment
-                    </button>
-                    <?php else: ?>
-                    <span style="color: var(--muted); font-size: 0.85rem;">—</span>
-                    <?php endif; ?>
+                    <div style="display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;">
+                        <button type="button" class="btn btn-info btn-sm invoice-info-btn" data-invoice-id="<?= (int)$invoice['id'] ?>" title="View invoice summary">
+                            Info
+                        </button>
+                        <a href="invoice_pdf.php?id=<?= (int)$invoice['id'] ?>" target="_blank" class="btn btn-secondary btn-sm" title="View PDF">
+                            PDF
+                        </a>
+                        <?php if ($invoice['status'] !== 'voided' && $invoice['status'] !== 'draft' && $invoice['status'] !== 'paid' && ($balanceUsd > 0.01 || $balanceLbp > 0.01)): ?>
+                        <button
+                            onclick="openPaymentModal(<?= $invoice['id'] ?>, '<?= htmlspecialchars($invoice['invoice_number'], ENT_QUOTES, 'UTF-8') ?>', <?= $balanceUsd ?>, <?= $balanceLbp ?>)"
+                            class="btn btn-success btn-sm">
+                            Record Payment
+                        </button>
+                        <?php endif; ?>
+                    </div>
                 </td>
             </tr>
             <?php endforeach; ?>
@@ -1016,7 +1037,7 @@ body.show-lbp .lbp-value {
     <div class="pagination">
         <?php if ($page > 1): ?>
         <a
-            href="?page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $customerFilter ? '&customer=' . $customerFilter : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>">
+            href="?page=<?= $page - 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $customerFilter ? '&customer=' . $customerFilter : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?><?= $salesRepFilter ? '&sales_rep=' . $salesRepFilter : '' ?>">
             ← Previous
         </a>
         <?php endif; ?>
@@ -1025,13 +1046,26 @@ body.show-lbp .lbp-value {
 
         <?php if ($page < $totalPages): ?>
         <a
-            href="?page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $customerFilter ? '&customer=' . $customerFilter : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?>">
+            href="?page=<?= $page + 1 ?><?= $search ? '&search=' . urlencode($search) : '' ?><?= $statusFilter ? '&status=' . urlencode($statusFilter) : '' ?><?= $customerFilter ? '&customer=' . $customerFilter : '' ?><?= $dateFrom ? '&date_from=' . urlencode($dateFrom) : '' ?><?= $dateTo ? '&date_to=' . urlencode($dateTo) : '' ?><?= $salesRepFilter ? '&sales_rep=' . $salesRepFilter : '' ?>">
             Next →
         </a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
     <?php endif; ?>
+</div>
+
+<!-- Invoice Info Modal -->
+<div id="invoiceInfoModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3>Invoice Summary</h3>
+            <button type="button" class="modal-close" onclick="closeInfoModal()">&times;</button>
+        </div>
+        <div id="invoiceInfoContent" style="min-height: 200px;">
+            <p style="color: var(--muted); text-align: center;">Loading...</p>
+        </div>
+    </div>
 </div>
 
 <!-- Payment Modal -->
@@ -1243,6 +1277,172 @@ function convertLbpToUsd() {
         }
     });
 })();
+
+// Invoice Info Modal functionality
+function openInfoModal() {
+    document.getElementById('invoiceInfoModal').classList.add('active');
+}
+
+function closeInfoModal() {
+    document.getElementById('invoiceInfoModal').classList.remove('active');
+}
+
+// Attach click handlers to all info buttons
+document.querySelectorAll('.invoice-info-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        const invoiceId = this.getAttribute('data-invoice-id');
+        if (!invoiceId) return;
+        
+        const content = document.getElementById('invoiceInfoContent');
+        content.innerHTML = '<p style="color: var(--muted); text-align: center; padding: 40px;">Loading...</p>';
+        openInfoModal();
+        
+        // Fetch invoice info
+        fetch('invoice_info.php?invoice_id=' + encodeURIComponent(invoiceId))
+            .then(function(response) {
+                if (!response.ok) throw new Error('Network response was not ok');
+                return response.json();
+            })
+            .then(function(data) {
+                if (data.error) {
+                    content.innerHTML = '<p style="color: #dc2626; text-align: center; padding: 40px;">' + data.error + '</p>';
+                    return;
+                }
+                
+                // Build the invoice info HTML
+                let html = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">';
+                
+                // Left column - Invoice details
+                html += '<div>';
+                html += '<table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Invoice #</td><td style="padding: 6px 0; font-weight: 600;">' + (data.invoice_number || '-') + '</td></tr>';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Order #</td><td style="padding: 6px 0;">' + (data.order_number || '-') + '</td></tr>';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Status</td><td style="padding: 6px 0;"><span class="badge" style="' + getStatusStyle(data.status) + '">' + (data.status ? data.status.charAt(0).toUpperCase() + data.status.slice(1) : '-') + '</span></td></tr>';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Date</td><td style="padding: 6px 0;">' + (data.issued_at ? new Date(data.issued_at).toLocaleDateString() : (data.created_at ? new Date(data.created_at).toLocaleDateString() : '-')) + '</td></tr>';
+                html += '</table>';
+                html += '</div>';
+                
+                // Right column - Customer details
+                html += '<div>';
+                html += '<table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Customer</td><td style="padding: 6px 0; font-weight: 600;">' + (data.customer_name || '-') + '</td></tr>';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Phone</td><td style="padding: 6px 0;">' + (data.customer_phone || '-') + '</td></tr>';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Location</td><td style="padding: 6px 0;">' + (data.customer_location || '-') + '</td></tr>';
+                html += '<tr><td style="padding: 6px 0; color: var(--muted);">Sales Rep</td><td style="padding: 6px 0;">' + (data.sales_rep_name || 'N/A') + '</td></tr>';
+                html += '</table>';
+                html += '</div>';
+                html += '</div>';
+                
+                // Line items
+                if (data.items && data.items.length) {
+                    html += '<div style="border-top: 1px solid var(--border); padding-top: 16px; margin-bottom: 16px;">';
+                    html += '<h4 style="margin: 0 0 12px 0; font-size: 1rem; font-weight: 600;">Line Items</h4>';
+                    html += '<table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">';
+                    html += '<thead><tr style="border-bottom: 1px solid var(--border);">';
+                    html += '<th style="text-align: left; padding: 8px 4px; color: var(--muted); font-weight: 600;">Item</th>';
+                    html += '<th style="text-align: center; padding: 8px 4px; color: var(--muted); font-weight: 600;">Qty</th>';
+                    html += '<th style="text-align: right; padding: 8px 4px; color: var(--muted); font-weight: 600;">Price</th>';
+                    html += '<th style="text-align: right; padding: 8px 4px; color: var(--muted); font-weight: 600;">Total</th>';
+                    html += '</tr></thead><tbody>';
+                    
+                    for (let i = 0; i < data.items.length; i++) {
+                        const item = data.items[i];
+                        html += '<tr style="border-bottom: 1px solid #f3f4f6;">';
+                        html += '<td style="padding: 8px 4px;">' + (item.item_name || '') + (item.sku ? ' <small style="color: var(--muted);">' + item.sku + '</small>' : '') + '</td>';
+                        html += '<td style="text-align: center; padding: 8px 4px;">' + (item.quantity || 0) + '</td>';
+                        html += '<td style="text-align: right; padding: 8px 4px;">$' + parseFloat(item.unit_price_usd || 0).toFixed(2) + '</td>';
+                        html += '<td style="text-align: right; padding: 8px 4px; font-weight: 500;">$' + parseFloat(item.subtotal_usd || 0).toFixed(2) + '</td>';
+                        html += '</tr>';
+                    }
+                    html += '</tbody></table>';
+                    html += '</div>';
+                }
+                
+                // Payment summary
+                html += '<div style="border-top: 2px solid var(--border); padding-top: 16px;">';
+                html += '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">';
+                
+                // Totals
+                html += '<div>';
+                html += '<h4 style="margin: 0 0 12px 0; font-size: 1rem; font-weight: 600;">Totals</h4>';
+                html += '<table style="width: 100%; font-size: 0.9rem;">';
+                html += '<tr><td style="padding: 4px 0; color: var(--muted);">Total (USD)</td><td style="text-align: right; font-weight: 600;">$' + parseFloat(data.total_usd || 0).toFixed(2) + '</td></tr>';
+                if (parseFloat(data.total_lbp) > 0) {
+                    html += '<tr><td style="padding: 4px 0; color: var(--muted);">Total (LBP)</td><td style="text-align: right;">' + Number(data.total_lbp).toLocaleString('en') + ' LBP</td></tr>';
+                }
+                html += '<tr><td style="padding: 4px 0; color: var(--muted);">Paid (USD)</td><td style="text-align: right; color: #059669;">$' + parseFloat(data.paid_usd || 0).toFixed(2) + '</td></tr>';
+                const outstanding = parseFloat(data.outstanding_usd || 0);
+                html += '<tr><td style="padding: 4px 0; color: var(--muted);">Outstanding</td><td style="text-align: right; font-weight: 600; color: ' + (outstanding > 0.01 ? '#ea580c' : '#059669') + ';">$' + outstanding.toFixed(2) + '</td></tr>';
+                html += '</table>';
+                html += '</div>';
+                
+                // Recent payments
+                html += '<div>';
+                html += '<h4 style="margin: 0 0 12px 0; font-size: 1rem; font-weight: 600;">Payment History</h4>';
+                if (data.payments && data.payments.length) {
+                    html += '<table style="width: 100%; font-size: 0.85rem;">';
+                    for (let i = 0; i < Math.min(data.payments.length, 5); i++) {
+                        const p = data.payments[i];
+                        let paymentAmt = [];
+                        if (parseFloat(p.amount_usd) > 0) paymentAmt.push('$' + parseFloat(p.amount_usd).toFixed(2));
+                        if (parseFloat(p.amount_lbp) > 0) paymentAmt.push(Number(p.amount_lbp).toLocaleString('en') + ' LBP');
+                        const paymentDate = p.received_at ? new Date(p.received_at).toLocaleDateString() : '-';
+                        html += '<tr style="border-bottom: 1px solid #f3f4f6;">';
+                        html += '<td style="padding: 4px 0;">' + paymentAmt.join(' + ') + '</td>';
+                        html += '<td style="padding: 4px 0; text-align: right; color: var(--muted); font-size: 0.8rem;">' + paymentDate + '</td>';
+                        html += '</tr>';
+                    }
+                    html += '</table>';
+                    if (data.payments.length > 5) {
+                        html += '<p style="font-size: 0.8rem; color: var(--muted); margin: 8px 0 0;">+ ' + (data.payments.length - 5) + ' more payments</p>';
+                    }
+                } else {
+                    html += '<p style="color: var(--muted); font-size: 0.85rem; margin: 0;">No payments recorded yet.</p>';
+                }
+                html += '</div>';
+                
+                html += '</div>';
+                html += '</div>';
+                
+                // Action buttons
+                html += '<div style="border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; display: flex; gap: 12px; justify-content: flex-end;">';
+                html += '<a href="invoice_pdf.php?id=' + data.id + '" target="_blank" class="btn btn-secondary">View PDF</a>';
+                html += '<button type="button" class="btn btn-info" onclick="closeInfoModal()">Close</button>';
+                html += '</div>';
+                
+                content.innerHTML = html;
+            })
+            .catch(function(error) {
+                content.innerHTML = '<p style="color: #dc2626; text-align: center; padding: 40px;">Failed to load invoice information. Please try again.</p>';
+                console.error('Error fetching invoice info:', error);
+            });
+    });
+});
+
+function getStatusStyle(status) {
+    const styles = {
+        'draft': 'background: rgba(156, 163, 175, 0.15); color: #4b5563;',
+        'pending': 'background: rgba(251, 191, 36, 0.15); color: #b45309;',
+        'issued': 'background: rgba(59, 130, 246, 0.15); color: #1d4ed8;',
+        'paid': 'background: rgba(34, 197, 94, 0.15); color: #15803d;',
+        'voided': 'background: rgba(239, 68, 68, 0.15); color: #991b1b;'
+    };
+    return styles[status] || 'background: rgba(156, 163, 175, 0.15); color: #4b5563;';
+}
+
+// Close info modal when clicking outside
+document.getElementById('invoiceInfoModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeInfoModal();
+    }
+});
+
+// Add Escape key handler for info modal
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeInfoModal();
+    }
+});
 </script>
 
 <?php admin_render_layout_end(); ?>

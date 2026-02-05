@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/guard.php';
 require_once __DIR__ . '/../../includes/db.php';
+require_once __DIR__ . '/../../includes/admin_page.php';
 require_once __DIR__ . '/../../includes/CacheManager.php';
 
 require_login();
@@ -250,547 +251,409 @@ function admin_dashboard_delivery_meta(?string $status): array
 }
 
 $now = new DateTimeImmutable('now');
+
+$extraHead = <<<'CSS'
+<style>
+.dashboard-chip {
+    padding: 10px 16px;
+    border-radius: 999px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    font-size: 0.9rem;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.dashboard-chip .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+}
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 18px;
+}
+.metric-card {
+    background: var(--bg-panel);
+    border-radius: 16px;
+    padding: 20px 24px;
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+}
+.metric-card h3 {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--muted);
+    font-weight: 600;
+}
+.metric-value {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--text);
+}
+.metric-sub {
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+.metric-card.accent::after {
+    content: '';
+    position: absolute;
+    inset: auto -40% -40% auto;
+    width: 150px;
+    height: 150px;
+    background: radial-gradient(circle, rgba(59,130,246,0.2), transparent 70%);
+    transform: rotate(25deg);
+}
+.metric-card.accent-green::after {
+    background: radial-gradient(circle, rgba(16,185,129,0.25), transparent 70%);
+}
+.metric-card.accent-gold::after {
+    background: radial-gradient(circle, rgba(245,158,11,0.25), transparent 70%);
+}
+.panels-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 24px;
+}
+.panel {
+    background: var(--bg-panel);
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+}
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+.panel-header h2 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+.panel-header span {
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+.dashboard-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+.dashboard-table thead th {
+    text-align: left;
+    padding: 10px 0;
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+.dashboard-table tbody td {
+    padding: 12px 0;
+    border-top: 1px solid var(--border);
+}
+.dashboard-table tbody tr:first-child td {
+    border-top: 0;
+}
+.dashboard-table tbody tr:hover {
+    background: var(--bg-panel-alt);
+}
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: .02em;
+}
+.badge-info { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+.badge-primary { background: rgba(59, 130, 246, 0.15); color: #2563eb; }
+.badge-success { background: rgba(16, 185, 129, 0.15); color: #059669; }
+.badge-danger { background: rgba(239, 68, 68, 0.15); color: #dc2626; }
+.badge-warn { background: rgba(245, 158, 11, 0.15); color: #d97706; }
+.badge-neutral { background: rgba(156, 163, 175, 0.15); color: #4b5563; }
+.alert-box {
+    border-radius: 12px;
+    padding: 16px 20px;
+    border: 1px solid;
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+}
+.alert-box.error {
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #b91c1c;
+}
+.alert-box.notice {
+    background: rgba(59, 130, 246, 0.08);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: #2563eb;
+}
+.alert-box ul {
+    margin: 8px 0 0;
+    padding-left: 20px;
+}
+.empty-state {
+    font-size: 0.9rem;
+    color: var(--muted);
+    padding: 20px 0;
+    text-align: center;
+}
+@media (max-width: 1024px) {
+    .panels-grid {
+        grid-template-columns: 1fr;
+    }
+}
+@media (max-width: 640px) {
+    .metric-value {
+        font-size: 1.8rem;
+    }
+}
+</style>
+CSS;
+
+admin_render_layout_start([
+    'title' => 'Admin Dashboard',
+    'heading' => 'Admin Dashboard',
+    'subtitle' => 'Realtime snapshot · ' . $now->format('M j, Y · H:i'),
+    'user' => $user,
+    'active' => 'dashboard',
+    'extra_head' => $extraHead,
+]);
 ?>
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?= htmlspecialchars($title) ?></title>
-    <style>
-        :root {
-            --bg: #f3f4f6;
-            --bg-panel: #ffffff;
-            --bg-panel-alt: #f9fafc;
-            --text: #111827;
-            --muted: #6b7280;
-            --accent: #1f6feb;
-            --accent-2: #0ea5e9;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --success: #10b981;
-            --neutral: #9ca3af;
-            --border: #e5e7eb;
-        }
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            display: flex;
-            min-height: 100vh;
-        }
-        a { color: inherit; text-decoration: none; }
-        .layout {
-            display: flex;
-            flex: 1;
-        }
-        .sidebar {
-            width: 240px;
-            background: #ffffff;
-            border-right: 1px solid var(--border);
-            padding: 24px 18px;
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-            position: fixed;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            overflow-y: auto;
-        }
-        .brand {
-            font-size: 1.6rem;
-            font-weight: 700;
-            letter-spacing: .04em;
-            color: var(--accent);
-        }
-        .nav-links {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        .nav-links a {
-            padding: 10px 12px;
-            border-radius: 8px;
-            color: var(--muted);
-            font-size: 0.95rem;
-            transition: background .2s, color .2s;
-        }
-        .nav-links a:hover {
-            background: #f3f4f6;
-            color: var(--text);
-        }
-        .nav-links a.active {
-            background: var(--accent);
-            color: #fff;
-            font-weight: 600;
-        }
-        .user-card {
-            margin-top: auto;
-            padding: 12px;
-            border-radius: 10px;
-            background: var(--bg-panel-alt);
-            border: 1px solid var(--border);
-            font-size: 0.9rem;
-        }
-        .user-card strong {
-            display: block;
-            font-size: 1rem;
-            color: var(--text);
-        }
-        .main {
-            flex: 1;
-            padding: 32px;
-            display: flex;
-            flex-direction: column;
-            gap: 32px;
-            margin-left: 240px;
-        }
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            flex-wrap: wrap;
-            gap: 16px;
-        }
-        .page-header h1 {
-            margin: 0;
-            font-size: 2rem;
-        }
-        .page-header .sub {
-            color: var(--muted);
-            font-size: 0.95rem;
-        }
-        .chip {
-            padding: 10px 14px;
-            border-radius: 999px;
-            background: var(--bg-panel);
-            border: 1px solid var(--border);
-            font-size: 0.9rem;
-            color: var(--muted);
-        }
-        .grid {
-            display: grid;
-            gap: 18px;
-        }
-        .grid.metrics {
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        }
-        .metric-card {
-            background: var(--bg-panel);
-            border-radius: 16px;
-            padding: 18px 20px;
-            border: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            position: relative;
-            overflow: hidden;
-        }
-        .metric-card h3 {
-            margin: 0;
-            font-size: 0.95rem;
-            color: var(--muted);
-            font-weight: 600;
-        }
-        .metric-value {
-            font-size: 2.2rem;
-            font-weight: 700;
-        }
-        .metric-sub {
-            font-size: 0.85rem;
-            color: var(--muted);
-        }
-        .metric-card.accent::after {
-            content: '';
-            position: absolute;
-            inset: auto -40% -40% auto;
-            width: 150px;
-            height: 150px;
-            background: radial-gradient(circle, rgba(74,125,255,0.35), transparent 70%);
-            transform: rotate(25deg);
-        }
-        .metric-card.accent-green::after {
-            background: radial-gradient(circle, rgba(0,255,136,0.35), transparent 70%);
-        }
-        .metric-card.accent-gold::after {
-            background: radial-gradient(circle, rgba(255,209,102,0.4), transparent 70%);
-        }
-        .metric-card span.small {
-            font-size: 1rem;
-            display: block;
-        }
-        .panels {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 24px;
-        }
-        .panel {
-            background: var(--bg-panel);
-            border-radius: 18px;
-            border: 1px solid var(--border);
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-        }
-        .panel header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-        }
-        .panel header h2 {
-            margin: 0;
-            font-size: 1.1rem;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.9rem;
-        }
-        thead th {
-            text-align: left;
-            padding: 10px 0;
-            font-weight: 600;
-            color: var(--muted);
-        }
-        tbody td {
-            padding: 10px 0;
-            border-top: 1px solid var(--border);
-        }
-        tbody tr:first-child td {
-            border-top: 0;
-        }
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 10px;
-            border-radius: 999px;
-            font-size: 0.78rem;
-            font-weight: 600;
-            letter-spacing: .02em;
-        }
-        .badge-info { background: rgba(31, 111, 235, 0.1); color: #1f6feb; }
-        .badge-primary { background: rgba(31, 111, 235, 0.15); color: #1d4ed8; }
-        .badge-success { background: rgba(16, 185, 129, 0.15); color: #059669; }
-        .badge-danger { background: rgba(239, 68, 68, 0.15); color: #dc2626; }
-        .badge-warn { background: rgba(245, 158, 11, 0.15); color: #d97706; }
-        .badge-neutral { background: rgba(156, 163, 175, 0.15); color: #4b5563; }
-        .alert {
-            border-radius: 12px;
-            padding: 14px 18px;
-            border: 1px solid;
-            font-size: 0.9rem;
-        }
-        .alert.error {
-            background: rgba(239, 68, 68, 0.08);
-            border-color: rgba(239, 68, 68, 0.3);
-            color: #b91c1c;
-        }
-        .alert.notice {
-            background: rgba(31, 111, 235, 0.08);
-            border-color: rgba(31, 111, 235, 0.3);
-            color: #1d4ed8;
-        }
-        .alert ul {
-            margin: 6px 0 0;
-            padding-left: 20px;
-        }
-        .empty {
-            font-size: 0.9rem;
-            color: var(--muted);
-            padding: 12px 0;
-        }
-        @media (max-width: 1024px) {
-            .layout {
-                flex-direction: column;
-            }
-            .sidebar {
-                width: auto;
-                flex-direction: row;
-                align-items: center;
-                justify-content: space-between;
-                gap: 16px;
-                position: static;
-                overflow-y: visible;
-            }
-            .main {
-                margin-left: 0;
-            }
-            .nav-links {
-                flex-direction: row;
-                flex-wrap: wrap;
-                gap: 10px;
-            }
-            .user-card {
-                margin-top: 0;
-            }
-            .panels {
-                grid-template-columns: 1fr;
-            }
-        }
-        @media (max-width: 640px) {
-            .main {
-                padding: 24px 18px 40px;
-            }
-            .metric-value {
-                font-size: 1.8rem;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="layout">
-        <aside class="sidebar">
-            <div>
-                <div class="brand">Salameh Tools</div>
-                <div style="margin-top:6px;font-size:0.85rem;color:var(--muted)">Admin Control Center</div>
-            </div>
-            <nav class="nav-links">
-                <a href="dashboard.php" class="active">Dashboard</a>
-                <a href="users.php">Users</a>
-                <a href="products.php">Products</a>
-                <a href="orders.php">Orders</a>
-                <a href="invoices.php">Invoices</a>
-                <a href="customers.php">Customers</a>
-                <a href="sales_reps.php">Sales Reps</a>
-                <a href="van_stock_overview.php">Van Stock</a>
-                <a href="sales_rep_stock_adjustment.php">Rep Stock Auth</a>
-                <a href="receivables.php">Receivables</a>
-                <a href="expenses.php">Expenses</a>
-                <a href="cash_refund_approvals.php">Cash Refunds</a>
-                <a href="warehouse_stock.php">Warehouse</a>
-                <a href="analytics.php">Analytics</a>
-                <a href="stats.php">Statistics</a>
-                <a href="settings.php">Settings</a>
-            </nav>
-            <div class="user-card">
-                <span style="color:var(--muted);">Signed in as</span>
-                <strong><?= htmlspecialchars($user['name'] ?? 'Admin') ?></strong>
-                <span style="font-size:0.85rem;color:var(--muted);"><?= htmlspecialchars($user['role'] ?? '') ?></span>
-                <a href="../logout.php" style="display:block;margin-top:12px;padding:8px 12px;background:rgba(239,68,68,0.1);color:#dc2626;border-radius:8px;text-align:center;font-weight:600;font-size:0.85rem;border:1px solid rgba(239,68,68,0.2);">Logout</a>
-            </div>
-        </aside>
-        <div class="main">
-            <header class="page-header">
-                <div>
-                    <h1>Admin Dashboard</h1>
-                    <div class="sub">Realtime snapshot · <?= htmlspecialchars($now->format('M j, Y · H:i')) ?></div>
-                </div>
-                <div class="chip">Healthy operations · <?= htmlspecialchars((string)$openOrders) ?> orders in flight</div>
-            </header>
 
-            <?php if ($errors): ?>
-                <div class="alert error">
-                    <strong>Heads up:</strong> Some dashboard data failed to load.
-                    <ul>
-                        <?php foreach ($errors as $msg): ?>
-                            <li><?= htmlspecialchars($msg) ?></li>
-                        <?php endforeach; ?>
-                    </ul>
-                </div>
-            <?php endif; ?>
-
-            <?php if ($notices): ?>
-                <div class="alert notice">
-                    <strong>Note:</strong>
-                    <ul>
-                        <?php foreach ($notices as $msg): ?>
-                            <li><?= htmlspecialchars($msg) ?></li>
-                        <?php endforeach; ?>
-                    </ul>
-                </div>
-            <?php endif; ?>
-
-            <section class="grid metrics">
-                <article class="metric-card accent">
-                    <h3>New orders (today)</h3>
-                    <div class="metric-value"><?= number_format($ordersToday) ?></div>
-                    <div class="metric-sub">Submitted since midnight</div>
-                </article>
-                <article class="metric-card accent-gold">
-                    <h3>Awaiting approval</h3>
-                    <div class="metric-value"><?= number_format($awaitingApproval) ?></div>
-                    <div class="metric-sub">Orders needing review</div>
-                </article>
-                <article class="metric-card accent">
-                    <h3>In transit</h3>
-                    <div class="metric-value"><?= number_format($inTransit) ?></div>
-                    <div class="metric-sub">Drivers currently on the road</div>
-                </article>
-                <article class="metric-card accent-green">
-                    <h3>Deliveries today</h3>
-                    <div class="metric-value"><?= number_format($deliveriesToday) ?></div>
-                    <div class="metric-sub">Scheduled drop-offs</div>
-                </article>
-                <article class="metric-card accent-gold">
-                    <h3>Outstanding invoices</h3>
-                    <div class="metric-value">
-                        <span class="small">USD <?= number_format($openInvoicesUsd, 2) ?></span>
-                    </div>
-                    <div class="metric-sub">LBP <?= number_format($openInvoicesLbp, 0) ?></div>
-                </article>
-                <article class="metric-card accent">
-                    <h3>Orders in progress</h3>
-                    <div class="metric-value"><?= number_format($openOrders) ?></div>
-                    <div class="metric-sub">Excludes delivered / closed</div>
-                </article>
-            </section>
-
-            <section class="panels">
-                <article class="panel">
-                    <header>
-                        <h2>Latest orders</h2>
-                        <span class="metric-sub">Most recent eight orders</span>
-                    </header>
-                    <?php if (!$latestOrders): ?>
-                        <div class="empty">No orders recorded yet.</div>
-                    <?php else: ?>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Order</th>
-                                    <th>Customer</th>
-                                    <th>Total</th>
-                                    <th>Status</th>
-                                    <th>Created</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($latestOrders as $order): ?>
-                                    <?php
-                                    $statusMeta = admin_dashboard_status_meta($order['status'] ?? null);
-                                    $orderNumber = $order['order_number'] ?: sprintf('Order #%04d', (int)$order['id']);
-                                    $total = '';
-                                    if ((float)$order['total_usd'] > 0) {
-                                        $total = 'USD ' . number_format((float)$order['total_usd'], 2);
-                                    } elseif ((float)$order['total_lbp'] > 0) {
-                                        $total = 'LBP ' . number_format((float)$order['total_lbp'], 0);
-                                    } else {
-                                        $total = '—';
-                                    }
-                                    ?>
-                                    <tr>
-                                        <td><?= htmlspecialchars($orderNumber) ?></td>
-                                        <td><?= htmlspecialchars($order['customer_name'] ?? '—') ?></td>
-                                        <td><?= htmlspecialchars($total) ?></td>
-                                        <td><span class="badge <?= htmlspecialchars($statusMeta[1]) ?>"><?= htmlspecialchars($statusMeta[0]) ?></span></td>
-                                        <td><?= htmlspecialchars(date('M j, H:i', strtotime($order['created_at']))) ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    <?php endif; ?>
-                </article>
-                <aside class="panel">
-                    <header>
-                        <h2>Low stock alerts</h2>
-                        <span class="metric-sub">Qty ≤ safety threshold</span>
-                    </header>
-                    <?php if (!$lowStock): ?>
-                        <div class="empty">No low stock alerts.</div>
-                    <?php else: ?>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Item</th>
-                                    <th style="text-align:right;">On hand</th>
-                                    <th style="text-align:right;">Min</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($lowStock as $product): ?>
-                                    <tr>
-                                        <td><?= htmlspecialchars($product['item_name']) ?></td>
-                                        <td style="text-align:right;"><?= htmlspecialchars(number_format((float)$product['quantity_on_hand'], 2)) ?></td>
-                                        <td style="text-align:right;"><?= htmlspecialchars(number_format((float)$product['min_quantity'], 2)) ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    <?php endif; ?>
-                </aside>
-            </section>
-
-            <section class="panels">
-                <article class="panel">
-                    <header>
-                        <h2>Upcoming deliveries</h2>
-                        <span class="metric-sub">Next 6 scheduled</span>
-                    </header>
-                    <?php if (!$upcomingDeliveries): ?>
-                        <div class="empty">No deliveries queued.</div>
-                    <?php else: ?>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Order</th>
-                                    <th>Customer</th>
-                                    <th>Driver</th>
-                                    <th>Status</th>
-                                    <th>Scheduled</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($upcomingDeliveries as $delivery): ?>
-                                    <?php $meta = admin_dashboard_delivery_meta($delivery['status'] ?? null); ?>
-                                    <tr>
-                                        <td><?= htmlspecialchars($delivery['order_number'] ?: sprintf('Order #%04d', (int)$delivery['order_id'])) ?></td>
-                                        <td><?= htmlspecialchars($delivery['customer_name'] ?? '—') ?></td>
-                                        <td><?= htmlspecialchars($delivery['driver_name'] ?? 'Unassigned') ?></td>
-                                        <td><span class="badge <?= htmlspecialchars($meta[1]) ?>"><?= htmlspecialchars($meta[0]) ?></span></td>
-                                        <td><?= htmlspecialchars($delivery['scheduled_at'] ? date('M j, H:i', strtotime($delivery['scheduled_at'])) : '—') ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    <?php endif; ?>
-                </article>
-
-                <article class="panel">
-                    <header>
-                        <h2>Recent payments</h2>
-                        <span class="metric-sub">Latest receipts</span>
-                    </header>
-                    <?php if (!$recentPayments): ?>
-                        <div class="empty">No payments recorded yet.</div>
-                    <?php else: ?>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Invoice</th>
-                                    <th>Amount</th>
-                                    <th>Method</th>
-                                    <th>Received</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($recentPayments as $payment): ?>
-                                    <?php
-                                    $amountParts = [];
-                                    if ((float)$payment['amount_usd'] > 0) {
-                                        $amountParts[] = 'USD ' . number_format((float)$payment['amount_usd'], 2);
-                                    }
-                                    if ((float)$payment['amount_lbp'] > 0) {
-                                        $amountParts[] = 'LBP ' . number_format((float)$payment['amount_lbp'], 0);
-                                    }
-                                    $amountText = $amountParts ? implode(' · ', $amountParts) : '—';
-                                    ?>
-                                    <tr>
-                                        <td><?= htmlspecialchars($payment['invoice_number'] ?: ('#' . (int)$payment['invoice_id'])) ?></td>
-                                        <td><?= htmlspecialchars($amountText) ?></td>
-                                        <td><?= htmlspecialchars(str_replace('_', ' ', strtoupper($payment['method'] ?? ''))) ?></td>
-                                        <td><?= htmlspecialchars($payment['received_at'] ? date('M j, H:i', strtotime($payment['received_at'])) : '—') ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    <?php endif; ?>
-                </article>
-            </section>
-        </div>
+<div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+    <div class="dashboard-chip">
+        <span class="dot"></span>
+        Healthy operations · <?= htmlspecialchars((string)$openOrders) ?> orders in flight
     </div>
-</body>
-</html>
+</div>
+
+<?php if ($errors): ?>
+    <div class="alert-box error">
+        <strong>Heads up:</strong> Some dashboard data failed to load.
+        <ul>
+            <?php foreach ($errors as $msg): ?>
+                <li><?= htmlspecialchars($msg) ?></li>
+            <?php endforeach; ?>
+        </ul>
+    </div>
+<?php endif; ?>
+
+<?php if ($notices): ?>
+    <div class="alert-box notice">
+        <strong>Note:</strong>
+        <ul>
+            <?php foreach ($notices as $msg): ?>
+                <li><?= htmlspecialchars($msg) ?></li>
+            <?php endforeach; ?>
+        </ul>
+    </div>
+<?php endif; ?>
+
+<!-- Metrics Cards -->
+<section class="metrics-grid" style="margin-bottom: 28px;">
+    <article class="metric-card accent">
+        <h3>New orders (today)</h3>
+        <div class="metric-value"><?= number_format($ordersToday) ?></div>
+        <div class="metric-sub">Submitted since midnight</div>
+    </article>
+    <article class="metric-card accent-gold">
+        <h3>Awaiting approval</h3>
+        <div class="metric-value"><?= number_format($awaitingApproval) ?></div>
+        <div class="metric-sub">Orders needing review</div>
+    </article>
+    <article class="metric-card accent">
+        <h3>In transit</h3>
+        <div class="metric-value"><?= number_format($inTransit) ?></div>
+        <div class="metric-sub">Drivers currently on the road</div>
+    </article>
+    <article class="metric-card accent-green">
+        <h3>Deliveries today</h3>
+        <div class="metric-value"><?= number_format($deliveriesToday) ?></div>
+        <div class="metric-sub">Scheduled drop-offs</div>
+    </article>
+    <article class="metric-card accent-gold">
+        <h3>Outstanding invoices</h3>
+        <div class="metric-value" style="font-size: 1.5rem;">
+            USD <?= number_format($openInvoicesUsd, 2) ?>
+        </div>
+        <div class="metric-sub">LBP <?= number_format($openInvoicesLbp, 0) ?></div>
+    </article>
+    <article class="metric-card accent">
+        <h3>Orders in progress</h3>
+        <div class="metric-value"><?= number_format($openOrders) ?></div>
+        <div class="metric-sub">Excludes delivered / closed</div>
+    </article>
+</section>
+
+<!-- First Row of Panels -->
+<section class="panels-grid" style="margin-bottom: 24px;">
+    <article class="panel">
+        <div class="panel-header">
+            <h2>Latest orders</h2>
+            <span>Most recent eight orders</span>
+        </div>
+        <?php if (!$latestOrders): ?>
+            <div class="empty-state">No orders recorded yet.</div>
+        <?php else: ?>
+            <table class="dashboard-table">
+                <thead>
+                    <tr>
+                        <th>Order</th>
+                        <th>Customer</th>
+                        <th>Total</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($latestOrders as $order): ?>
+                        <?php
+                        $statusMeta = admin_dashboard_status_meta($order['status'] ?? null);
+                        $orderNumber = $order['order_number'] ?: sprintf('Order #%04d', (int)$order['id']);
+                        $total = '';
+                        if ((float)$order['total_usd'] > 0) {
+                            $total = 'USD ' . number_format((float)$order['total_usd'], 2);
+                        } elseif ((float)$order['total_lbp'] > 0) {
+                            $total = 'LBP ' . number_format((float)$order['total_lbp'], 0);
+                        } else {
+                            $total = '—';
+                        }
+                        ?>
+                        <tr>
+                            <td><a href="orders.php" style="color: var(--accent); font-weight: 500;"><?= htmlspecialchars($orderNumber) ?></a></td>
+                            <td><?= htmlspecialchars($order['customer_name'] ?? '—') ?></td>
+                            <td><?= htmlspecialchars($total) ?></td>
+                            <td><span class="badge <?= htmlspecialchars($statusMeta[1]) ?>"><?= htmlspecialchars($statusMeta[0]) ?></span></td>
+                            <td><?= htmlspecialchars(date('M j, H:i', strtotime($order['created_at']))) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </article>
+    <aside class="panel">
+        <div class="panel-header">
+            <h2>Low stock alerts</h2>
+            <span>Qty ≤ safety threshold</span>
+        </div>
+        <?php if (!$lowStock): ?>
+            <div class="empty-state">No low stock alerts.</div>
+        <?php else: ?>
+            <table class="dashboard-table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th style="text-align:right;">On hand</th>
+                        <th style="text-align:right;">Min</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($lowStock as $product): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($product['item_name']) ?></td>
+                            <td style="text-align:right; color: #dc2626; font-weight: 600;"><?= htmlspecialchars(number_format((float)$product['quantity_on_hand'], 2)) ?></td>
+                            <td style="text-align:right;"><?= htmlspecialchars(number_format((float)$product['min_quantity'], 2)) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </aside>
+</section>
+
+<!-- Second Row of Panels -->
+<section class="panels-grid">
+    <article class="panel">
+        <div class="panel-header">
+            <h2>Upcoming deliveries</h2>
+            <span>Next 6 scheduled</span>
+        </div>
+        <?php if (!$upcomingDeliveries): ?>
+            <div class="empty-state">No deliveries queued.</div>
+        <?php else: ?>
+            <table class="dashboard-table">
+                <thead>
+                    <tr>
+                        <th>Order</th>
+                        <th>Customer</th>
+                        <th>Driver</th>
+                        <th>Status</th>
+                        <th>Scheduled</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($upcomingDeliveries as $delivery): ?>
+                        <?php $meta = admin_dashboard_delivery_meta($delivery['status'] ?? null); ?>
+                        <tr>
+                            <td><?= htmlspecialchars($delivery['order_number'] ?: sprintf('Order #%04d', (int)$delivery['order_id'])) ?></td>
+                            <td><?= htmlspecialchars($delivery['customer_name'] ?? '—') ?></td>
+                            <td><?= htmlspecialchars($delivery['driver_name'] ?? 'Unassigned') ?></td>
+                            <td><span class="badge <?= htmlspecialchars($meta[1]) ?>"><?= htmlspecialchars($meta[0]) ?></span></td>
+                            <td><?= htmlspecialchars($delivery['scheduled_at'] ? date('M j, H:i', strtotime($delivery['scheduled_at'])) : '—') ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </article>
+
+    <article class="panel">
+        <div class="panel-header">
+            <h2>Recent payments</h2>
+            <span>Latest receipts</span>
+        </div>
+        <?php if (!$recentPayments): ?>
+            <div class="empty-state">No payments recorded yet.</div>
+        <?php else: ?>
+            <table class="dashboard-table">
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Amount</th>
+                        <th>Method</th>
+                        <th>Received</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($recentPayments as $payment): ?>
+                        <?php
+                        $amountParts = [];
+                        if ((float)$payment['amount_usd'] > 0) {
+                            $amountParts[] = 'USD ' . number_format((float)$payment['amount_usd'], 2);
+                        }
+                        if ((float)$payment['amount_lbp'] > 0) {
+                            $amountParts[] = 'LBP ' . number_format((float)$payment['amount_lbp'], 0);
+                        }
+                        $amountText = $amountParts ? implode(' · ', $amountParts) : '—';
+                        ?>
+                        <tr>
+                            <td><a href="invoices.php" style="color: var(--accent); font-weight: 500;"><?= htmlspecialchars($payment['invoice_number'] ?: ('#' . (int)$payment['invoice_id'])) ?></a></td>
+                            <td><?= htmlspecialchars($amountText) ?></td>
+                            <td><?= htmlspecialchars(ucwords(str_replace('_', ' ', $payment['method'] ?? ''))) ?></td>
+                            <td><?= htmlspecialchars($payment['received_at'] ? date('M j, H:i', strtotime($payment['received_at'])) : '—') ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </article>
+</section>
+
+<?php admin_render_layout_end(); ?>
